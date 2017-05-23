@@ -1,0 +1,83 @@
+// Copyright 2017 Capsule8 Inc. All rights reserved.
+
+syntax = "proto3";
+
+package capsule8.event.v0;
+option go_package = "github.com/capsule8/capsule8/pkg/api/event";
+
+import "event/v0/subscription.proto";
+import "event/v0/event.proto";
+
+//
+// Capsule8 Event API
+// 
+// The Event API is used by Capsulators to subscribe to events of interest
+// and publish response events.
+//
+service EventService {
+    //
+    // The Event API is modeled after Google's Cloud Pub/Sub API. This is
+    // done in order to capture client acknowledgement of received events
+    // so that these acknowledgements can be relayed to the backplane.
+    // 
+
+    rpc CreateSubscription(CreateSubscriptionRequest)
+        returns (CreateSubscriptionResponse) {}
+    
+    rpc ReceiveEvents(stream ReceiveEventsRequest)
+        returns (stream ReceiveEventsResponse) {}
+
+    rpc SendEvents(stream SendEventsRequest)
+        returns (stream SendEventsResponse) {}
+    
+    rpc DeleteSubscription(DeleteSubscriptionRequest)
+        returns (DeleteSubscriptionResponse) {}
+}
+
+message CreateSubscriptionRequest {
+    Subscription subscription = 1;
+}
+
+message CreateSubscriptionResponse {
+    string subscription_id = 1;
+}
+
+message ReceiveEventsRequest {
+    // Must be set on first request and omitted in subsequent requests.
+    string subscription_id = 1;
+
+    // Acknowledgement IDs from one or more ReceivedEvents
+    repeated string ack_ids = 2;
+}
+
+message ReceiveEventsResponse {
+    repeated ReceivedEvent events = 1;
+}
+
+message ReceivedEvent {
+    string ack_id = 1;
+
+    Event event = 2;
+}
+
+message SendEventsRequest {
+    // Must be set on first request and omitted in subsequent requests.
+    string subscription_id = 1;
+
+    // One or more Events to publish
+    repeated Event events = 2;
+}
+
+message SendEventsResponse {
+    // Unique event identifiers in the same order as the events in the 
+    // SendEventsRequest message
+    repeated string event_ids = 1;
+}
+
+message DeleteSubscriptionRequest {
+    string subscription_id = 1;
+}
+
+message DeleteSubscriptionResponse {
+    // Intentionally empty
+}

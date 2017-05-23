@@ -1,0 +1,131 @@
+// Copyright 2017 Capsule8 Inc. All rights reserved.
+
+syntax = "proto3";
+
+package capsule8.event.v0;
+option go_package = "github.com/capsule8/capsule8/pkg/api/event";
+
+//
+// Subscription identifies a subscriber's interest in events. The optional
+// Filter field restricts the subscription to the nodes and processes
+// specified within. The optional Selector field specifies the types and
+// properties of the events desired by the subscriber.
+//
+message Subscription {
+    // Optional. If not set, the subscription is active over all nodes and 
+    // processes. 
+    Filter filter = 1;
+
+    // Optional. If not set, the subscription is a no-op and doesn't receive
+    // any events.
+    Selector selector = 2;
+}
+
+//
+// Filter restricts an event subscription to the specified nodes and/or
+// processes. Filter fields are logically AND'd together. For example, an
+// empty Filter means that the Subscription applies globally.
+//
+message Filter {
+    //
+    // Filter.Node restricts which nodes the event subscription applies to.
+    // A node is any physical or virtual host running the Linux kernel.
+    //
+    message Node {
+        // Cluster label is bar
+        // Cluster name is foo
+        // Node name is foo
+        // Node label 
+    }
+
+    //
+    // Filter.Process restricts which processes the event subscription applies
+    // to. Processes may be specified by grouping (cgroup, container), relation
+    // (child of, descendant of) or identity (pid, name)
+    // 
+    message Process {
+        // cgroup
+        // container
+        // session id
+        // process group
+        // pid = x
+        // ppid = x
+        // name = sshd
+    }
+
+    // Optional. If not set, Filter includes all Nodes.
+    Node    node = 2;
+
+    // Optional. If not set, Filter includes all Processes.
+    Process process = 4;
+}
+
+//
+// Selector specifies which events the subscriber is interested in by type
+// and properties. Selector fields are logically OR'd together. For example,
+// an empty Selector is a no-op.
+//
+message Selector {
+    ChargenEventSelector   chargen = 1;
+    ContainerEventSelector container = 2;
+    TickerEventSelector    ticker = 3;
+
+/*
+    ContainerEventSelector container = 3;
+    ProcessEventSelector   process = 4;
+    NetworkEventSelector   network = 5;
+*/
+}
+
+//
+// The subtype selectors below each correspond to a subevent type. For a
+// given event FooEvent, the corresponding selector is FooEventSelector.
+//
+
+message ChargenEventSelector {
+  // Number of characters to generate for each Event
+  uint32 length = 1;
+}
+
+message TickerEventSelector {
+  // The elapsed time between two instants as an int64 nanosecond
+  // count. This representation limits the largest representable
+  // duration to approximately 290 years.
+  // 
+  // (https://golang.org/pkg/time/#Duration)
+  int64 duration = 2;
+}
+
+message ContainerEventSelector {
+    enum View {
+        // Events should only include foo, bar, baz.
+        // The default value.
+        BASIC = 0;
+
+        // Events should include all details made available by the container runtime.
+        FULL = 1;
+    }
+
+    // Specifies how much detail should be included in the event.
+    View view = 1;
+}
+
+message ProcessEventSelector {
+    // At minimum, the events available from perf:
+    // PERF_RECORD_COMM, PERF_RECORD_EXIT, PERF_RECORD_FORK
+    // sched:sched_process_exec                           [Tracepoint event]
+    // sched:sched_process_exit                           [Tracepoint event]
+    // sched:sched_process_fork                           [Tracepoint event]
+    // sched:sched_process_free                           [Tracepoint event]
+    // sched:sched_process_hang                           [Tracepoint event]
+    // sched:sched_process_wait
+    // fork, exec, exit
+}
+
+message FileEventSelector {
+    // Lowest common-denominator events among dnotify/fanotify/inotify/tracepoints/syscalls
+}
+
+message NetworkEventSelector {
+    // 
+}

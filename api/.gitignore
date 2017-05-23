@@ -1,0 +1,2 @@
+# Ignore go files generated from protobuf definitions 
+**.pb.go
