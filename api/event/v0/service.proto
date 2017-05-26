@@ -3,7 +3,7 @@
 syntax = "proto3";
 
 package capsule8.event.v0;
-option go_package = "github.com/capsule8/capsule8/pkg/api/event";
+option go_package = "github.com/capsule8/reactive8/pkg/api/event";
 
 import "event/v0/subscription.proto";
 import "event/v0/event.proto";

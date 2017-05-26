@@ -37,13 +37,11 @@ func TestOneSubscriber(t *testing.T) {
 	var received int
 
 	go func() {
-		i := <-subscriber
-		received = i.(int)
+		publisher <- sent
 	}()
 
-	publisher <- sent
-
-	time.Sleep(sleepDelay)
+	i := <-subscriber
+	received = i.(int)
 
 	if received != sent {
 		t.Errorf("Expected to receive %d, got %d", sent, received)
@@ -62,21 +60,17 @@ func TestTwoSubscribers(t *testing.T) {
 	repeater.AddSubscriber(subscriber1)
 	repeater.AddSubscriber(subscriber2)
 
-	var n1 int
+	var n1, n2 int
+
 	go func() {
-		i := <-subscriber1
-		n1 = i.(int)
+		publisher <- rand.Int()
 	}()
 
-	var n2 int
-	go func() {
-		i := <-subscriber2
-		n2 = i.(int)
-	}()
+	i := <-subscriber1
+	n1 = i.(int)
 
-	publisher <- rand.Int()
-
-	time.Sleep(sleepDelay)
+	i = <-subscriber2
+	n2 = i.(int)
 
 	if n1 != n2 {
 		t.Errorf("Expected both subscribers to get same value, got %d/%d", n1, n2)
@@ -84,6 +78,7 @@ func TestTwoSubscribers(t *testing.T) {
 }
 
 func TestRemoveSubscriber(t *testing.T) {
+	ticker := time.After(1 * time.Millisecond)
 	done := make(chan struct{})
 	defer close(done)
 
@@ -93,20 +88,16 @@ func TestRemoveSubscriber(t *testing.T) {
 	repeater := NewRepeater(done, publisher)
 	subscriberID := repeater.AddSubscriber(subscriber)
 
-	var n int
 	go func() {
-		i := <-subscriber
-		n = i.(int)
+		// Remove the subscriber before publishing to the repeater
+		repeater.RemoveSubscriber(subscriberID)
+
+		publisher <- rand.Int()
 	}()
 
-	// Remove the subscriber before publishing to the repeater
-	repeater.RemoveSubscriber(subscriberID)
-
-	publisher <- rand.Int()
-
-	time.Sleep(sleepDelay)
-
-	if n != 0 {
+	select {
+	case <-subscriber:
 		t.Error("Expected removed subscriber to not receive published value")
+	case <-ticker:
 	}
 }
