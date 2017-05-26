@@ -38,4 +38,3 @@ that match the configured Selectors for active subscriptions.
 The Recorder runs on each node maintaining persistent
 subscriptions to the local Sensor for logging into a persistent
 circular datastore.
-
