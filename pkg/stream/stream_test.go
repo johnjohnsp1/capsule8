@@ -6,17 +6,17 @@ func TestNext(t *testing.T) {
 	s := Iota(10)
 	defer s.Close()
 
-	zero, ok := s.Next()
+	zero, ok := <-s.Data
 	if !ok || zero.(uint64) != 0 {
 		t.Fatalf("Expected 0, got %d", zero.(uint64))
 	}
 
-	one, ok := s.Next()
+	one, ok := <-s.Data
 	if !ok || one.(uint64) != 1 {
 		t.Fatalf("Expected 1, got %d", one.(uint64))
 	}
 
-	two, ok := s.Next()
+	two, ok := <-s.Data
 	if !ok || two.(uint64) != 2 {
 		t.Fatalf("Expected 2, got %d", two.(uint64))
 	}
@@ -34,8 +34,78 @@ func TestReduce(t *testing.T) {
 		return a.(uint64) + b.(uint64)
 	})
 
-	i := v.(uint64)
-	if i != 45 {
-		t.Errorf("Expected v = 45, got %d\n", v)
+	// Force the promise returned by Reduce as a uint64
+	i := <-v
+	sum := i.(uint64)
+	if sum != 45 {
+		t.Errorf("Expected v = 45, got %d\n", sum)
+	}
+}
+
+func TestIota1(t *testing.T) {
+	s := Iota(1)
+
+	e, ok := <-s.Data
+
+	if !ok {
+		t.Errorf("Expected value from iota, got closed")
+	}
+
+	i := e.(uint64)
+	if i != 0 {
+		t.Errorf("Expected i == 0, got %d", i)
+	}
+
+	e, ok = <-s.Data
+	if ok {
+		t.Errorf("Expected iota closed, got element: %v", e)
+	}
+
+	e, ok = <-s.Data
+	if ok {
+		t.Errorf("Expected iota closed, got element: %v", e)
+	}
+}
+
+func TestIota2(t *testing.T) {
+	s := Iota(1, 100)
+
+	e, ok := <-s.Data
+
+	if !ok {
+		t.Errorf("Expected value from iota, got closed")
+	}
+
+	i := e.(uint64)
+	if i != 100 {
+		t.Errorf("Expected i == 0, got %d", i)
+	}
+
+	e, ok = <-s.Data
+	if ok {
+		t.Errorf("Expected iota closed, got element: %v", e)
+	}
+
+	e, ok = <-s.Data
+	if ok {
+		t.Errorf("Expected iota closed, got element: %v", e)
+	}
+}
+
+func TestIota3(t *testing.T) {
+	s := Iota(5, 100, 10)
+	defer s.Close()
+
+	total := uint64(0)
+
+	for i := range s.Data {
+		i := i.(uint64)
+		total += i
+
+	}
+
+	expected := uint64(100 + 110 + 120 + 130 + 140)
+	if total != expected {
+		t.Errorf("Expected total = %d, got %d\n", expected, total)
 	}
 }
