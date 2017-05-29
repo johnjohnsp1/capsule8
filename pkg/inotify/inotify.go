@@ -5,6 +5,9 @@ package inotify
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -14,7 +17,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const inotifyPollTimeoutMillis = 100
+const pollTimeoutMillis = -1
+const inotifyBufferSize = (unix.SizeofInotifyEvent + unix.NAME_MAX + 1) * 128
+const controlBufferSize = 4096 // Must not be greater than PIPE_BUF (4096)
 
 type watch struct {
 	descriptor int
@@ -23,22 +28,18 @@ type watch struct {
 	recursive  bool
 }
 
-type Event struct {
-	unix.InotifyEvent
-	Name string
+type inotifyAdd struct {
+	reply     chan<- error
+	path      string
+	mask      uint32
+	recursive bool
 }
 
-type Instance struct {
-	mu    sync.Mutex
-	fd    int
-	elem  chan interface{}
-	errc  chan error
-	stop  chan struct{}
-	watch map[int]*watch
-	path  map[string]*watch
+type inotifyRemove struct {
+	reply chan<- error
+	path  string
 }
 
-// Must be called with mutex held
 func (is *Instance) add(path string, mask uint32, recursive bool) error {
 	walkFn := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -79,37 +80,7 @@ func (is *Instance) add(path string, mask uint32, recursive bool) error {
 	return filepath.Walk(path, walkFn)
 }
 
-func (is *Instance) Add(path string, mask uint32) error {
-	_, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-
-	is.mu.Lock()
-	err = is.add(path, mask, false)
-	is.mu.Unlock()
-
-	return err
-}
-
-func (is *Instance) AddRecursive(path string, mask uint32) error {
-	fileInfo, err := os.Stat(path)
-	if err != nil {
-		return err
-	} else if !fileInfo.IsDir() {
-		// Return ENOTDIR ("not a directory") if path isn't a directory
-		return unix.ENOTDIR
-	}
-
-	is.mu.Lock()
-	err = is.add(path, mask, true)
-	is.mu.Unlock()
-
-	return err
-}
-
-// Must be called with mutex held
-func (is *Instance) remove(path string, recursive bool) error {
+func (is *Instance) remove(path string) error {
 	walkFn := func(path string, info os.FileInfo, err error) error {
 		if err == nil && info.IsDir() {
 			watch := is.path[path]
@@ -125,152 +96,285 @@ func (is *Instance) remove(path string, recursive bool) error {
 	return filepath.Walk(path, walkFn)
 }
 
-func (is *Instance) Remove(path string, recursive bool) error {
-	is.mu.Lock()
+// -----------------------------------------------------------------------------
 
-	err := is.remove(path, recursive)
+//
+// Handle a control message notification message sent over the pipe
+//
+func (is *Instance) handleControlBuffer(b []byte) error {
+	// Pipe signals a wakeup to read message from control channel
+	msg, ok := <-is.ctrl
+	if !ok {
+		return errors.New("Control channel closed")
+	}
 
-	is.mu.Unlock()
+	switch msg.(type) {
+	case *inotifyAdd:
+		msg := msg.(*inotifyAdd)
+		err := is.add(msg.path, msg.mask, msg.recursive)
+		msg.reply <- err
 
+	case *inotifyRemove:
+		msg := msg.(*inotifyRemove)
+		err := is.remove(msg.path)
+		msg.reply <- err
+
+	default:
+		panic(fmt.Sprintf("Unknown control message type: %T", msg))
+	}
+
+	return nil
+}
+
+func (is *Instance) handleInotifyEvent(ev *Event, w *watch) error {
+	//
+	// Name is only present when subject of event is a file
+	// within a watched directory
+	//
+	if ev.Len > 0 {
+		// If event was related to a directory within a
+		// recursively watched directory, propagate the watch.
+		if ev.Mask&unix.IN_CREATE != 0 && ev.Mask&unix.IN_ISDIR != 0 {
+			if w.recursive {
+				err := is.add(ev.Path, w.mask, w.recursive)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	is.elem <- ev
+
+	return nil
+}
+
+//
+// Handle an inotify buffer received from the kernel over an inotify
+// instance file descriptor
+//
+func (is *Instance) handleInotifyBuffer(b []byte) error {
+	// Create a bytes.Buffer using amount of b that was read into
+	buf := bytes.NewBuffer(b)
+
+	//
+	// Parse out each inotify_event
+	//
+	for buf.Len() > 0 {
+		ev := Event{}
+		binary.Read(buf, binary.LittleEndian, &ev.InotifyEvent)
+
+		w := is.watch[int(ev.Wd)]
+
+		// The name field from kernel is padded w/ NULLs to an
+		// alignment boundary, remove them when converting to
+		// a string.
+		name := buf.Next(int(ev.Len))
+		ev.Name = string(bytes.Trim(name, "\x00"))
+		ev.Path = filepath.Join(w.path, ev.Name)
+
+		is.handleInotifyEvent(&ev, w)
+	}
+
+	return nil
+}
+
+func (is *Instance) pollLoop() error {
+	controlBuffer := make([]byte, controlBufferSize)
+	inotifyBuffer := make([]byte, inotifyBufferSize)
+
+	pollFds := make([]unix.PollFd, 2)
+
+	// pipe to wake up loop to handle control channel messages
+	pollFds[0].Fd = int32(is.pipe[0])
+	pollFds[0].Events = unix.POLLIN
+
+	// inotify file descriptor
+	pollFds[1].Fd = int32(is.fd)
+	pollFds[1].Events = unix.POLLIN
+
+	for {
+		n, err := unix.Poll(pollFds, pollTimeoutMillis)
+		if err != nil {
+			return err
+		} else if n == 0 {
+			// timeout, check the stop channel and restart poll()
+			continue
+		}
+
+		//
+		// We always give event file descriptor higher priority. We
+		// only service the control message queue when there are no
+		// inotify events to handle.
+		//
+		if pollFds[1].Revents&unix.POLLIN != 0 {
+			n, err = unix.Read(int(pollFds[1].Fd), inotifyBuffer)
+			if err != nil {
+				return err
+			}
+
+			err = is.handleInotifyBuffer(inotifyBuffer[:n])
+			if err != nil {
+				return err
+			}
+		} else if pollFds[0].Revents&unix.POLLIN != 0 {
+			n, err = unix.Read(int(pollFds[0].Fd), controlBuffer)
+			if err != nil {
+				return err
+			}
+
+			err = is.handleControlBuffer(controlBuffer[:n])
+			if err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// -----------------------------------------------------------------------------
+
+func (is *Instance) sendAdd(path string, mask uint32, recursive bool) error {
+	reply := make(chan error)
+	msg := &inotifyAdd{
+		reply:     reply,
+		path:      path,
+		mask:      mask,
+		recursive: recursive,
+	}
+
+	// Wake the pollLoop
+	buf := [1]byte{0}
+	_, err := unix.Write(is.pipe[1], buf[:])
+	if err != nil {
+		return err
+	}
+
+	is.ctrl <- msg
+	err = <-reply
 	return err
 }
 
-func (is *Instance) Next() (*Event, bool) {
-	select {
-	case <-is.stop:
-		return nil, false
-	case e, ok := <-is.elem:
-		if ok {
-			ev := e.(*Event)
-			return ev, ok
-		}
-
-		return nil, ok
+func (is *Instance) removeWatch(path string) error {
+	reply := make(chan error)
+	msg := &inotifyRemove{
+		reply: reply,
+		path:  path,
 	}
-}
 
-func (is *Instance) Path(wd int32) string {
-	is.mu.Lock()
-	w := is.watch[int(wd)]
-	is.mu.Unlock()
-
-	return w.path
-}
-
-func (is *Instance) Close() {
-	close(is.stop)
-}
-
-func (is *Instance) Stream() stream.Stream {
-	return stream.NewStream(is.elem, is.stop)
-}
-
-func (is *Instance) receive() {
-	defer func() {
-		err := unix.Close(is.fd)
-		if err != nil {
-			is.errc <- err
-		}
-
-		close(is.errc)
-		close(is.elem)
-	}()
-
-	b := make([]byte, (unix.SizeofInotifyEvent+unix.NAME_MAX+1)*128)
-
-	pollFds := make([]unix.PollFd, 1)
-	pollFds[0].Fd = int32(is.fd)
-	pollFds[0].Events = unix.POLLIN
-
-	for {
-		select {
-		case <-is.stop:
-			// channels are closed in the defer above
-			return
-
-		default:
-			n, err := unix.Poll(pollFds, inotifyPollTimeoutMillis)
-			if err != nil {
-				is.errc <- err
-				return
-			} else if n == 0 {
-				// timeout, check the stop channel and restart poll()
-				continue
-			}
-
-			n, err = unix.Read(is.fd, b)
-			if err != nil {
-				is.errc <- err
-				return
-			}
-
-			// Create a bytes.Buffer using amount of b that was read into
-			buf := bytes.NewBuffer(b[:n])
-
-			//
-			// Parse out each inotify_event
-			//
-			for buf.Len() > 0 {
-				ev := Event{}
-				binary.Read(buf, binary.LittleEndian, &ev.InotifyEvent)
-
-				//
-				// Name is only present when subject of event is a file
-				// within a watched directory
-				//
-				if ev.Len > 0 {
-					// The name field from kernel is typically padded w/ NULLs
-					// to an alignment boundary, remove them when converting
-					// to a string.
-					name := buf.Next(int(ev.Len))
-					ev.Name = string(bytes.Trim(name, "\x00"))
-				}
-
-				// If event was related to a directory within a
-				// recursively watched directory, propagate the watch.
-				if ev.Len > 0 && ev.Mask&unix.IN_CREATE != 0 && ev.Mask&unix.IN_ISDIR != 0 {
-					is.mu.Lock()
-					w := is.watch[int(ev.Wd)]
-
-					if w != nil && w.recursive {
-						path := filepath.Join(w.path, ev.Name)
-						err := is.add(path, w.mask, w.recursive)
-
-						if err != nil {
-							is.errc <- err
-							is.mu.Unlock()
-							return
-						}
-					}
-
-					is.mu.Unlock()
-				}
-
-				// Blocking send on the channel can be blocked by a slow receiver
-				is.elem <- &ev
-			}
-		}
+	// Wake the pollLoop
+	buf := [1]byte{0}
+	_, err := unix.Write(is.pipe[1], buf[:])
+	if err != nil {
+		return err
 	}
+
+	is.ctrl <- msg
+	err = <-reply
+	return err
 }
 
-// NewInstance reads events from the kernel on the given inotify fd
-// and forwards them as *Event elements over the output stream.
+// -----------------------------------------------------------------------------
+
+// Event represents an inotify event
+type Event struct {
+	unix.InotifyEvent
+
+	// Name within watched path if it's a directory
+	Name string
+
+	// Watched path associated with the event
+	Path string
+}
+
+// Instance represents an initialized inotify instance
+type Instance struct {
+	mu          sync.Mutex
+	fd          int
+	elem        chan interface{}
+	errc        chan error
+	stop        chan interface{}
+	watch       map[int]*watch
+	path        map[string]*watch
+	eventStream *stream.Stream
+	pipe        [2]int
+	ctrl        chan interface{}
+}
+
+// NewInstance creates a new inotify instance
 func NewInstance() (*Instance, error) {
 	fd, err := unix.InotifyInit()
 	if err != nil {
 		return nil, err
 	}
 
+	stop := make(chan interface{})
+	elem := make(chan interface{})
+	ctrl := make(chan interface{})
+
 	is := &Instance{
 		fd:    fd,
-		elem:  make(chan interface{}),
+		elem:  elem,
 		errc:  make(chan error, 1),
-		stop:  make(chan struct{}),
+		stop:  stop,
 		watch: make(map[int]*watch),
 		path:  make(map[string]*watch),
+		eventStream: &stream.Stream{
+			Ctrl: stop,
+			Data: elem,
+		},
+		ctrl: ctrl,
 	}
 
-	go is.receive()
+	err = unix.Pipe2(is.pipe[:], unix.O_DIRECT|unix.O_NONBLOCK)
+	if err != nil {
+		return nil, err
+	}
+
+	go func() {
+		err := is.pollLoop()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		err = unix.Close(is.fd)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		close(is.errc)
+		close(is.elem)
+	}()
 
 	return is, nil
+}
+
+// Events returns a Event stream.Stream of the inotify instance's events
+func (is *Instance) Events() *stream.Stream {
+	return is.eventStream
+}
+
+// AddWatch adds the given path to the inotify instance's watch list for
+// events matching the given mask. If the path is already being watched, the
+// existing watch is modified.
+func (is *Instance) AddWatch(path string, mask uint32) error {
+	return is.sendAdd(path, mask, false)
+}
+
+// AddRecursiveWatch adds the given path to the inotify instance's
+// watch list as well as any directories recursively identified within
+// it. Newly created subdirectories within the subtree rooted at path are
+// added to the watch list as well.
+func (is *Instance) AddRecursiveWatch(path string, mask uint32) error {
+	return is.sendAdd(path, mask, true)
+}
+
+// Remove the given path from the inotify instance's watch list.
+func (is *Instance) RemoveWatch(path string) error {
+	return is.removeWatch(path)
+}
+
+// Close the inotify instance and allow the kernel to free its associated
+// resources. All associated watches are automatically freed.
+func (is *Instance) Close() {
+	close(is.stop)
 }

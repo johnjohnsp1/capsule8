@@ -10,8 +10,6 @@ import (
 
 	"os"
 
-	"fmt"
-
 	"golang.org/x/sys/unix"
 )
 
@@ -26,12 +24,12 @@ func TestFile(t *testing.T) {
 	}
 	defer instance.Close()
 
-	s := instance.Stream()
+	s := instance.Events()
 
 	s = stream.Do(s, func(e interface{}) {
 		gotOne <- struct{}{}
 	})
-	go stream.Discard(s)
+	_ = stream.Wait(s)
 
 	f, err := ioutil.TempFile("", "inotify_test_TestFile")
 	if err != nil {
@@ -43,17 +41,14 @@ func TestFile(t *testing.T) {
 	// TempFile opens for read/write, so closing it should result in
 	// an IN_CLOSE_WRITE inotify event.
 	//
-	instance.Add(f.Name(), unix.IN_CLOSE_WRITE)
+	instance.AddWatch(f.Name(), unix.IN_CLOSE_WRITE)
 	f.Close()
 
 	// Success means not hanging
 	<-gotOne
 }
 
-//
-// This is a torture test for kernel inotify events, we'll only get the first.
-//
-func DISABLED_TestFiveFiles(t *testing.T) {
+func TestFiveFiles(t *testing.T) {
 	instance, err := NewInstance()
 	if err != nil {
 		t.Error(err)
@@ -96,20 +91,19 @@ func DISABLED_TestFiveFiles(t *testing.T) {
 		ch <- true
 	}()
 
-	var handlerRuns = 0
+	var receivedEvents = 0
 	go func() {
-
 		for {
-			_, ok := instance.Next()
+			_, ok := <-instance.Events().Data
 			if !ok {
 				return
 			}
 
-			if handlerRuns == 5 {
+			receivedEvents++
+
+			if receivedEvents == 5 {
 				ch <- false
 				return
-			} else {
-				handlerRuns += 1
 			}
 		}
 	}()
@@ -118,11 +112,11 @@ func DISABLED_TestFiveFiles(t *testing.T) {
 	// TempFile opens for read/write, so closing it should result in
 	// an IN_CLOSE_WRITE inotify event.
 	//
-	instance.Add(f1.Name(), unix.IN_CLOSE_WRITE)
-	instance.Add(f2.Name(), unix.IN_CLOSE_WRITE)
-	instance.Add(f3.Name(), unix.IN_CLOSE_WRITE)
-	instance.Add(f4.Name(), unix.IN_CLOSE_WRITE)
-	instance.Add(f5.Name(), unix.IN_CLOSE_WRITE)
+	instance.AddWatch(f1.Name(), unix.IN_CLOSE_WRITE)
+	instance.AddWatch(f2.Name(), unix.IN_CLOSE_WRITE)
+	instance.AddWatch(f3.Name(), unix.IN_CLOSE_WRITE)
+	instance.AddWatch(f4.Name(), unix.IN_CLOSE_WRITE)
+	instance.AddWatch(f5.Name(), unix.IN_CLOSE_WRITE)
 
 	f1.Close()
 	f2.Close()
@@ -132,7 +126,7 @@ func DISABLED_TestFiveFiles(t *testing.T) {
 
 	timerExpired := <-ch
 	if timerExpired {
-		t.Error("Timed out waiting for timer to run 5 times, got", handlerRuns)
+		t.Error("Expected 5 events, got", receivedEvents)
 	}
 }
 
@@ -148,9 +142,10 @@ func TestSubdirs(t *testing.T) {
 
 	go func() {
 		for {
-			ev, ok := instance.Next()
+			e, ok := <-instance.Events().Data
+			ev := e.(*Event)
+
 			if !ok {
-				fmt.Fprintf(os.Stderr, "TestSubdirs: received %v\n", ev)
 				return
 			} else if ev.Name == "file" {
 				done <- time.Now()
@@ -159,14 +154,13 @@ func TestSubdirs(t *testing.T) {
 		}
 	}()
 
-	content := []byte("temporary file's content")
 	dir, err := ioutil.TempDir("", "inotify_test_TestSubdirs")
 	if err != nil {
 		t.Error(err)
 	}
 	defer os.RemoveAll(dir)
 
-	err = instance.AddRecursive(dir, unix.IN_ONLYDIR|unix.IN_CREATE)
+	err = instance.AddRecursiveWatch(dir, unix.IN_ONLYDIR|unix.IN_CREATE)
 	if err != nil {
 		t.Error(err)
 	}
@@ -183,12 +177,14 @@ func TestSubdirs(t *testing.T) {
 	d = filepath.Join(d, "d")
 	err = os.MkdirAll(d, 0777)
 
-	// Still can't win this race without the sleep, only get 1 inotify
-	// event for the top-level dir ("a") and miss "file"
-	time.Sleep(100 * time.Millisecond)
-
 	tmpfn := filepath.Join(d, "file")
 
+	// Can't seem to win this race without a sleep here. Otherwise,
+	// we only get 1 inotify event for the top-level dir ("a") and miss
+	// the event for "file"
+	time.Sleep(1 * time.Millisecond)
+
+	content := []byte("temporary file's content")
 	if err := ioutil.WriteFile(tmpfn, content, 0666); err != nil {
 		t.Error(err)
 	}
