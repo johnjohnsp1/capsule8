@@ -4,90 +4,60 @@ package main
 
 import (
 	"fmt"
-	"os/signal"
-	"time"
-
 	"os"
+	"os/signal"
 
-	"github.com/capsule8/reactive8/pkg/api/event"
-	"github.com/capsule8/reactive8/pkg/sensor"
+	"github.com/capsule8/reactive8/pkg/container"
 )
 
 func main() {
-	// Configure selector from command-line arguments
+	/*
+		f, err := os.Create("trace.out")
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
 
-	// Add a selector
-	selector := event.Selector{
-		Container: &event.ContainerEventSelector{},
+		err = trace.Start(f)
+		if err != nil {
+			panic(err)
+		}
+		defer trace.Stop()
+	*/
 
-		Ticker: &event.TickerEventSelector{
-			Duration: int64(1 * time.Second),
-		},
-	}
-
-	// Create events channel. Events channels pass pointers b/c sensors
-	// pass ownership of events to the receiver.
-	events := make(chan *event.Event)
-
-	// Create the sensors
-	sensorStop, sensorErrors := sensor.NewDockerOCISensor(selector, events)
-	if sensorStop == nil {
-		fmt.Fprintf(os.Stderr, "Couldn't start Sensor\n")
+	s, err := container.NewDockerEventStream()
+	if err != nil {
+		fmt.Fprintf(os.Stderr,
+			"Couldn't get Docker event stream: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Close the stop channel on Control-C to exit cleanly.
-	c := make(chan os.Signal)
-	signal.Notify(c, os.Interrupt)
+	signals := make(chan os.Signal)
+	signal.Notify(signals, os.Interrupt)
+
 	go func() {
-		for _ = range c {
-			close(sensorStop)
-		}
+		<-signals
+		s.Close()
 	}()
 
-selectLoop:
 	for {
-		select {
-		case ev, ok := <-events:
-			if ok {
-				fmt.Fprintf(os.Stderr, "Event: %v\n", ev)
+		e, ok := <-s.Data
+		if ok {
+			fmt.Fprintf(os.Stderr, "Event: %v\n", e)
 
-				/*
-					bytes, err := json.Marshal(ev)
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-					} else {
-						os.Stdout.Write(bytes)
-						fmt.Println()
-					}
-				*/
-			} else {
-				break selectLoop
-			}
-		case err, ok := <-sensorErrors:
-			if ok {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				close(sensorStop)
-			} else {
-				break selectLoop
-			}
+			/*
+				bytes, err := json.Marshal(ev)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				} else {
+					os.Stdout.Write(bytes)
+					fmt.Println()
+				}
+			*/
+		} else {
+			fmt.Fprintf(os.Stderr, "Stream closed.\n")
+			break
 		}
 	}
-
-	// Drain errors
-errorLoop:
-	for {
-		select {
-		case err, ok := <-sensorErrors:
-			if ok {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			} else {
-				break errorLoop
-			}
-		default:
-			break errorLoop
-		}
-	}
-
-	os.Exit(0)
 }
