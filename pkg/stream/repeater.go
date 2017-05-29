@@ -106,6 +106,13 @@ func (r *repeater) controlHandler(m interface{}) {
 
 func (r *repeater) loop() {
 	for {
+		//
+		// XXX: It is redundant to recreate the SelectCases on each
+		// loop iteration when the number of children streams hasn't
+		// changed. We should only modify it on control messages
+		// and child stream channel closures instead.
+		//
+
 		var selectCases []reflect.SelectCase
 
 		if r.ctrl != nil {
@@ -138,7 +145,8 @@ func (r *repeater) loop() {
 		}
 
 		chosen, recv, recvOK := reflect.Select(selectCases)
-		if chosen == 0 {
+		sc := selectCases[chosen]
+		if sc.Chan.Interface() == r.ctrl {
 			if recvOK {
 				r.controlHandler(recv.Interface())
 			} else {
@@ -146,7 +154,7 @@ func (r *repeater) loop() {
 				close(r.in.Ctrl)
 				r.ctrl = nil
 			}
-		} else if chosen == 1 {
+		} else if sc.Chan.Interface() == r.in.Data {
 			if recvOK {
 				r.dataHandler(recv.Interface())
 			} else {
@@ -158,7 +166,7 @@ func (r *repeater) loop() {
 		} else {
 			if !recvOK {
 				// Close of an output stream control channel
-				ctrl := selectCases[chosen].Chan.Interface()
+				ctrl := sc.Chan.Interface()
 				for _, e := range r.out {
 					if e.ctrl == ctrl {
 						r.remove(e)
@@ -171,8 +179,12 @@ func (r *repeater) loop() {
 	}
 }
 
-// NewRepeater creates a controllable repeater for the given stream. New
-// streams can be created from the Repeater and later removed.
+// NewRepeater creates a controllable repeater for the given stream. It acts
+// as a Stream terminator for the parent stream, but allows new Streams to be
+// dynamically created and removed from the parent stream. It consumes all
+// events from the parent stream regardless of whether there are child streams
+// or not. If this is not the desired behavior, attach a Valve between the
+// parent and the repeater.
 func NewRepeater(in *Stream) *Repeater {
 	control := make(chan interface{})
 
@@ -187,7 +199,7 @@ func NewRepeater(in *Stream) *Repeater {
 	}
 }
 
-func (r *Repeater) NewStream() (*Stream, bool) {
+func (r *Repeater) NewStream() *Stream {
 	reply := make(chan *Stream)
 
 	req := &repeaterNewStream{
@@ -195,8 +207,8 @@ func (r *Repeater) NewStream() (*Stream, bool) {
 	}
 
 	r.ctrl <- req
-	rep, ok := <-reply
-	return rep, ok
+	rep := <-reply
+	return rep
 }
 
 func (r *Repeater) Close() {

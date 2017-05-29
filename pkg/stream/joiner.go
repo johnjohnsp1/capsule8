@@ -68,6 +68,13 @@ func (j *joiner) controlHandler(m interface{}) {
 
 func (j *joiner) loop() {
 	for {
+		//
+		// XXX: It is redundant to recreate the SelectCases on each
+		// loop iteration when the number of children streams hasn't
+		// changed. We should only modify it on control messages
+		// and child stream channel closures instead.
+		//
+
 		var selectCases []reflect.SelectCase
 
 		if j.ctrl != nil {
