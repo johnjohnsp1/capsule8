@@ -195,7 +195,7 @@ func (is *Instance) pollLoop() error {
 
 	for {
 		n, err := unix.Poll(pollFds, pollTimeoutMillis)
-		if err != nil {
+		if err != nil && err != unix.EINTR {
 			return err
 		} else if n == 0 {
 			// timeout, check the stop channel and restart poll()
