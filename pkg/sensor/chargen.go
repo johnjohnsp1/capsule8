@@ -1,9 +1,8 @@
 package sensor
 
 import (
-	"strings"
-
 	"github.com/capsule8/reactive8/pkg/api/event"
+	"github.com/capsule8/reactive8/pkg/stream"
 )
 
 //
@@ -11,8 +10,43 @@ import (
 // configured by a event.Selector.
 //
 
-// NewChargenSensor creates a new chargen sensor configured by the given Selector
-func NewChargenSensor(selector event.Selector, events chan<- *event.Event) (chan<- struct{}, <-chan error) {
+type chargen struct {
+	ctrl     chan interface{}
+	data     chan interface{}
+	selector event.Selector
+	chargen  *stream.Stream
+	index    uint64
+}
+
+func newChargenEvent(index uint64, characters string) *event.Event {
+	return &event.Event{
+		Subevent: &event.Event_Chargen{
+			Chargen: &event.ChargenEvent{
+				Index:      index,
+				Characters: characters,
+			},
+		},
+	}
+}
+
+func (c *chargen) emitNextEvent(e interface{}) {
+	length := c.selector.Chargen.Length
+	payload := make([]byte, length)
+
+	i := c.index % uint64(length)
+	str := e.(string)
+	payload[i] = str[0]
+
+	c.index++
+
+	if (c.index % uint64(length)) == 0 {
+		c.data <- newChargenEvent(c.index, string(payload))
+	}
+}
+
+// NewChargenSensor creates a new chargen sensor configured by the given
+// Selector
+func NewChargenSensor(selector event.Selector) (*stream.Stream, error) {
 	//
 	// Each call to New creates a new session with the Sensor. It is the
 	// Sensor's responsibility to handle all of its sessions in the most
@@ -22,42 +56,35 @@ func NewChargenSensor(selector event.Selector, events chan<- *event.Event) (chan
 	// their own channels.
 	//
 
-	//
-	// Sensors return a signal channel in order for the caller to signal
-	// that the sensor should shut down by closing it.
-	//
-	sensorStop := make(chan struct{})
-
-	//
-	// Since we run primarily in a goroutine, we use a channel to
-	// report errors, even if they occur before starting the goroutine.
-	//
-	sensorErrors := make(chan error)
+	c := &chargen{
+		ctrl:     make(chan interface{}),
+		data:     make(chan interface{}),
+		selector: selector,
+		chargen:  stream.Chargen(),
+		index:    0,
+	}
 
 	go func() {
-		index := uint64(0)
-		length := int(selector.Chargen.Length)
-
 		for {
 			select {
-			case <-sensorStop:
-				close(sensorErrors)
-				return
-
-			default:
-				events <- &event.Event{
-					Subevent: &event.Event_Chargen{
-						Chargen: &event.ChargenEvent{
-							Index:      index,
-							Characters: strings.Repeat("A", length),
-						},
-					},
+			case _, ok := <-c.ctrl:
+				if !ok {
+					close(c.data)
+					return
 				}
 
-				index++
+			case e, ok := <-c.chargen.Data:
+				if ok {
+					c.emitNextEvent(e)
+				} else {
+					return
+				}
 			}
 		}
 	}()
 
-	return sensorStop, sensorErrors
+	return &stream.Stream{
+		Ctrl: c.ctrl,
+		Data: c.data,
+	}, nil
 }

@@ -12,8 +12,27 @@ import (
 // configured by a event.Selector.
 //
 
+type ticker struct {
+	ctrl     chan interface{}
+	data     chan interface{}
+	selector event.Selector
+	duration time.Duration
+	ticker   *stream.Stream
+}
+
+func newTickerEvent(tick time.Time) *event.Event {
+	return &event.Event{
+		Subevent: &event.Event_Ticker{
+			Ticker: &event.TickerEvent{
+				Seconds:     tick.Unix(),
+				Nanoseconds: tick.UnixNano(),
+			},
+		},
+	}
+}
+
 // NewTickerSensor creates a new ticker sensor configured by the given Selector
-func NewTickerSensor(selector event.Selector, events chan<- *event.Event) (chan<- struct{}, <-chan error) {
+func NewTickerSensor(selector event.Selector) (*stream.Stream, error) {
 	//
 	// Each call to New creates a new session with the Sensor. It is the
 	// Sensor's responsibility to handle all of its sessions in the most
@@ -23,38 +42,28 @@ func NewTickerSensor(selector event.Selector, events chan<- *event.Event) (chan<
 	// their own channels.
 	//
 
-	//
-	// Sensors return a signal channel in order for the caller to signal
-	// that the sensor should shut down by closing it.
-	//
-	sensorStop := make(chan struct{})
-
-	//
-	// Since we run primarily in a goroutine, we use a channel to
-	// report errors, even if they occur before starting the goroutine.
-	//
-	sensorErrors := make(chan error)
-
-	t := stream.Ticker(time.Duration(selector.Ticker.Duration))
+	duration := time.Duration(selector.Ticker.Duration)
+	t := &ticker{
+		ctrl:     make(chan interface{}),
+		data:     make(chan interface{}),
+		selector: selector,
+		duration: duration,
+		ticker:   stream.Ticker(duration),
+	}
 
 	go func() {
 		for {
 			select {
-			case <-sensorStop:
-				close(sensorErrors)
-				return
+			case _, ok := <-t.ctrl:
+				if !ok {
+					close(t.data)
+					return
+				}
 
-			case e, ok := <-t.Channel():
+			case e, ok := <-t.ticker.Data:
 				if ok {
 					tick := e.(time.Time)
-					events <- &event.Event{
-						Subevent: &event.Event_Ticker{
-							Ticker: &event.TickerEvent{
-								Seconds:     tick.Unix(),
-								Nanoseconds: tick.UnixNano(),
-							},
-						},
-					}
+					t.data <- newTickerEvent(tick)
 				} else {
 					return
 				}
@@ -62,5 +71,8 @@ func NewTickerSensor(selector event.Selector, events chan<- *event.Event) (chan<
 		}
 	}()
 
-	return sensorStop, sensorErrors
+	return &stream.Stream{
+		Ctrl: t.ctrl,
+		Data: t.data,
+	}, nil
 }
