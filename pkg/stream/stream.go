@@ -302,8 +302,6 @@ func Join(in ...*Stream) *Stream {
 	data := make(chan interface{})
 
 	go func() {
-		defer close(data)
-
 		cases := make([]reflect.SelectCase, len(in)+1)
 
 		cases[0] = reflect.SelectCase{
@@ -319,24 +317,26 @@ func Join(in ...*Stream) *Stream {
 			}
 		}
 
-		active := len(in)
-
-		for active > 0 {
+		activeInputs := len(in)
+		for activeInputs > 0 {
 			chosen, recv, recvOK := reflect.Select(cases)
 			if chosen > 0 && recvOK {
 				// Input element received
 				data <- recv.Interface()
 			} else if chosen == 0 && !recvOK {
-				// Control channel closed
-				for _, e := range in {
-					close(e.Ctrl)
+				// Control channel closed, relay upstream
+				for i := range in {
+					close(in[i].Ctrl)
 				}
+				cases[chosen].Chan = reflect.ValueOf(nil)
 			} else {
 				// Input stream closed
 				cases[chosen].Chan = reflect.ValueOf(nil)
-				active--
+				activeInputs--
 			}
 		}
+
+		close(data)
 	}()
 
 	return &Stream{
