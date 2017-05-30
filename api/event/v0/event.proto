@@ -50,8 +50,7 @@ message TickerEvent {
 
 message ContainerEvent {
   enum ContainerState {
-    UNKNOWN = 0;
-
+    CONTAINER_UNKNOWN = 0;
     CONTAINER_CREATED = 1;
     CONTAINER_STARTED = 2;
     CONTAINER_STOPPED = 3;

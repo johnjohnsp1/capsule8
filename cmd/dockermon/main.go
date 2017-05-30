@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/capsule8/reactive8/pkg/api/event"
 	"github.com/capsule8/reactive8/pkg/container"
 )
 
@@ -25,10 +26,14 @@ func main() {
 		defer trace.Stop()
 	*/
 
-	s, err := container.NewDockerEventStream()
+	selector := event.Selector{
+		Container: &event.ContainerEventSelector{},
+	}
+
+	s, err := container.NewContainerSensor(selector)
 	if err != nil {
 		fmt.Fprintf(os.Stderr,
-			"Couldn't get Docker event stream: %v\n", err)
+			"Couldn't create container sensor: %v\n", err)
 		os.Exit(1)
 	}
 

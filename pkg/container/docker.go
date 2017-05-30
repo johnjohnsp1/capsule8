@@ -45,9 +45,9 @@ const (
 )
 
 type dockerEvent struct {
-	ID           string
-	State        dockerContainerState
-	configV2Json string
+	ID         string
+	State      dockerContainerState
+	ConfigJSON string
 }
 
 var dockerConfig struct {
@@ -133,9 +133,9 @@ func newDockerEventFromConfigData(configV2Json []byte) (*dockerEvent, error) {
 	}
 
 	return &dockerEvent{
-		ID:           config.ID,
-		State:        state,
-		configV2Json: string(configV2Json),
+		ID:         config.ID,
+		State:      state,
+		ConfigJSON: string(configV2Json),
 	}, nil
 }
 
@@ -324,6 +324,8 @@ func initializeDockerSensor() error {
 // Exported interface
 // ----------------------------------------------------------------------------
 
+// NewDockerEventStream creates a new event stream of Docker container lifecycle
+// events.
 func NewDockerEventStream() (*stream.Stream, error) {
 	var err error
 
@@ -336,12 +338,12 @@ func NewDockerEventStream() (*stream.Stream, error) {
 		return nil, err
 	}
 
-	reply := make(chan *stream.Stream)
-	request := &dockerEventStreamRequest{
-		reply: reply,
-	}
-
 	if dockerControl != nil {
+		reply := make(chan *stream.Stream)
+		request := &dockerEventStreamRequest{
+			reply: reply,
+		}
+
 		dockerControl <- request
 		response := <-reply
 
