@@ -21,6 +21,13 @@ message Subscription {
     Selector selector = 2;
 }
 
+// Subscription heartbeat from API that includes some subscription/client info
+message SubscriptionHeartbeat {
+    string subscription_id = 1;
+    string client_id = 2;
+    Subscription subscription = 3;
+}
+
 //
 // Filter restricts an event subscription to the specified nodes and/or
 // processes. Filter fields are logically AND'd together. For example, an

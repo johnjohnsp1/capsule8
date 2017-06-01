@@ -18,3 +18,13 @@
 
 # Generated protobuf files
 pkg/api/
+
+# Ignore vim swap files
+*.swp
+
+# Generated protobuf readme
+readme.txt
+
+# Go vendoring
+vendor/**
+!vendor/manifest

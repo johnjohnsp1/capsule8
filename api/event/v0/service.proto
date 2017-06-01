@@ -21,33 +21,24 @@ service EventService {
     // so that these acknowledgements can be relayed to the backplane.
     // 
 
-    rpc CreateSubscription(CreateSubscriptionRequest)
-        returns (CreateSubscriptionResponse) {}
-    
     rpc ReceiveEvents(stream ReceiveEventsRequest)
-        returns (stream ReceiveEventsResponse) {}
+        returns (stream ReceivedEvent) {}
 
     rpc SendEvents(stream SendEventsRequest)
         returns (stream SendEventsResponse) {}
-    
-    rpc DeleteSubscription(DeleteSubscriptionRequest)
-        returns (DeleteSubscriptionResponse) {}
 }
-
-message CreateSubscriptionRequest {
-    Subscription subscription = 1;
-}
-
-message CreateSubscriptionResponse {
-    string subscription_id = 1;
+message Ack {
+    string inbox = 1;
+    string subject = 2;
+    uint64 sequence = 3;
 }
 
 message ReceiveEventsRequest {
     // Must be set on first request and omitted in subsequent requests.
-    string subscription_id = 1;
+    Subscription subscription = 1;
 
     // Acknowledgement IDs from one or more ReceivedEvents
-    repeated string ack_ids = 2;
+    repeated Ack acks = 2;
 }
 
 message ReceiveEventsResponse {
@@ -55,7 +46,7 @@ message ReceiveEventsResponse {
 }
 
 message ReceivedEvent {
-    string ack_id = 1;
+    Ack ack = 1;
 
     Event event = 2;
 }
@@ -72,12 +63,4 @@ message SendEventsResponse {
     // Unique event identifiers in the same order as the events in the 
     // SendEventsRequest message
     repeated string event_ids = 1;
-}
-
-message DeleteSubscriptionRequest {
-    string subscription_id = 1;
-}
-
-message DeleteSubscriptionResponse {
-    // Intentionally empty
 }

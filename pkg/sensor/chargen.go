@@ -1,6 +1,8 @@
 package sensor
 
 import (
+	"time"
+
 	"github.com/capsule8/reactive8/pkg/api/event"
 	"github.com/capsule8/reactive8/pkg/stream"
 )
@@ -80,6 +82,8 @@ func NewChargenSensor(selector event.Selector) (*stream.Stream, error) {
 					return
 				}
 			}
+
+			time.Sleep(10 * time.Second)
 		}
 	}()
 
