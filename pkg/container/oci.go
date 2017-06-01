@@ -189,6 +189,11 @@ func initializeOciSensor() error {
 	ociControl = make(chan interface{})
 
 	go func() {
+		var err error
+
+		// If this goroutine exits, just crash
+		defer panic(err)
+
 		//
 		// Create instance inside goroutine so that references don't
 		// escape it. This keeps their allocation on the stack and free
@@ -214,11 +219,7 @@ func initializeOciSensor() error {
 
 		o.repeater = stream.NewRepeater(o.eventStream)
 
-		// Add a recursive watch for all directories within the OCI
-		// container state directory. These events trigger us to add
-		// more specific file watches in onInotifyEvent() above.
-		err := o.inotify.AddRecursiveWatch(ociConfig.OciContainerDir,
-			unix.IN_ONLYDIR|unix.IN_CREATE|unix.IN_DELETE)
+		addWatches(ociConfig.OciContainerDir, o.inotify)
 
 		for {
 			var ok bool
@@ -227,9 +228,6 @@ func initializeOciSensor() error {
 				break
 			}
 		}
-
-		// If the loop exits, just crash
-		panic(err)
 	}()
 
 	return nil

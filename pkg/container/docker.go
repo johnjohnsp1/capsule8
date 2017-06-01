@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -176,8 +178,6 @@ func onDockerConfigDelete(configPath string) (*dockerEvent, error) {
 }
 
 func (d *docker) onInotifyEvent(iev *inotify.Event) *dockerEvent {
-	dir := filepath.Dir(iev.Path)
-
 	if iev.Name == "config.v2.json" {
 		if iev.Mask&unix.IN_DELETE != 0 {
 			ev, _ := onDockerConfigDelete(iev.Path)
@@ -187,14 +187,6 @@ func (d *docker) onInotifyEvent(iev *inotify.Event) *dockerEvent {
 		ev, _ := onDockerConfigUpdate(iev.Path)
 		return ev
 
-	} else if dir == dockerConfig.LocalStorageDir && len(iev.Name) == 64 {
-		//
-		// Docker seems to normally do atomic updates by moving the
-		// new file into place, but monitor IN_CLOSE_WRITE also just
-		// in case there are other writes.
-		//
-		m := (unix.IN_DELETE | unix.IN_MOVED_TO | unix.IN_CLOSE_WRITE)
-		d.inotify.AddWatch(iev.Path, uint32(m))
 	}
 
 	return nil
@@ -261,6 +253,46 @@ func (d *docker) handleInotifyEvent(e interface{}) {
 	}
 }
 
+func addWatches(dir string, in *inotify.Instance) error {
+	//
+	// We add an inotify watch on directories named like container IDs
+	//
+
+	dirMask := uint32((unix.IN_ONLYDIR | unix.IN_CREATE | unix.IN_DELETE))
+	cMask := uint32(unix.IN_DELETE | unix.IN_MOVED_TO | unix.IN_CLOSE_WRITE)
+
+	pattern := filepath.Join(dir, "[[:xdigit:]]{64}$")
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return err
+	}
+
+	walkFn := func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if re.MatchString(path) {
+			err := in.AddWatch(path, uint32(dirMask))
+			return err
+		}
+
+		return nil
+	}
+
+	err = in.AddWatch(dir, dirMask)
+	if err != nil {
+		return err
+	}
+
+	err = in.AddTrigger(pattern, cMask)
+	if err != nil {
+		return err
+	}
+
+	return filepath.Walk(dir, walkFn)
+}
+
 func initializeDockerSensor() error {
 	in, err := inotify.NewInstance()
 	if err != nil {
@@ -274,6 +306,11 @@ func initializeDockerSensor() error {
 	dockerControl = make(chan interface{})
 
 	go func() {
+		var err error
+
+		// If this goroutine exits, just crash
+		defer panic(err)
+
 		//
 		// Create instance inside goroutine so that references don't
 		// escape it. This keeps their allocation on the stack and free
@@ -299,11 +336,7 @@ func initializeDockerSensor() error {
 
 		d.repeater = stream.NewRepeater(d.eventStream)
 
-		// Add a recursive watch for all directories within the Docker
-		// local storage directory. These events trigger us to add more
-		// specific file watches in onInotifyEvent() above.
-		err := d.inotify.AddRecursiveWatch(dockerConfig.LocalStorageDir,
-			unix.IN_ONLYDIR|unix.IN_CREATE|unix.IN_DELETE)
+		addWatches(dockerConfig.LocalStorageDir, d.inotify)
 
 		for {
 			var ok bool
@@ -312,9 +345,6 @@ func initializeDockerSensor() error {
 				break
 			}
 		}
-
-		// If the loop exits, just crash
-		panic(err)
 	}()
 
 	return nil

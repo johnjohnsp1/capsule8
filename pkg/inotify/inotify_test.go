@@ -177,15 +177,82 @@ func TestSubdirs(t *testing.T) {
 	d = filepath.Join(d, "d")
 	err = os.MkdirAll(d, 0777)
 
-	tmpfn := filepath.Join(d, "file")
-
 	// Can't seem to win this race without a sleep here. Otherwise,
 	// we only get 1 inotify event for the top-level dir ("a") and miss
 	// the event for "file"
 	time.Sleep(1 * time.Millisecond)
 
+	tmpfn := filepath.Join(d, "file")
 	content := []byte("temporary file's content")
 	if err := ioutil.WriteFile(tmpfn, content, 0666); err != nil {
+		t.Error(err)
+	}
+
+	select {
+	case <-ticker:
+		t.Fatal("Timeout")
+
+	case <-done:
+	}
+}
+
+func TestTrigger(t *testing.T) {
+	ticker := time.After(1 * time.Second)
+	done := make(chan time.Time)
+
+	instance, err := NewInstance()
+	if err != nil {
+		t.Error(err)
+	}
+	defer instance.Close()
+
+	go func() {
+		for {
+			e, ok := <-instance.Events().Data
+			ev := e.(*Event)
+
+			if !ok {
+				return
+			} else if ev.Name == "file" {
+				done <- time.Now()
+				return
+			}
+		}
+	}()
+
+	dir, err := ioutil.TempDir("", "inotify_test_TestSubdirs")
+	if err != nil {
+		t.Error(err)
+	}
+	defer os.RemoveAll(dir)
+
+	err = instance.AddWatch(dir, unix.IN_ONLYDIR|unix.IN_CREATE)
+	if err != nil {
+		t.Error(err)
+	}
+
+	// Set a watch trigger on regexp
+	err = instance.AddTrigger("abc123$", unix.IN_ONLYDIR|unix.IN_CREATE)
+	if err != nil {
+		t.Error(err)
+	}
+
+	d1 := filepath.Join(dir, "123abc")
+	err = os.MkdirAll(d1, 0777)
+
+	d2 := filepath.Join(dir, "abc123")
+	err = os.MkdirAll(d2, 0777)
+
+	time.Sleep(1 * time.Millisecond)
+
+	tmpfn1 := filepath.Join(d1, "file")
+	content := []byte("temporary file's content")
+	if err := ioutil.WriteFile(tmpfn1, content, 0666); err != nil {
+		t.Error(err)
+	}
+
+	tmpfn2 := filepath.Join(d2, "file")
+	if err := ioutil.WriteFile(tmpfn2, content, 0666); err != nil {
 		t.Error(err)
 	}
 
