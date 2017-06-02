@@ -18,6 +18,8 @@ import (
 	"unicode/utf8"
 )
 
+const dataChannelBufferSize = 32
+
 // Stream represents a stream consisting of a generator, zero or more
 // operators, and zero or one terminators. Consumers receive stream elements
 // from the Data channel and may terminate the stream by closing the Ctrl
@@ -58,7 +60,7 @@ func (s *Stream) Next() (interface{}, bool) {
 // Null creates a generator that doesn't create any output elements.
 func Null() *Stream {
 	ctrl := make(chan interface{})
-	data := make(chan interface{})
+	data := make(chan interface{}, dataChannelBufferSize)
 
 	go func() {
 		defer close(data)
@@ -83,7 +85,7 @@ func Null() *Stream {
 // strings from a pattern reminiscent of RFC864 chargen TCP/UDP services.
 func Chargen() *Stream {
 	ctrl := make(chan interface{})
-	data := make(chan interface{})
+	data := make(chan interface{}, dataChannelBufferSize)
 
 	go func() {
 		defer close(data)
@@ -122,7 +124,7 @@ func Chargen() *Stream {
 // the start and step value.
 func Iota(args ...uint64) *Stream {
 	ctrl := make(chan interface{})
-	data := make(chan interface{})
+	data := make(chan interface{}, dataChannelBufferSize)
 
 	go func() {
 		defer close(data)
@@ -169,7 +171,7 @@ func Iota(args ...uint64) *Stream {
 // 'tick' of the specified duration.
 func Ticker(d time.Duration) *Stream {
 	ctrl := make(chan interface{})
-	data := make(chan interface{})
+	data := make(chan interface{}, dataChannelBufferSize)
 
 	go func() {
 		defer close(data)
@@ -215,7 +217,7 @@ type DoFunc func(interface{})
 // Do adds an operator in the stream that calls the given function for
 // every element.
 func Do(in *Stream, f DoFunc) *Stream {
-	data := make(chan interface{})
+	data := make(chan interface{}, dataChannelBufferSize)
 
 	go func() {
 		defer close(data)
@@ -244,7 +246,7 @@ type MapFunc func(interface{}) interface{}
 // Map adds an operator in the stream that calls the given function for
 // every element and forwards along the returned value.
 func Map(in *Stream, f MapFunc) *Stream {
-	data := make(chan interface{})
+	data := make(chan interface{}, dataChannelBufferSize)
 
 	go func() {
 		defer close(data)
@@ -270,7 +272,7 @@ func Map(in *Stream, f MapFunc) *Stream {
 type FilterFunc func(interface{}) bool
 
 func Filter(in *Stream, f FilterFunc) *Stream {
-	data := make(chan interface{})
+	data := make(chan interface{}, dataChannelBufferSize)
 
 	go func() {
 		defer close(data)
@@ -299,7 +301,7 @@ func Filter(in *Stream, f FilterFunc) *Stream {
 // the Join closes the input streams as well.
 func Join(in ...*Stream) *Stream {
 	ctrl := make(chan interface{})
-	data := make(chan interface{})
+	data := make(chan interface{}, dataChannelBufferSize)
 
 	go func() {
 		cases := make([]reflect.SelectCase, len(in)+1)
@@ -359,8 +361,8 @@ func Demux(done <-chan struct{}, in <-chan interface{}, n uint, f DemuxFunc) {
 
 // Split splits the input stream by the given filter function
 func Split(in *Stream, f FilterFunc) (*Stream, *Stream) {
-	dataTrue := make(chan interface{})
-	dataFalse := make(chan interface{})
+	dataTrue := make(chan interface{}, dataChannelBufferSize)
+	dataFalse := make(chan interface{}, dataChannelBufferSize)
 
 	go func() {
 		defer close(dataTrue)
@@ -397,8 +399,8 @@ func Split(in *Stream, f FilterFunc) (*Stream, *Stream) {
 // Tee copies the input stream to a pair of output streams (like a T-shaped
 // junction)
 func Tee(in *Stream) (*Stream, *Stream) {
-	dataOne := make(chan interface{})
-	dataTwo := make(chan interface{})
+	dataOne := make(chan interface{}, dataChannelBufferSize)
+	dataTwo := make(chan interface{}, dataChannelBufferSize)
 
 	go func() {
 		defer close(dataOne)
@@ -436,7 +438,7 @@ func Copy(in *Stream, n int) []*Stream {
 	out := make([]*Stream, n)
 
 	for i := 0; i < n; i++ {
-		data[i] = make(chan interface{})
+		data[i] = make(chan interface{}, dataChannelBufferSize)
 
 		out[i] = &Stream{
 			Ctrl: in.Ctrl,
@@ -594,7 +596,7 @@ type ReduceFunc func(interface{}, interface{}) interface{}
 // Reduce adds a terminator onto the stream that accumulates a value using
 // the given function and then returns it once the input stream terminates.
 func Reduce(in *Stream, initVal interface{}, f ReduceFunc) chan interface{} {
-	data := make(chan interface{})
+	data := make(chan interface{}, dataChannelBufferSize)
 
 	go func() {
 		acc := initVal

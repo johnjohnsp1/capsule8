@@ -48,7 +48,11 @@ const (
 
 type dockerEvent struct {
 	ID         string
+	Name       string
+	ImageID    string
+	Image      string
 	State      dockerContainerState
+	Pid        int
 	ConfigJSON string
 }
 
@@ -99,7 +103,7 @@ type dockerConfigV2 struct {
 	State  dockerConfigState  `json:"State"`
 	Config dockerConfigConfig `json:"Config"`
 	// ...
-	LogPath string `json:"LogPath"`
+	Name string `json:"Name"`
 }
 
 // ----------------------------------------------------------------------------
@@ -134,9 +138,18 @@ func newDockerEventFromConfigData(configV2Json []byte) (*dockerEvent, error) {
 		state = 0
 	}
 
+	name := config.Name
+	imageID := config.Image
+	imageName := config.Config.Image
+	pid := config.State.Pid
+
 	return &dockerEvent{
 		ID:         config.ID,
+		Name:       name,
+		ImageID:    imageID,
+		Image:      imageName,
 		State:      state,
+		Pid:        pid,
 		ConfigJSON: string(configV2Json),
 	}, nil
 }

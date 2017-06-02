@@ -26,7 +26,7 @@ func NewSensor(selector event.Selector) (*stream.Stream, error) {
 	}
 
 	if selector.Container != nil {
-		s, err := container.NewContainerSensor(selector)
+		s, err := container.NewSensor(selector)
 		if err != nil {
 			return nil, err
 		}

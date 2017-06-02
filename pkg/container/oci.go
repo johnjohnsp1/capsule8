@@ -33,6 +33,7 @@ const (
 
 type ociEvent struct {
 	ID         string
+	Image      string
 	State      ociState
 	ConfigJSON string
 }
@@ -96,8 +97,6 @@ func onOciConfigDelete(configPath string) (*ociEvent, error) {
 }
 
 func (o *oci) onInotifyEvent(iev *inotify.Event) *ociEvent {
-	dir := filepath.Dir(iev.Path)
-
 	if iev.Name == "config.json" {
 		if iev.Mask&unix.IN_CLOSE_WRITE != 0 {
 			ev, _ := onOciConfigUpdate(iev.Path)
@@ -107,9 +106,6 @@ func (o *oci) onInotifyEvent(iev *inotify.Event) *ociEvent {
 			ev, _ := onOciConfigDelete(iev.Path)
 			return ev
 		}
-	} else if dir == ociConfig.OciContainerDir && len(iev.Name) == 64 {
-		mask := unix.IN_CLOSE_WRITE | unix.IN_DELETE
-		o.inotify.AddWatch(iev.Path, uint32(mask))
 	}
 
 	return nil

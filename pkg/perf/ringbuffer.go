@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"sync"
 	"sync/atomic"
 	"unsafe"
 
@@ -17,12 +18,13 @@ const numRingBufferPages = 1 + (1 << 0)
 type ringBuffer struct {
 	fd         int
 	sampleType uint64
+	readFormat uint64
 	memory     []byte
 	metadata   *metadata
 	data       []byte
 }
 
-func newRingBuffer(fd int, sampleType uint64) (*ringBuffer, error) {
+func newRingBuffer(fd int, sampleType uint64, readFormat uint64) (*ringBuffer, error) {
 	pageSize := os.Getpagesize()
 
 	memory, err := unix.Mmap(fd, 0, numRingBufferPages*pageSize, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
@@ -33,6 +35,7 @@ func newRingBuffer(fd int, sampleType uint64) (*ringBuffer, error) {
 	rb := new(ringBuffer)
 	rb.fd = fd
 	rb.sampleType = sampleType
+	rb.readFormat = readFormat
 	rb.memory = memory
 	rb.metadata = (*metadata)(unsafe.Pointer(&memory[0]))
 	rb.data = memory[os.Getpagesize():]
@@ -85,7 +88,7 @@ func (rb *ringBuffer) read(f func(*Event, error)) {
 
 		// Read all events in the buffer
 		for reader.Len() > 0 {
-			ev, err := readEvent(reader, rb.sampleType)
+			ev, err := readEvent(reader, rb.sampleType, rb.readFormat)
 
 			// Pass err to callback to notify caller of it.
 			f(ev, err)
@@ -100,5 +103,20 @@ func (rb *ringBuffer) read(f func(*Event, error)) {
 
 		// Update dataHead in case it has been advanced in the interim
 		dataHead = atomic.LoadUint64(&rb.metadata.DataHead)
+	}
+}
+
+func (rb *ringBuffer) readOnCond(cond *sync.Cond, fn func(*Event, error)) {
+	for {
+		cond.L.Lock()
+		cond.Wait()
+
+		if rb.memory != nil {
+			rb.read(fn)
+			cond.L.Unlock()
+		} else {
+			cond.L.Unlock()
+			break
+		}
 	}
 }

@@ -29,11 +29,8 @@ func disable(fd int) error {
 	return err
 }
 
-func open(attr EventAttr, pid int, cpu int, groupFd int, flags uintptr) (int, error) {
+func open(attr *EventAttr, pid int, cpu int, groupFd int, flags uintptr) (int, error) {
 	buf := new(bytes.Buffer)
-
-	// Force disabled
-	attr.Disabled = true
 
 	attr.write(buf)
 

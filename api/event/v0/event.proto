@@ -57,8 +57,14 @@ message ContainerEvent {
     CONTAINER_REMOVED = 4;
   }
 
-  string containerID = 1;
+  string         containerID = 1;
   ContainerState state = 2;
+
+  //
+  // The fields below are state-dependent and may not always be present
+  //
+
+  string         imageID = 3;
 
   // XXX: Fill in basic details common to docker and rkt
 }

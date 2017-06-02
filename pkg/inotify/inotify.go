@@ -1,6 +1,13 @@
 // Copyright 2017 Capsule8 Inc. All rights reserved.
 
+// Package inotify provides an interface to the Linux inotify(7) API
+// for monitoring filesystem events.
 package inotify
+
+//
+// Background on challenges with inotify(7):
+// https://lwn.net/Articles/605128/
+//
 
 import (
 	"bytes"

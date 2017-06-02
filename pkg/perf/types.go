@@ -36,6 +36,13 @@ const (
 )
 
 const (
+	PERF_FORMAT_TOTAL_TIME_ENABLED uint64 = 1 << iota
+	PERF_FORMAT_TOTAL_TIME_RUNNING
+	PERF_FORMAT_ID
+	PERF_FORMAT_GROUP
+)
+
+const (
 	PERF_RECORD_MISC_COMM_EXEC uint16 = (1 << 13)
 )
 
@@ -371,9 +378,55 @@ type Fork struct {
 	Time uint64
 }
 
+type Value struct {
+	ID    uint64
+	Value uint64
+}
+
+type EventValues struct {
+	TimeEnabled uint64
+	TimeRunning uint64
+	Values      []Value
+}
+
+type BranchEntry struct {
+	From      uint64
+	To        uint64
+	Mispred   bool
+	Predicted bool
+	InTx      bool
+	Abort     bool
+	Cycles    uint16
+}
+
+type Sample struct {
+	SampleID    uint64
+	IP          uint64
+	Pid         uint32
+	Tid         uint32
+	Time        uint64
+	Addr        uint64
+	ID          uint64
+	StreamID    uint64
+	CPU         uint32
+	Period      uint64
+	V           EventValues
+	IPs         []uint64
+	RawData     []byte
+	Branches    []BranchEntry
+	UserABI     uint64
+	UserRegs    []uint64
+	StackData   []uint64
+	Weight      uint64
+	DataSrc     uint64
+	Transaction uint64
+	IntrABI     uint64
+	IntrRegs    []uint64
+}
+
 // ----------------------------------------------------------------------------
 
-func readEvent(reader *bytes.Reader, sampleType uint64) (*Event, error) {
+func readEvent(reader *bytes.Reader, sampleType uint64, readFormat uint64) (*Event, error) {
 	h := new(EventHeader)
 	err := binary.Read(reader, binary.LittleEndian, h)
 	if err != nil {
@@ -449,6 +502,17 @@ func readEvent(reader *bytes.Reader, sampleType uint64) (*Event, error) {
 			SampleID:    *sid,
 		}, nil
 
+	case PERF_RECORD_SAMPLE:
+		// NB: PERF_RECORD_SAMPLE does not include a trailing
+		// SampleID, even if SampleIDAll is true.
+
+		sample := readSample(reader, sampleType, readFormat)
+
+		return &Event{
+			EventHeader: *h,
+			Data:        sample,
+		}, nil
+
 	default:
 		// Read the rest of the record
 		recordSize := h.Size - uint16(unsafe.Sizeof(h))
@@ -467,6 +531,198 @@ func readEvent(reader *bytes.Reader, sampleType uint64) (*Event, error) {
 
 		return record, nil
 	}
+}
+
+func readEventValues(reader *bytes.Reader, readFormat uint64) (*EventValues, error) {
+	var err error
+
+	if (readFormat & PERF_FORMAT_GROUP) != 0 {
+		ev := &EventValues{}
+
+		var nr uint64
+		err = binary.Read(reader, binary.LittleEndian, &nr)
+		if err != nil {
+			return nil, err
+		}
+
+		if (readFormat & PERF_FORMAT_TOTAL_TIME_ENABLED) != 0 {
+			err = binary.Read(reader, binary.LittleEndian,
+				&ev.TimeEnabled)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if (readFormat & PERF_FORMAT_TOTAL_TIME_RUNNING) != 0 {
+			err = binary.Read(reader, binary.LittleEndian,
+				&ev.TimeRunning)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		var values []Value
+
+		for i := uint64(0); i < nr; i++ {
+			value := Value{}
+			err = binary.Read(reader, binary.LittleEndian,
+				&value.Value)
+			if err != nil {
+				return nil, err
+			}
+
+			if (readFormat & PERF_FORMAT_ID) != 0 {
+				err = binary.Read(reader, binary.LittleEndian, &value.ID)
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			values = append(values, value)
+		}
+
+		return ev, nil
+	}
+
+	ev := &EventValues{}
+	value := Value{}
+
+	err = binary.Read(reader, binary.LittleEndian, &value.Value)
+	if err != nil {
+		return nil, err
+	}
+
+	if (readFormat & PERF_FORMAT_TOTAL_TIME_ENABLED) != 0 {
+		err = binary.Read(reader, binary.LittleEndian,
+			&ev.TimeEnabled)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if (readFormat & PERF_FORMAT_TOTAL_TIME_RUNNING) != 0 {
+		err = binary.Read(reader, binary.LittleEndian,
+			&ev.TimeRunning)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if (readFormat & PERF_FORMAT_ID) != 0 {
+		err = binary.Read(reader, binary.LittleEndian, &value.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	ev.Values = append(ev.Values, value)
+	return ev, nil
+}
+
+func readSample(reader *bytes.Reader, sampleType uint64, readFormat uint64) *Sample {
+	s := new(Sample)
+
+	if (sampleType & PERF_SAMPLE_IDENTIFIER) != 0 {
+		binary.Read(reader, binary.LittleEndian, &s.SampleID)
+	}
+
+	if (sampleType & PERF_SAMPLE_IP) != 0 {
+		binary.Read(reader, binary.LittleEndian, &s.IP)
+	}
+
+	if (sampleType & PERF_SAMPLE_TID) != 0 {
+		binary.Read(reader, binary.LittleEndian, &s.Pid)
+		binary.Read(reader, binary.LittleEndian, &s.Tid)
+	}
+
+	if (sampleType & PERF_SAMPLE_TIME) != 0 {
+		binary.Read(reader, binary.LittleEndian, &s.Time)
+	}
+
+	if (sampleType & PERF_SAMPLE_ADDR) != 0 {
+		binary.Read(reader, binary.LittleEndian, &s.Addr)
+	}
+
+	if (sampleType & PERF_SAMPLE_ID) != 0 {
+		binary.Read(reader, binary.LittleEndian, &s.ID)
+	}
+
+	if (sampleType & PERF_SAMPLE_STREAM_ID) != 0 {
+		binary.Read(reader, binary.LittleEndian, &s.StreamID)
+	}
+
+	if (sampleType & PERF_SAMPLE_CPU) != 0 {
+		res := uint32(0)
+
+		binary.Read(reader, binary.LittleEndian, &s.CPU)
+		binary.Read(reader, binary.LittleEndian, &res)
+	}
+
+	if (sampleType & PERF_SAMPLE_PERIOD) != 0 {
+		binary.Read(reader, binary.LittleEndian, &s.Period)
+	}
+
+	if (sampleType & PERF_SAMPLE_READ) != 0 {
+		readEventValues(reader, readFormat)
+	}
+
+	if (sampleType & PERF_SAMPLE_CALLCHAIN) != 0 {
+		var nr uint64
+
+		binary.Read(reader, binary.LittleEndian, &nr)
+
+		for i := uint64(0); i < nr; i++ {
+			var ip uint64
+			binary.Read(reader, binary.LittleEndian, &ip)
+			s.IPs = append(s.IPs, ip)
+		}
+
+	}
+
+	if (sampleType & PERF_SAMPLE_RAW) != 0 {
+		rawDataSize := uint32(0)
+		binary.Read(reader, binary.LittleEndian, &rawDataSize)
+		s.RawData = make([]byte, rawDataSize)
+		binary.Read(reader, binary.LittleEndian, s.RawData)
+	}
+
+	if (sampleType & PERF_SAMPLE_BRANCH_STACK) != 0 {
+		bnr := uint64(0)
+		binary.Read(reader, binary.LittleEndian, &bnr)
+
+		for i := uint64(0); i < bnr; i++ {
+			var pbe struct {
+				from  uint64
+				to    uint64
+				flags uint64
+			}
+			binary.Read(reader, binary.LittleEndian, &pbe)
+
+			branchEntry := BranchEntry{
+				From:      pbe.from,
+				To:        pbe.to,
+				Mispred:   (pbe.flags&(1<<0) != 0),
+				Predicted: (pbe.flags&(1<<1) != 0),
+				InTx:      (pbe.flags&(1<<3) != 0),
+				Abort:     (pbe.flags&(1<<4) != 0),
+				Cycles:    uint16((pbe.flags & 0xff0) >> 4),
+			}
+
+			s.Branches = append(s.Branches, branchEntry)
+		}
+	}
+
+	if (sampleType&PERF_SAMPLE_REGS_USER) != 0 ||
+		(sampleType&PERF_SAMPLE_STACK_USER) != 0 ||
+		(sampleType&PERF_SAMPLE_WEIGHT) != 0 ||
+		(sampleType&PERF_SAMPLE_DATA_SRC) != 0 ||
+		(sampleType&PERF_SAMPLE_TRANSACTION) != 0 ||
+		(sampleType&PERF_SAMPLE_REGS_INTR) != 0 {
+
+		panic("PERF_RECORD_SAMPLE field parsing not implemented")
+	}
+
+	return s
 }
 
 func readSampleID(reader *bytes.Reader, sampleType uint64) *SampleID {
