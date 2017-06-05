@@ -9,35 +9,62 @@ import (
 
 	"os"
 
-	event "github.com/capsule8/reactive8/pkg/api/event"
+	"github.com/capsule8/reactive8/pkg/api/event"
 	"github.com/capsule8/reactive8/pkg/sensor"
-	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/proto"
+	"github.com/kelseyhightower/envconfig"
 	nats "github.com/nats-io/go-nats"
 	stan "github.com/nats-io/go-nats-streaming"
 	"github.com/nats-io/go-nats/encoders/protobuf"
 )
+
+type sensorConfig struct {
+	StanClusterName     string `default:"test-cluster"`
+	NatsURL             string `default:"nats://localhost:4222"`
+	SubscriptionTimeout int64  `default:"5"` // Default to a subscription timeout of 5 seconds
+}
 
 type subscriptionMetadata struct {
 	lastSeen     int64 // Unix timestamp w/ second level precision of when sub was last seen
 	subscription *event.Subscription
 }
 
+var Config sensorConfig
+
+// Map of subscription ID -> client ID -> Subscription metadata
+var subscriptions = make(map[string]map[string]*subscriptionMetadata)
+
+// Map of subscription ID -> sensor stop channel
+var sensorStopChans = make(map[string]chan interface{})
+
 func main() {
 	log.Println("[NODE-SENSOR] starting up")
-	// Map of subscription ID -> client ID -> Subscription metadata
-	subscriptions := make(map[string]map[string]*subscriptionMetadata)
-	// Map of subscription ID -> sensor stop channel
-	sensorStopChans := make(map[string]chan interface{})
+	LoadConfig("sensor")
+	StartSensor()
+	log.Println("[NODE-SENSOR] started")
+	// Blocking call to remove stale subscriptions on a 5 second interval
+	RemoveStaleSubscriptions()
+}
 
+// LoadConfig loads env vars into config with prefix `name`
+func LoadConfig(name string) {
+	err := envconfig.Process(name, &Config)
+	if err != nil {
+		log.Fatal("Failed to read env vars:", err)
+	}
+}
+
+// StartSensor starts the async subscription listener
+func StartSensor() {
 	hostname, _ := os.Hostname()
-	stanConn, err := stan.Connect("test-cluster", fmt.Sprintf("node-sensor_%s", hostname))
+	stanConn, err := stan.Connect(Config.StanClusterName, fmt.Sprintf("node-sensor_%s", hostname), stan.NatsURL(Config.NatsURL))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Couldn't connect to STAN cluster: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Listen for subscriptions
-	natsConn, err := nats.Connect(nats.DefaultURL)
+	natsConn, err := nats.Connect(Config.NatsURL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect to NATS: %v\n", err)
 		os.Exit(1)
@@ -67,34 +94,35 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to listen for new subscriptions:", err)
 	}
+}
 
-	log.Println("[NODE-SENSOR] started")
-	// Remove stale subscriptions on a 5 second interval
+// RemoveStaleSubscriptions is a blocking call that removes stale subscriptions @ `SubscriptionTimeout` interval
+func RemoveStaleSubscriptions() {
 	for {
 		// Need a double loop to iterate over subscription ID -> client ID -> subscription
 		now := time.Now().Unix()
-		for subscriptionId, clientMap := range subscriptions {
-			for clientId, subscription := range clientMap {
+		for subscriptionID, clientMap := range subscriptions {
+			for clientID, subscription := range clientMap {
 				// Close and remove the subscription if the sub is stale
-				if now-subscription.lastSeen >= 5 {
-					delete(clientMap, clientId)
+				if now-subscription.lastSeen >= Config.SubscriptionTimeout {
+					delete(clientMap, clientID)
 				}
 			}
 
 			// Delete subscription if there are no clients subscribed for it
 			// and clean up sensor broadcasting to `SUBSCRIPTION ID`
 			if len(clientMap) == 0 {
-				delete(subscriptions, subscriptionId)
-				close(sensorStopChans[subscriptionId])
-				delete(sensorStopChans, subscriptionId)
+				delete(subscriptions, subscriptionID)
+				close(sensorStopChans[subscriptionID])
+				delete(sensorStopChans, subscriptionID)
 			}
 
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(time.Duration(Config.SubscriptionTimeout) * time.Second)
 	}
 }
 
-func newSensor(conn stan.Conn, selector event.Selector, subscriptionId string) chan interface{} {
+func newSensor(conn stan.Conn, selector event.Selector, subscriptionID string) chan interface{} {
 	stopChan := make(chan interface{})
 
 	// Create the sensors
@@ -111,19 +139,18 @@ func newSensor(conn stan.Conn, selector event.Selector, subscriptionId string) c
 			// Stop the send loop
 			case <-stopChan:
 				break sendLoop
-			default:
-				ev, ok := stream.Next()
+			case ev, ok := <-stream.Data:
 				if !ok {
 					fmt.Fprint(os.Stderr, "Failed to get next event.")
 					continue sendLoop
 				}
-				log.Println("Received event:", ev)
+				log.Println("Sending event:", ev)
 
 				data, err := proto.Marshal(ev.(*event.Event))
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Failed to marshal event data: %v\n", err)
 				}
-				conn.Publish(fmt.Sprintf("event.%s", subscriptionId), data)
+				conn.Publish(fmt.Sprintf("event.%s", subscriptionID), data)
 			}
 		}
 	}()
