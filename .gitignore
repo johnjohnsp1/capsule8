@@ -24,3 +24,6 @@ pkg/api/
 
 # Generated protobuf readme
 readme.txt
+
+# Compiled binaries
+dist/*

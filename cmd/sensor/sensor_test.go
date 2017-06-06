@@ -16,8 +16,8 @@ import (
 	"github.com/nats-io/nats-streaming-server/test"
 )
 
-var NATS_PORT = 4223                      // Default NATS port is 4222, let's use 4223 to avoid conflicts
-var STAN_CLUSTER_NAME = "nottest-cluster" //  Not test cluster ID to avoid conflicts w/ "test-cluster" default.
+var NATS_PORT = 4223                        // Default NATS port is 4222, let's use 4223 to avoid conflicts
+var STAN_CLUSTER_NAME = "test-c8-backplane" //  Not test cluster ID to avoid conflicts w/ "c8-backplane" default.
 
 func TestMain(m *testing.M) {
 	// Start STAN/NATS server for testing

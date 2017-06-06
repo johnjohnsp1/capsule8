@@ -2,8 +2,8 @@
 
 syntax = "proto3";
 
-package capsule8.event.v0;
-option go_package = "github.com/capsule8/reactive8/pkg/api/event";
+package capsule8.apiserver.v0;
+option go_package = "github.com/capsule8/reactive8/pkg/api/apiserver";
 
 // Client acknowledgements of the receipt of messages
 message Ack {

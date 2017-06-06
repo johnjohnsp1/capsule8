@@ -9,6 +9,7 @@ import (
 
 	"os"
 
+	"github.com/capsule8/reactive8/pkg/api/apiserver"
 	"github.com/capsule8/reactive8/pkg/api/event"
 	"github.com/capsule8/reactive8/pkg/sensor"
 	"github.com/golang/protobuf/proto"
@@ -19,7 +20,7 @@ import (
 )
 
 type sensorConfig struct {
-	StanClusterName     string `default:"test-cluster"`
+	StanClusterName     string `default:"c8-backplane"`
 	NatsURL             string `default:"nats://localhost:4222"`
 	SubscriptionTimeout int64  `default:"5"` // Default to a subscription timeout of 5 seconds
 }
@@ -70,7 +71,7 @@ func StartSensor() {
 		os.Exit(1)
 	}
 	ec, _ := nats.NewEncodedConn(natsConn, protobuf.PROTOBUF_ENCODER)
-	_, err = ec.Subscribe("subscription.*", func(hb *event.SubscriptionHeartbeat) {
+	_, err = ec.Subscribe("subscription.*", func(hb *apiserver.SubscriptionHeartbeat) {
 		// TODO: Filter subscriptions based on cluster/node information
 		// New subscription?
 		if _, ok := subscriptions[hb.SubscriptionId]; !ok {
