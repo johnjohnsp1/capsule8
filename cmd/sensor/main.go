@@ -145,7 +145,7 @@ func newSensor(conn stan.Conn, selector event.Selector, subscriptionID string) c
 					fmt.Fprint(os.Stderr, "Failed to get next event.")
 					continue sendLoop
 				}
-				log.Println("Sending event:", ev)
+				//log.Println("Sending event:", ev)
 
 				data, err := proto.Marshal(ev.(*event.Event))
 				if err != nil {
