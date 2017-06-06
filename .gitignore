@@ -27,3 +27,6 @@ readme.txt
 
 # Compiled binaries
 dist/*
+
+# Ignore log files
+*.log
