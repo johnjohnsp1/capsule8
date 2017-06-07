@@ -11,7 +11,7 @@ import (
 // Configure Process Monitor based on the Process Filter
 // Configure Sensors based on the Selectors
 
-func NewSensor(selector event.Selector) (*stream.Stream, error) {
+func NewSensor(selector event.Selector, modifier event.Modifier) (*stream.Stream, error) {
 	streams := make([]*stream.Stream, 0)
 
 	//
@@ -46,5 +46,17 @@ func NewSensor(selector event.Selector) (*stream.Stream, error) {
 	//
 	// Return a single output stream consisting of all sensor streams.
 	//
-	return stream.Join(streams...), nil
+	return applyModifiers(stream.Join(streams...), modifier), nil
+}
+
+func applyModifiers(strm *stream.Stream, modifier event.Modifier) *stream.Stream {
+	if modifier.Throttle != nil {
+		strm = stream.Throttle(strm, *modifier.Throttle)
+	}
+
+	if modifier.Limit != nil {
+		strm = stream.Limit(strm, *modifier.Limit)
+	}
+
+	return strm
 }

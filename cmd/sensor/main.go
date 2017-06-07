@@ -73,10 +73,16 @@ func StartSensor() {
 	ec, _ := nats.NewEncodedConn(natsConn, protobuf.PROTOBUF_ENCODER)
 	_, err = ec.Subscribe("subscription.*", func(hb *apiserver.SubscriptionHeartbeat) {
 		// TODO: Filter subscriptions based on cluster/node information
+
+		// Check if there is actually a `Selector` in the request. If not, ignore.
+		if hb.Subscription.Selector == nil {
+			return
+		}
+
 		// New subscription?
 		if _, ok := subscriptions[hb.SubscriptionId]; !ok {
 			subscriptions[hb.SubscriptionId] = make(map[string]*subscriptionMetadata)
-			stopChan := newSensor(stanConn, *hb.Subscription.Selector, hb.SubscriptionId)
+			stopChan := newSensor(stanConn, hb.Subscription, hb.SubscriptionId)
 			sensorStopChans[hb.SubscriptionId] = stopChan
 		}
 
@@ -123,11 +129,15 @@ func RemoveStaleSubscriptions() {
 	}
 }
 
-func newSensor(conn stan.Conn, selector event.Selector, subscriptionID string) chan interface{} {
+func newSensor(conn stan.Conn, sub *event.Subscription, subscriptionID string) chan interface{} {
 	stopChan := make(chan interface{})
 
-	// Create the sensors
-	stream, err := sensor.NewSensor(selector)
+	// Handle optional subscription arguments
+	modifier := sub.Modifier
+	if modifier == nil {
+		modifier = &event.Modifier{}
+	}
+	stream, err := sensor.NewSensor(*sub.Selector, *modifier)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Couldn't start Sensor: %v\n", err)
 		os.Exit(1)

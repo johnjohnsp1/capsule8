@@ -19,6 +19,10 @@ message Subscription {
     // Optional. If not set, the subscription is a no-op and doesn't receive
     // any events.
     Selector selector = 2;
+
+    // Optional. If not set, the subscription stream emits events "as is" with
+    // no modifications.
+    Modifier modifier = 3;
 }
 
 //
@@ -128,4 +132,29 @@ message FileEventSelector {
 
 message NetworkEventSelector {
     // 
+}
+
+
+//
+// Modifier specifies which stream modifiers to apply if any. For a given stream,
+// a modifier can apply a throttle or limit etc. Modifiers can be used together.
+//
+message Modifier {
+    ThrottleModifier throttle = 1;
+    LimitModifier limit = 2;
+}
+
+message ThrottleModifier {
+    int64 interval = 1;
+    enum IntervalType {
+        MILLISECOND = 0;
+        SECOND = 1;
+        MINUTE = 2;
+        HOUR = 3;
+    }
+    IntervalType interval_type = 2;
+}
+
+message LimitModifier {
+    int64 limit = 1;
 }

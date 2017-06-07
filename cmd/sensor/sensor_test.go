@@ -58,6 +58,11 @@ func TestCreateSubscription(t *testing.T) {
 					Length: 1,
 				},
 			},
+			Modifier: &event.Modifier{
+				Limit: &event.LimitModifier{
+					Limit: 1,
+				},
+			},
 		},
 	})
 

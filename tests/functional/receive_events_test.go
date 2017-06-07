@@ -30,6 +30,11 @@ func TestReceiveEvents(t *testing.T) {
 					Length: 1,
 				},
 			},
+			Modifier: &event.Modifier{
+				Limit: &event.LimitModifier{
+					Limit: 1,
+				},
+			},
 		},
 	})
 
@@ -44,11 +49,11 @@ func TestReceiveEvents(t *testing.T) {
 
 		msgs <- ev
 
-		//stream.Send(&event.ReceiveEventsRequest{
-		//	Acks: [][]byte{
-		//		ev.Ack,
-		//	},
-		//})
+		stream.Send(&event.ReceiveEventsRequest{
+			Acks: [][]byte{
+				ev.Ack,
+			},
+		})
 	}()
 
 	select {
