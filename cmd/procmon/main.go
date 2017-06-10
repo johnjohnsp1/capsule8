@@ -4,7 +4,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 
 	"fmt"
 
@@ -23,6 +22,8 @@ var config struct {
 }
 
 func init() {
+	log.SetFlags(log.LUTC | log.Llongfile | log.Lmicroseconds)
+
 	flag.StringVar(&config.cgroup, "cgroup", "",
 		"cgroup to monitor")
 	flag.StringVar(&config.image, "image", "",
@@ -32,6 +33,8 @@ func init() {
 }
 
 func setupEventStreams(joiner *stream.Joiner) {
+	defer joiner.Close()
+
 	if len(config.cgroup) > 0 {
 		s, err := process.NewEventStreamForCgroup(config.cgroup)
 		if err != nil {
@@ -40,14 +43,14 @@ func setupEventStreams(joiner *stream.Joiner) {
 
 		joiner.Add(s)
 	} else if len(config.image) > 0 {
-		fmt.Printf("Watching processes for container images matching %s\n", config.image)
+		fmt.Printf("Watching for containers running image %s\n",
+			config.image)
 
 		g := glob.MustCompile(config.image)
 
 		// First we get a container event stream to listen for container
 		// launches of interest
-		containerEvents, err := container.NewEventStream()
-		defer containerEvents.Close()
+		cEvents, err := container.NewEventStream()
 
 		if err != nil {
 			fmt.Fprintf(os.Stderr,
@@ -55,25 +58,49 @@ func setupEventStreams(joiner *stream.Joiner) {
 			os.Exit(1)
 		}
 
-		matchedContainers :=
-			stream.Filter(containerEvents, func(e interface{}) bool {
-				cEv := e.(*container.Event)
+		containers := make(map[string]int)
 
-				return (cEv.State == container.ContainerStarted) && g.Match(cEv.Image)
-			})
-
-		stream.ForEach(matchedContainers, func(e interface{}) {
+		matched := stream.Filter(cEvents, func(e interface{}) bool {
 			cEv := e.(*container.Event)
-			cgroup := filepath.Join("docker", cEv.ID)
 
-			s, err := process.NewEventStreamForCgroup(cgroup)
-			if err != nil {
-				log.Fatal(err)
+			if g.Match(cEv.Image) {
+				if cEv.Pid > 0 {
+					containers[cEv.ID] = int(cEv.Pid)
+				} else {
+					containers[cEv.ID] = -1
+				}
+
+				return true
+			} else if containers[cEv.ID] != 0 {
+				return true
+			} else if cEv.State == container.ContainerStopped {
+				delete(containers, cEv.ID)
+
+				return true
 			}
 
-			ok := joiner.Add(s)
-			if !ok {
-				log.Fatal("Could not add to joiner")
+			return false
+		})
+
+		a, b := stream.Tee(matched)
+
+		joiner.Add(a)
+
+		stream.ForEach(b, func(e interface{}) {
+			cEv := e.(*container.Event)
+
+			if containers[cEv.ID] != 0 && len(cEv.Cgroup) > 0 {
+				cg := cEv.Cgroup
+
+				s, err := process.NewEventStreamForCgroup(cg)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				ok := joiner.Add(s)
+				if !ok {
+					log.Fatal("Could not add to joiner")
+				}
 			}
 		})
 	} else if config.pid > 0 {
@@ -96,8 +123,6 @@ func setupEventStreams(joiner *stream.Joiner) {
 	signals := make(chan os.Signal)
 	signal.Notify(signals, os.Interrupt)
 	<-signals
-
-	joiner.Close()
 }
 
 func main() {

@@ -451,12 +451,12 @@ func NewInstance() (*Instance, error) {
 	go func() {
 		err := is.pollLoop()
 		if err != nil {
-			log.Fatal(err)
+			log.Printf("Poll loop exited with error: %v", err)
 		}
 
 		err = unix.Close(is.fd)
 		if err != nil {
-			log.Fatal(err)
+			log.Printf("Error closing inotify fd: %v", err)
 		}
 
 		close(is.errc)

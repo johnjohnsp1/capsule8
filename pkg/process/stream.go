@@ -3,13 +3,11 @@ package process
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"log"
-	"os"
 	"sync"
+	"sync/atomic"
 
 	"encoding/binary"
-	"encoding/hex"
 
 	"github.com/capsule8/reactive8/pkg/perf"
 	"github.com/capsule8/reactive8/pkg/stream"
@@ -42,25 +40,6 @@ type processStream struct {
 	data        chan interface{}
 	eventStream *stream.Stream
 	perf        *perf.Perf
-}
-
-func (ps *processStream) runControlLoop() {
-	for {
-		select {
-		case e, ok := <-ps.ctrl:
-			if ok {
-				enable := e.(bool)
-				if enable {
-					ps.perf.Enable()
-				} else {
-					ps.perf.Disable()
-				}
-			} else {
-				ps.perf.Close()
-				return
-			}
-		}
-	}
 }
 
 /*
@@ -132,6 +111,20 @@ func readSchedProcessForkTracepointData(data []byte) (*schedProcessForkEvent, er
 		ParentPid:    format.ParentPid,
 		ChildComm:    childComm,
 		ChildPid:     format.ChildPid,
+	}, nil
+}
+
+func decodeSchedProcessFork(sample *perf.Sample) (*Event, error) {
+	tpEv, err := readSchedProcessForkTracepointData(sample.RawData)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Event{
+		State:   ProcessFork,
+		Pid:     uint32(tpEv.Pid),
+		Counter: sample.Time,
+		ForkPid: uint32(tpEv.ChildPid),
 	}, nil
 }
 
@@ -210,6 +203,21 @@ func readSchedProcessExecTracepointData(data []byte) (*schedProcessExecEvent, er
 	return ev, nil
 }
 
+func decodeSchedProcessExec(sample *perf.Sample) (*Event, error) {
+	tpEv, err := readSchedProcessExecTracepointData(sample.RawData)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Event{
+		State:        ProcessExec,
+		Pid:          uint32(tpEv.Pid),
+		Counter:      sample.Time,
+		ExecFilename: tpEv.Filename,
+	}, nil
+
+}
+
 /*
 # cat /sys/kernel/debug/tracing/events/syscalls/sys_enter_exit_group/format
 name: sys_enter_exit_group
@@ -246,14 +254,31 @@ func readSysEnterExitGroupTracepointData(data []byte) (*sysEnterExitGroupEvent, 
 		return nil, err
 	}
 
-	if ev.Type != 120 {
-		return nil, errors.New("Unexpected type in tracepoint data")
-	}
-
 	return &ev, nil
 }
 
+func decodeSysEnterExitGroup(sample *perf.Sample) (*Event, error) {
+	tpEv, err := readSysEnterExitGroupTracepointData(sample.RawData)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Event{
+		State:      ProcessExit,
+		Pid:        uint32(tpEv.Pid),
+		Counter:    sample.Time,
+		ExitStatus: tpEv.ErrorCode,
+	}, nil
+}
+
 // -----------------------------------------------------------------------------
+
+type tracepointDecoderFn func(*perf.Sample) (*Event, error)
+
+var tracepointDecoders struct {
+	mu       sync.Mutex
+	decoders atomic.Value // map[uint16]tracepointDecoderFn
+}
 
 func (ps *processStream) processSample(sample *perf.Sample) (*Event, error) {
 	var tracepointEventType uint16
@@ -261,51 +286,11 @@ func (ps *processStream) processSample(sample *perf.Sample) (*Event, error) {
 	reader := bytes.NewReader(sample.RawData)
 	binary.Read(reader, binary.LittleEndian, &tracepointEventType)
 
-	switch tracepointEventType {
-	case 120:
-		tpEv, err := readSysEnterExitGroupTracepointData(sample.RawData)
-		if err != nil {
-			return nil, err
-		}
-
-		return &Event{
-			State:      ProcessExit,
-			Pid:        uint32(tpEv.Pid),
-			Counter:    sample.Time,
-			ExitStatus: tpEv.ErrorCode,
-		}, nil
-
-	case 283:
-		tpEv, err := readSchedProcessExecTracepointData(sample.RawData)
-		if err != nil {
-			return nil, err
-		}
-
-		return &Event{
-			State:        ProcessExec,
-			Pid:          uint32(tpEv.Pid),
-			Counter:      sample.Time,
-			ExecFilename: tpEv.Filename,
-		}, nil
-
-	case 284:
-		if sample.Pid == sample.Tid {
-
-			tpEv, err := readSchedProcessForkTracepointData(sample.RawData)
-			if err != nil {
-				return nil, err
-			}
-
-			return &Event{
-				State:   ProcessFork,
-				Pid:     uint32(tpEv.Pid),
-				Counter: sample.Time,
-				ForkPid: uint32(tpEv.ChildPid),
-			}, nil
-		}
-
-	default:
-		fmt.Fprintf(os.Stderr, "%s\n", hex.Dump(sample.RawData))
+	val := tracepointDecoders.decoders.Load()
+	decoders := val.(map[uint16]tracepointDecoderFn)
+	decoder := decoders[tracepointEventType]
+	if decoder != nil {
+		return decoder(sample)
 	}
 
 	return nil, nil
@@ -342,6 +327,25 @@ func (ps *processStream) processPerfEvent(perfEv *perf.Event, err error) {
 	}
 }
 
+func (ps *processStream) runControlLoop() {
+	for {
+		select {
+		case e, ok := <-ps.ctrl:
+			if ok {
+				enable := e.(bool)
+				if enable {
+					ps.perf.Enable()
+				} else {
+					ps.perf.Disable()
+				}
+			} else {
+				ps.perf.Close()
+				return
+			}
+		}
+	}
+}
+
 func (ps *processStream) runDataLoop() {
 	ps.perf.Enable()
 
@@ -350,59 +354,6 @@ func (ps *processStream) runDataLoop() {
 
 	// Perf loop terminated, we won't be sending any more events
 	close(ps.data)
-}
-
-func createEventAttrs() []*perf.EventAttr {
-	//
-	// TODO:
-	//
-	// - filter out thread creation from proc creation forks()
-	//
-	// - sched_signal_send/signal_generate/signal_delvier to capture
-	// signaled processes (to/from)
-	//
-	// - cgroup_attach_task?
-	//
-
-	sampleType :=
-		perf.PERF_SAMPLE_TID | perf.PERF_SAMPLE_TIME |
-			perf.PERF_SAMPLE_CPU | perf.PERF_SAMPLE_RAW
-
-	eventAttrs := []*perf.EventAttr{
-		&perf.EventAttr{
-			Type:            perf.PERF_TYPE_TRACEPOINT,
-			Config:          120, // syscalls:sys_enter_exit_group
-			SampleType:      sampleType,
-			Inherit:         true,
-			SampleIDAll:     true,
-			SamplePeriod:    1,
-			Watermark:       true,
-			WakeupWatermark: 1,
-		},
-		&perf.EventAttr{
-			Type:            perf.PERF_TYPE_TRACEPOINT,
-			Config:          283, // sched:sched_process_exec
-			SampleType:      sampleType,
-			Inherit:         true,
-			SampleIDAll:     true,
-			SamplePeriod:    1,
-			Watermark:       true,
-			WakeupWatermark: 1,
-		},
-
-		&perf.EventAttr{
-			Type:            perf.PERF_TYPE_TRACEPOINT,
-			Config:          284, // sched:sched_process_fork
-			SampleType:      sampleType,
-			Inherit:         true,
-			SampleIDAll:     true,
-			SamplePeriod:    1,
-			Watermark:       true,
-			WakeupWatermark: 1,
-		},
-	}
-
-	return eventAttrs
 }
 
 func createStream(p *perf.Perf) (*stream.Stream, error) {
@@ -425,6 +376,88 @@ func createStream(p *perf.Perf) (*stream.Stream, error) {
 	return proc.eventStream, nil
 }
 
+func createEventAttrs() []*perf.EventAttr {
+	//
+	// TODO:
+	//
+	// - filter out thread creation from proc creation forks()
+	//
+	// - sched_signal_send/signal_generate/signal_delvier to capture
+	// signaled processes (to/from)
+	//
+	// - cgroup_attach_task?
+	//
+
+	sysEnterExitGroupID, _ :=
+		perf.GetTraceEventID("syscalls/sys_enter_exit_group")
+	schedProcessExecID, _ :=
+		perf.GetTraceEventID("sched/sched_process_exec")
+	schedProcessForkID, _ :=
+		perf.GetTraceEventID("sched/sched_process_fork")
+
+	if sysEnterExitGroupID == 0 ||
+		schedProcessExecID == 0 ||
+		schedProcessForkID == 0 {
+
+		return nil
+	}
+
+	tracepointDecoders.mu.Lock()
+	var val = tracepointDecoders.decoders.Load()
+	if val == nil {
+		decoders := make(map[uint16]tracepointDecoderFn)
+
+		decoders[sysEnterExitGroupID] = decodeSysEnterExitGroup
+
+		decoders[schedProcessExecID] = decodeSchedProcessExec
+
+		decoders[schedProcessForkID] = decodeSchedProcessFork
+
+		tracepointDecoders.decoders.Store(decoders)
+	}
+	tracepointDecoders.mu.Unlock()
+
+	sampleType :=
+		perf.PERF_SAMPLE_TID | perf.PERF_SAMPLE_TIME |
+			perf.PERF_SAMPLE_CPU | perf.PERF_SAMPLE_RAW
+
+	eventAttrs := []*perf.EventAttr{
+		&perf.EventAttr{
+			Type:            perf.PERF_TYPE_TRACEPOINT,
+			Config:          uint64(sysEnterExitGroupID),
+			SampleType:      sampleType,
+			Inherit:         true,
+			SampleIDAll:     true,
+			SamplePeriod:    1,
+			Watermark:       true,
+			WakeupWatermark: 1,
+		},
+		&perf.EventAttr{
+			Type:            perf.PERF_TYPE_TRACEPOINT,
+			Config:          uint64(schedProcessExecID),
+			SampleType:      sampleType,
+			Inherit:         true,
+			SampleIDAll:     true,
+			SamplePeriod:    1,
+			Watermark:       true,
+			WakeupWatermark: 1,
+		},
+
+		&perf.EventAttr{
+			Type:            perf.PERF_TYPE_TRACEPOINT,
+			Config:          uint64(schedProcessForkID),
+			SampleType:      sampleType,
+			Inherit:         true,
+			SampleIDAll:     true,
+			SamplePeriod:    1,
+			Watermark:       true,
+			WakeupWatermark: 1,
+		},
+	}
+
+	return eventAttrs
+}
+
 func newPidStream(args ...int) (*stream.Stream, error) {
 	var pid int
 
@@ -437,10 +470,16 @@ func newPidStream(args ...int) (*stream.Stream, error) {
 	}
 
 	eventAttrs := createEventAttrs()
+	if eventAttrs == nil {
+		err := errors.New("Couldn't create perf.EventAttrs")
+		return nil, err
+	}
 
 	p, err := perf.New(eventAttrs, pid)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Couldn't open perf events: %v\n", err)
+		return nil, err
+
 	}
 
 	return createStream(p)
@@ -448,10 +487,15 @@ func newPidStream(args ...int) (*stream.Stream, error) {
 
 func newCgroupStream(cgroup string) (*stream.Stream, error) {
 	eventAttrs := createEventAttrs()
+	if eventAttrs == nil {
+		err := errors.New("Couldn't create perf.EventAttrs")
+		return nil, err
+	}
 
 	p, err := perf.NewWithCgroup(eventAttrs, cgroup)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Couldn't open perf events: %v\n", err)
+		return nil, err
 	}
 
 	return createStream(p)

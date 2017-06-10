@@ -23,6 +23,7 @@ type Event struct {
 	ImageID string
 	Image   string
 	Pid     uint32
+	Cgroup  string
 }
 
 func processEvents(e interface{}) interface{} {
@@ -69,7 +70,15 @@ func processEvents(e interface{}) interface{} {
 
 	case *ociEvent:
 		e := e.(*ociEvent)
-		if e.State == ociStopped {
+		if e.State == ociRunning {
+			ev = &Event{
+				ID:     e.ID,
+				State:  ContainerStarted,
+				Image:  e.Image,
+				Cgroup: e.CgroupsPath,
+			}
+
+		} else if e.State == ociStopped {
 			ev = &Event{
 				ID:    e.ID,
 				State: ContainerStopped,

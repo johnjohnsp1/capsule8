@@ -3,9 +3,12 @@
 package perf
 
 import (
+	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"sync"
 
@@ -17,8 +20,6 @@ import (
 const cgroupfs = "/sys/fs/cgroup"
 
 // TODO:
-//
-// Multiple events per event group
 //
 // ftrace filters
 //
@@ -34,14 +35,33 @@ type Perf struct {
 }
 
 func NewWithCgroup(eventAttrs []*EventAttr, name string) (*Perf, error) {
-	path := filepath.Join(cgroupfs, "perf_event", name)
+	// Cgroup can be either a:
+	// - cgroupfs path ("/docker/abcd09876...")
+	// - systemd cgroup path ("system.slice:docker:abcd09876...")
+
+	var path string
+
+	if name[0] == '/' {
+		path = filepath.Join(cgroupfs, "perf_event", name)
+	} else {
+		parts := strings.Split(name, ":")
+		if parts[1] != "docker" {
+			log.Printf("Couldn't parse cgroup %s", name)
+			return nil, errors.New("Couldn't parse cgroup")
+		}
+
+		dockerScope := []string{"docker-", parts[2], ".scope"}
+
+		path = filepath.Join(cgroupfs, "perf_event", parts[0],
+			strings.Join(dockerScope, ""))
+	}
+
 	f, err := os.OpenFile(path, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
 	}
 
 	return newSession(eventAttrs, PERF_FLAG_PID_CGROUP, int(f.Fd()))
-
 }
 
 // New creates a new performance monitoring session for the events specified

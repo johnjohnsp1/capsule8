@@ -1,6 +1,7 @@
 package container
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -32,10 +33,11 @@ const (
 )
 
 type ociEvent struct {
-	ID         string
-	Image      string
-	State      ociState
-	ConfigJSON string
+	ID          string
+	Image       string
+	State       ociState
+	CgroupsPath string
+	ConfigJSON  string
 }
 
 // ----------------------------------------------------------------------------
@@ -56,6 +58,16 @@ func init() {
 	}
 }
 
+type ociConfigJson struct {
+	OciVersion string `json:"ociVersion"`
+	Root       struct {
+		Path string `json:"path"`
+	} `json:"root"`
+	Linux struct {
+		CgroupsPath string `json:"cgroupsPath"`
+	} `json:"linux"`
+}
+
 // ----------------------------------------------------------------------------
 // OCI container configuration inotify event to ociEvent state machine
 // ----------------------------------------------------------------------------
@@ -71,12 +83,16 @@ func onOciConfigUpdate(configPath string) (*ociEvent, error) {
 		return nil, err
 	}
 
+	configJson := ociConfigJson{}
+	json.Unmarshal(data, &configJson)
+
 	containerID := filepath.Base(filepath.Dir(configPath))
 
 	ev := &ociEvent{
-		ID:         containerID,
-		State:      ociRunning,
-		ConfigJSON: string(data),
+		ID:          containerID,
+		State:       ociRunning,
+		CgroupsPath: configJson.Linux.CgroupsPath,
+		ConfigJSON:  string(data),
 	}
 
 	return ev, nil

@@ -25,6 +25,9 @@ pkg/api/
 # Generated protobuf readme
 readme.txt
 
+# Vagrant boxes
+.vagrant
+
 # Compiled binaries
 dist/*
 
