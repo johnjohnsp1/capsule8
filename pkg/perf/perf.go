@@ -21,7 +21,10 @@ const cgroupfs = "/sys/fs/cgroup"
 
 // TODO:
 //
-// ftrace filters
+// ftrace filters using PERF_EVENT_IOC_SET_FILTER. Limits are string
+// must be <= 4096 bytes, no more than 16384 predicates.
+//
+// http://elixir.free-electrons.com/linux/latest/source/kernel/trace/trace_events_filter.c#L38
 //
 
 type Perf struct {
@@ -168,6 +171,7 @@ func (p *Perf) Enable() error {
 	for i := range p.fds {
 		err := enable(p.fds[i])
 		if err != nil {
+			log.Printf("Couldn't enable event: %v", err)
 			return err
 		}
 	}
@@ -182,6 +186,7 @@ func (p *Perf) Disable() error {
 	for i := range p.fds {
 		err := disable(p.fds[i])
 		if err != nil {
+			log.Printf("Couldn't disable event: %v", err)
 			return err
 		}
 	}
@@ -189,8 +194,25 @@ func (p *Perf) Disable() error {
 	return nil
 }
 
-// Run monitors the configured events and calls onEvent for each one
-func (p *Perf) Run(onEvent func(*Event, error)) error {
+func (p *Perf) SetFilter(filter string) error {
+	p.rwlock.RLock()
+	defer p.rwlock.RUnlock()
+
+	for i := range p.fds {
+		err := setFilter(p.fds[i], filter)
+		if err != nil {
+			log.Printf("Couldn't set filter on event: %v", err)
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Run monitors the configured events and calls onEvent for each one.
+// The given callback function must perform its own locking if necessary
+// since it can be called from multiple goroutines simultaneously.
+func (p *Perf) Run(onEvent func(*Sample, error)) error {
 	p.rwlock.RLock()
 
 	var err error

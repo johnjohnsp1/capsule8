@@ -66,7 +66,7 @@ func newRingBuffer(fd int, sampleType uint64, readFormat uint64) (*ringBuffer, e
 }
 
 // Read calls the given function on each available record in the ringbuffer
-func (rb *ringBuffer) read(f func(*Event, error)) {
+func (rb *ringBuffer) read(f func(*Sample, error)) {
 	var dataHead, dataTail uint64
 
 	dataTail = rb.metadata.DataTail
@@ -88,10 +88,11 @@ func (rb *ringBuffer) read(f func(*Event, error)) {
 
 		// Read all events in the buffer
 		for reader.Len() > 0 {
-			ev, err := readEvent(reader, rb.sampleType, rb.readFormat)
+			sample := Sample{}
+			err := sample.read(reader, rb.sampleType, rb.readFormat)
 
 			// Pass err to callback to notify caller of it.
-			f(ev, err)
+			f(&sample, err)
 		}
 
 		//
@@ -106,7 +107,7 @@ func (rb *ringBuffer) read(f func(*Event, error)) {
 	}
 }
 
-func (rb *ringBuffer) readOnCond(cond *sync.Cond, fn func(*Event, error)) {
+func (rb *ringBuffer) readOnCond(cond *sync.Cond, fn func(*Sample, error)) {
 	for {
 		cond.L.Lock()
 		cond.Wait()

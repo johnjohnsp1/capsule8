@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
-	"unsafe"
+	"log"
+	"os"
+	"sync"
+	"sync/atomic"
 )
 
 const sizeofPerfEventAttr = 112
@@ -16,12 +18,12 @@ const (
 	PERF_EVENT_IOC_DISABLE              = 0x2400 + 1
 	PERF_EVENT_IOC_REFRESH              = 0x2400 + 2
 	PERF_EVENT_IOC_RESET                = 0x2400 + 3
-	PERF_EVENT_IOC_PERIOD               = 0x4008000 | (0x2400 + 4)
+	PERF_EVENT_IOC_PERIOD               = 0x40080000 | (0x2400 + 4)
 	PERF_EVENT_IOC_SET_OUTPUT           = 0x2400 + 5
-	PERF_EVENT_IOC_SET_FILTER           = 0x4008000 | (0x2400 + 6)
-	PERF_EVENT_IOC_ID                   = 0x8008000 | (0x2400 + 7)
-	PERF_EVENT_IOC_SET_SET_BPF          = 0x4004000 | (0x2400 + 8)
-	PERF_EVENT_IOC_PAUSE_OUTPUT         = 0x4004000 | (0x2400 + 9)
+	PERF_EVENT_IOC_SET_FILTER           = 0x40080000 | (0x2400 + 6)
+	PERF_EVENT_IOC_ID                   = 0x80080000 | (0x2400 + 7)
+	PERF_EVENT_IOC_SET_BPF              = 0x40040000 | (0x2400 + 8)
+	PERF_EVENT_IOC_PAUSE_OUTPUT         = 0x40040000 | (0x2400 + 9)
 )
 
 const (
@@ -255,510 +257,6 @@ type EventAttr struct {
 	SampleMaxStack         uint16
 }
 
-/*
-   struct perf_event_mmap_page {
-       __u32 version;        // version number of this structure
-       __u32 compat_version; // lowest version this is compat with
-       __u32 lock;           // seqlock for synchronization
-       __u32 index;          // hardware counter identifier
-       __s64 offset;         // add to hardware counter value
-       __u64 time_enabled;   // time event active
-       __u64 time_running;   // time event on CPU
-       union {
-           __u64   capabilities;
-           struct {
-               __u64 cap_usr_time / cap_usr_rdpmc / cap_bit0 : 1,
-                     cap_bit0_is_deprecated : 1,
-                     cap_user_rdpmc         : 1,
-                     cap_user_time          : 1,
-                     cap_user_time_zero     : 1,
-           };
-       };
-       __u16 pmc_width;
-       __u16 time_shift;
-       __u32 time_mult;
-       __u64 time_offset;
-       __u64 __reserved[120];   // Pad to 1k
-       __u64 data_head;         // head in the data section
-       __u64 data_tail;         // user-space written tail
-       __u64 data_offset;       // where the buffer starts
-       __u64 data_size;         // data buffer size
-       __u64 aux_head;
-       __u64 aux_tail;
-       __u64 aux_offset;
-       __u64 aux_size;
-   }
-*/
-
-type metadata struct {
-	Version       uint32
-	CompatVersion uint32
-	Lock          uint32
-	Index         uint32
-	Offset        int64
-	TimeEnabled   uint64
-	TimeRemaining uint64
-	Capabilities  uint64
-	PMCWidth      uint16
-	TimeWidth     uint16
-	TimeMult      uint32
-	TimeOffset    uint64
-	_             [120]uint64
-	DataHead      uint64
-	DataTail      uint64
-	DataOffset    uint64
-	DataSize      uint64
-	AuxHead       uint64
-	AuxTail       uint64
-	AuxOffset     uint64
-	AuxSize       uint64
-}
-
-/*
-   struct perf_event_header {
-       __u32   type;
-       __u16   misc;
-       __u16   size;
-   };
-*/
-
-type EventHeader struct {
-	Type uint32
-	Misc uint16
-	Size uint16
-}
-
-/*
-   struct sample_id {
-       { u32 pid, tid; } // if PERF_SAMPLE_TID set
-       { u64 time;     } // if PERF_SAMPLE_TIME set
-       { u64 id;       } // if PERF_SAMPLE_ID set
-       { u64 stream_id;} // if PERF_SAMPLE_STREAM_ID set
-       { u32 cpu, res; } // if PERF_SAMPLE_CPU set
-       { u64 id;       } // if PERF_SAMPLE_IDENTIFIER set
-   };
-*/
-
-type SampleID struct {
-	PID      uint32
-	TID      uint32
-	Time     uint64
-	ID       uint64
-	StreamID uint64
-	CPU      uint32
-}
-
-type Event struct {
-	EventHeader
-	Data interface{}
-	SampleID
-
-	Raw []byte
-}
-
-type Comm struct {
-	Pid  uint32
-	Tid  uint32
-	Comm []byte
-}
-
-type Exit struct {
-	Pid  uint32
-	Ppid uint32
-	Tid  uint32
-	Ptid uint32
-	Time uint64
-}
-
-type Fork struct {
-	Pid  uint32
-	Ppid uint32
-	Tid  uint32
-	Ptid uint32
-	Time uint64
-}
-
-type Value struct {
-	ID    uint64
-	Value uint64
-}
-
-type EventValues struct {
-	TimeEnabled uint64
-	TimeRunning uint64
-	Values      []Value
-}
-
-type BranchEntry struct {
-	From      uint64
-	To        uint64
-	Mispred   bool
-	Predicted bool
-	InTx      bool
-	Abort     bool
-	Cycles    uint16
-}
-
-type Sample struct {
-	SampleID    uint64
-	IP          uint64
-	Pid         uint32
-	Tid         uint32
-	Time        uint64
-	Addr        uint64
-	ID          uint64
-	StreamID    uint64
-	CPU         uint32
-	Period      uint64
-	V           EventValues
-	IPs         []uint64
-	RawData     []byte
-	Branches    []BranchEntry
-	UserABI     uint64
-	UserRegs    []uint64
-	StackData   []uint64
-	Weight      uint64
-	DataSrc     uint64
-	Transaction uint64
-	IntrABI     uint64
-	IntrRegs    []uint64
-}
-
-// ----------------------------------------------------------------------------
-
-func readEvent(reader *bytes.Reader, sampleType uint64, readFormat uint64) (*Event, error) {
-	h := new(EventHeader)
-	err := binary.Read(reader, binary.LittleEndian, h)
-	if err != nil {
-		return nil, err
-	}
-
-	switch h.Type {
-	case PERF_RECORD_FORK:
-		data := new(Fork)
-		err := binary.Read(reader, binary.LittleEndian, data)
-		if err != nil {
-			return nil, err
-		}
-		sid := readSampleID(reader, sampleType)
-
-		return &Event{
-			EventHeader: *h,
-			Data:        data,
-			SampleID:    *sid,
-		}, nil
-
-	case PERF_RECORD_EXIT:
-		data := new(Exit)
-		err := binary.Read(reader, binary.LittleEndian, data)
-		if err != nil {
-			return nil, err
-		}
-		sid := readSampleID(reader, sampleType)
-
-		return &Event{
-			EventHeader: *h,
-			Data:        data,
-			SampleID:    *sid,
-		}, nil
-
-	case PERF_RECORD_COMM:
-		data := new(Comm)
-
-		err := binary.Read(reader, binary.LittleEndian, &data.Pid)
-		if err != nil {
-			return nil, err
-		}
-
-		err = binary.Read(reader, binary.LittleEndian, &data.Tid)
-		if err != nil {
-			return nil, err
-		}
-
-		data.Comm = make([]byte, 0)
-		for {
-			b, err := reader.ReadByte()
-			if err != nil {
-				return nil, err
-			}
-			if b != 0 {
-				data.Comm = append(data.Comm, b)
-			} else {
-				break
-			}
-		}
-
-		// The comm[] field is NULL-padded up to an 8-byte aligned
-		// offset. Discard the rest of the bytes.
-		for i := len(data.Comm) + 1; i%8 != 0; i++ {
-			reader.ReadByte()
-		}
-
-		sid := readSampleID(reader, sampleType)
-
-		return &Event{
-			EventHeader: *h,
-			Data:        data,
-			SampleID:    *sid,
-		}, nil
-
-	case PERF_RECORD_SAMPLE:
-		// NB: PERF_RECORD_SAMPLE does not include a trailing
-		// SampleID, even if SampleIDAll is true.
-
-		sample := readSample(reader, sampleType, readFormat)
-
-		return &Event{
-			EventHeader: *h,
-			Data:        sample,
-		}, nil
-
-	default:
-		// Read the rest of the record
-		recordSize := h.Size - uint16(unsafe.Sizeof(h))
-		recordData := make([]byte, recordSize)
-		n, err := reader.Read(recordData)
-		if err != nil {
-			return nil, err
-		} else if n < int(recordSize) {
-			return nil, fmt.Errorf("Short read: %d < %d", n, int(recordSize))
-		}
-
-		record := &Event{
-			EventHeader: *h,
-			Data:        recordData,
-		}
-
-		return record, nil
-	}
-}
-
-func readEventValues(reader *bytes.Reader, readFormat uint64) (*EventValues, error) {
-	var err error
-
-	if (readFormat & PERF_FORMAT_GROUP) != 0 {
-		ev := &EventValues{}
-
-		var nr uint64
-		err = binary.Read(reader, binary.LittleEndian, &nr)
-		if err != nil {
-			return nil, err
-		}
-
-		if (readFormat & PERF_FORMAT_TOTAL_TIME_ENABLED) != 0 {
-			err = binary.Read(reader, binary.LittleEndian,
-				&ev.TimeEnabled)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		if (readFormat & PERF_FORMAT_TOTAL_TIME_RUNNING) != 0 {
-			err = binary.Read(reader, binary.LittleEndian,
-				&ev.TimeRunning)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		var values []Value
-
-		for i := uint64(0); i < nr; i++ {
-			value := Value{}
-			err = binary.Read(reader, binary.LittleEndian,
-				&value.Value)
-			if err != nil {
-				return nil, err
-			}
-
-			if (readFormat & PERF_FORMAT_ID) != 0 {
-				err = binary.Read(reader, binary.LittleEndian, &value.ID)
-				if err != nil {
-					return nil, err
-				}
-			}
-
-			values = append(values, value)
-		}
-
-		return ev, nil
-	}
-
-	ev := &EventValues{}
-	value := Value{}
-
-	err = binary.Read(reader, binary.LittleEndian, &value.Value)
-	if err != nil {
-		return nil, err
-	}
-
-	if (readFormat & PERF_FORMAT_TOTAL_TIME_ENABLED) != 0 {
-		err = binary.Read(reader, binary.LittleEndian,
-			&ev.TimeEnabled)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if (readFormat & PERF_FORMAT_TOTAL_TIME_RUNNING) != 0 {
-		err = binary.Read(reader, binary.LittleEndian,
-			&ev.TimeRunning)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if (readFormat & PERF_FORMAT_ID) != 0 {
-		err = binary.Read(reader, binary.LittleEndian, &value.ID)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	ev.Values = append(ev.Values, value)
-	return ev, nil
-}
-
-func readSample(reader *bytes.Reader, sampleType uint64, readFormat uint64) *Sample {
-	s := new(Sample)
-
-	if (sampleType & PERF_SAMPLE_IDENTIFIER) != 0 {
-		binary.Read(reader, binary.LittleEndian, &s.SampleID)
-	}
-
-	if (sampleType & PERF_SAMPLE_IP) != 0 {
-		binary.Read(reader, binary.LittleEndian, &s.IP)
-	}
-
-	if (sampleType & PERF_SAMPLE_TID) != 0 {
-		binary.Read(reader, binary.LittleEndian, &s.Pid)
-		binary.Read(reader, binary.LittleEndian, &s.Tid)
-	}
-
-	if (sampleType & PERF_SAMPLE_TIME) != 0 {
-		binary.Read(reader, binary.LittleEndian, &s.Time)
-	}
-
-	if (sampleType & PERF_SAMPLE_ADDR) != 0 {
-		binary.Read(reader, binary.LittleEndian, &s.Addr)
-	}
-
-	if (sampleType & PERF_SAMPLE_ID) != 0 {
-		binary.Read(reader, binary.LittleEndian, &s.ID)
-	}
-
-	if (sampleType & PERF_SAMPLE_STREAM_ID) != 0 {
-		binary.Read(reader, binary.LittleEndian, &s.StreamID)
-	}
-
-	if (sampleType & PERF_SAMPLE_CPU) != 0 {
-		res := uint32(0)
-
-		binary.Read(reader, binary.LittleEndian, &s.CPU)
-		binary.Read(reader, binary.LittleEndian, &res)
-	}
-
-	if (sampleType & PERF_SAMPLE_PERIOD) != 0 {
-		binary.Read(reader, binary.LittleEndian, &s.Period)
-	}
-
-	if (sampleType & PERF_SAMPLE_READ) != 0 {
-		readEventValues(reader, readFormat)
-	}
-
-	if (sampleType & PERF_SAMPLE_CALLCHAIN) != 0 {
-		var nr uint64
-
-		binary.Read(reader, binary.LittleEndian, &nr)
-
-		for i := uint64(0); i < nr; i++ {
-			var ip uint64
-			binary.Read(reader, binary.LittleEndian, &ip)
-			s.IPs = append(s.IPs, ip)
-		}
-
-	}
-
-	if (sampleType & PERF_SAMPLE_RAW) != 0 {
-		rawDataSize := uint32(0)
-		binary.Read(reader, binary.LittleEndian, &rawDataSize)
-		s.RawData = make([]byte, rawDataSize)
-		binary.Read(reader, binary.LittleEndian, s.RawData)
-	}
-
-	if (sampleType & PERF_SAMPLE_BRANCH_STACK) != 0 {
-		bnr := uint64(0)
-		binary.Read(reader, binary.LittleEndian, &bnr)
-
-		for i := uint64(0); i < bnr; i++ {
-			var pbe struct {
-				from  uint64
-				to    uint64
-				flags uint64
-			}
-			binary.Read(reader, binary.LittleEndian, &pbe)
-
-			branchEntry := BranchEntry{
-				From:      pbe.from,
-				To:        pbe.to,
-				Mispred:   (pbe.flags&(1<<0) != 0),
-				Predicted: (pbe.flags&(1<<1) != 0),
-				InTx:      (pbe.flags&(1<<3) != 0),
-				Abort:     (pbe.flags&(1<<4) != 0),
-				Cycles:    uint16((pbe.flags & 0xff0) >> 4),
-			}
-
-			s.Branches = append(s.Branches, branchEntry)
-		}
-	}
-
-	if (sampleType&PERF_SAMPLE_REGS_USER) != 0 ||
-		(sampleType&PERF_SAMPLE_STACK_USER) != 0 ||
-		(sampleType&PERF_SAMPLE_WEIGHT) != 0 ||
-		(sampleType&PERF_SAMPLE_DATA_SRC) != 0 ||
-		(sampleType&PERF_SAMPLE_TRANSACTION) != 0 ||
-		(sampleType&PERF_SAMPLE_REGS_INTR) != 0 {
-
-		panic("PERF_RECORD_SAMPLE field parsing not implemented")
-	}
-
-	return s
-}
-
-func readSampleID(reader *bytes.Reader, sampleType uint64) *SampleID {
-	sid := new(SampleID)
-
-	if sampleType&PERF_SAMPLE_TID != 0 {
-		binary.Read(reader, binary.LittleEndian, &sid.PID)
-		binary.Read(reader, binary.LittleEndian, &sid.TID)
-	}
-
-	if sampleType&PERF_SAMPLE_TIME != 0 {
-		binary.Read(reader, binary.LittleEndian, &sid.Time)
-	}
-
-	if sampleType&PERF_SAMPLE_ID != 0 {
-		binary.Read(reader, binary.LittleEndian, &sid.ID)
-	}
-
-	if sampleType&PERF_SAMPLE_STREAM_ID != 0 {
-		binary.Read(reader, binary.LittleEndian, &sid.StreamID)
-	}
-
-	if sampleType&PERF_SAMPLE_CPU != 0 {
-		res := uint32(0)
-
-		binary.Read(reader, binary.LittleEndian, &sid.CPU)
-		binary.Read(reader, binary.LittleEndian, &res)
-	}
-
-	if sampleType&PERF_SAMPLE_IDENTIFIER != 0 {
-		binary.Read(reader, binary.LittleEndian, &sid.ID)
-	}
-
-	return sid
-}
-
 // write serializes the EventAttr as a perf_event_attr struct compatible
 // with the kernel.
 func (ea *EventAttr) write(buf io.Writer) error {
@@ -903,4 +401,635 @@ func (ea *EventAttr) write(buf io.Writer) error {
 	binary.Write(buf, binary.LittleEndian, uint16(0))
 
 	return nil
+}
+
+/*
+   struct perf_event_mmap_page {
+       __u32 version;        // version number of this structure
+       __u32 compat_version; // lowest version this is compat with
+       __u32 lock;           // seqlock for synchronization
+       __u32 index;          // hardware counter identifier
+       __s64 offset;         // add to hardware counter value
+       __u64 time_enabled;   // time event active
+       __u64 time_running;   // time event on CPU
+       union {
+           __u64   capabilities;
+           struct {
+               __u64 cap_usr_time / cap_usr_rdpmc / cap_bit0 : 1,
+                     cap_bit0_is_deprecated : 1,
+                     cap_user_rdpmc         : 1,
+                     cap_user_time          : 1,
+                     cap_user_time_zero     : 1,
+           };
+       };
+       __u16 pmc_width;
+       __u16 time_shift;
+       __u32 time_mult;
+       __u64 time_offset;
+       __u64 __reserved[120];   // Pad to 1k
+       __u64 data_head;         // head in the data section
+       __u64 data_tail;         // user-space written tail
+       __u64 data_offset;       // where the buffer starts
+       __u64 data_size;         // data buffer size
+       __u64 aux_head;
+       __u64 aux_tail;
+       __u64 aux_offset;
+       __u64 aux_size;
+   }
+*/
+
+type metadata struct {
+	Version       uint32
+	CompatVersion uint32
+	Lock          uint32
+	Index         uint32
+	Offset        int64
+	TimeEnabled   uint64
+	TimeRemaining uint64
+	Capabilities  uint64
+	PMCWidth      uint16
+	TimeWidth     uint16
+	TimeMult      uint32
+	TimeOffset    uint64
+	_             [120]uint64
+	DataHead      uint64
+	DataTail      uint64
+	DataOffset    uint64
+	DataSize      uint64
+	AuxHead       uint64
+	AuxTail       uint64
+	AuxOffset     uint64
+	AuxSize       uint64
+}
+
+// -----------------------------------------------------------------------------
+
+/*
+   struct perf_event_header {
+       __u32   type;
+       __u16   misc;
+       __u16   size;
+   };
+*/
+
+type eventHeader struct {
+	Type uint32
+	Misc uint16
+	Size uint16
+}
+
+func (eh *eventHeader) read(reader *bytes.Reader) error {
+	err := binary.Read(reader, binary.LittleEndian, eh)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+type CommRecord struct {
+	Pid  uint32
+	Tid  uint32
+	Comm []byte
+}
+
+func (cr *CommRecord) read(reader *bytes.Reader) error {
+	err := binary.Read(reader, binary.LittleEndian, &cr.Pid)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Read(reader, binary.LittleEndian, &cr.Tid)
+	if err != nil {
+		return err
+	}
+
+	cr.Comm = make([]byte, 0)
+	for {
+		b, err := reader.ReadByte()
+		if err != nil {
+			return err
+		}
+		if b != 0 {
+			cr.Comm = append(cr.Comm, b)
+		} else {
+			break
+		}
+	}
+
+	// The comm[] field is NULL-padded up to an 8-byte aligned
+	// offset. Discard the rest of the bytes.
+	for i := len(cr.Comm) + 1; (i % 8) != 0; i++ {
+		reader.ReadByte()
+	}
+
+	return nil
+}
+
+type ExitRecord struct {
+	Pid  uint32
+	Ppid uint32
+	Tid  uint32
+	Ptid uint32
+	Time uint64
+}
+
+func (er *ExitRecord) read(reader *bytes.Reader) error {
+	err := binary.Read(reader, binary.LittleEndian, er)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+type ForkRecord struct {
+	Pid  uint32
+	Ppid uint32
+	Tid  uint32
+	Ptid uint32
+	Time uint64
+}
+
+func (fr *ForkRecord) read(reader *bytes.Reader) error {
+	err := binary.Read(reader, binary.LittleEndian, fr)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// CounterValue resepresents the read value of a counter event
+type CounterValue struct {
+	// Globally unique identifier for this counter event. Only
+	// present if PERF_FORMAT_ID was specified.
+	ID uint64
+
+	// The counter result
+	Value uint64
+}
+
+// CounterGroup represents the read values of a group of counter events
+type CounterGroup struct {
+	TimeEnabled uint64
+	TimeRunning uint64
+	Values      []CounterValue
+}
+
+func (cg *CounterGroup) read(reader *bytes.Reader, format uint64) error {
+	var err error
+
+	if (format & PERF_FORMAT_GROUP) != 0 {
+		var nr uint64
+		err = binary.Read(reader, binary.LittleEndian, &nr)
+		if err != nil {
+			return err
+		}
+
+		if (format & PERF_FORMAT_TOTAL_TIME_ENABLED) != 0 {
+			err = binary.Read(reader, binary.LittleEndian,
+				&cg.TimeEnabled)
+			if err != nil {
+				return err
+			}
+		}
+
+		if (format & PERF_FORMAT_TOTAL_TIME_RUNNING) != 0 {
+			err = binary.Read(reader, binary.LittleEndian,
+				&cg.TimeRunning)
+			if err != nil {
+				return err
+			}
+		}
+
+		var values []CounterValue
+
+		for i := uint64(0); i < nr; i++ {
+			value := CounterValue{}
+			err = binary.Read(reader, binary.LittleEndian,
+				&value.Value)
+			if err != nil {
+				return err
+			}
+
+			if (format & PERF_FORMAT_ID) != 0 {
+				err = binary.Read(reader, binary.LittleEndian,
+					&value.ID)
+				if err != nil {
+					return err
+				}
+			}
+
+			values = append(values, value)
+		}
+
+		return nil
+	}
+
+	value := CounterValue{}
+
+	err = binary.Read(reader, binary.LittleEndian, &value.Value)
+	if err != nil {
+		return err
+	}
+
+	if (format & PERF_FORMAT_TOTAL_TIME_ENABLED) != 0 {
+		err = binary.Read(reader, binary.LittleEndian,
+			&cg.TimeEnabled)
+		if err != nil {
+			return err
+		}
+	}
+
+	if (format & PERF_FORMAT_TOTAL_TIME_RUNNING) != 0 {
+		err = binary.Read(reader, binary.LittleEndian,
+			&cg.TimeRunning)
+		if err != nil {
+			return err
+		}
+	}
+
+	if (format & PERF_FORMAT_ID) != 0 {
+		err = binary.Read(reader, binary.LittleEndian, &value.ID)
+		if err != nil {
+			return err
+		}
+	}
+
+	cg.Values = append(cg.Values, value)
+	return nil
+}
+
+type BranchEntry struct {
+	From      uint64
+	To        uint64
+	Mispred   bool
+	Predicted bool
+	InTx      bool
+	Abort     bool
+	Cycles    uint16
+}
+
+type SampleRecord struct {
+	SampleID    uint64
+	IP          uint64
+	Pid         uint32
+	Tid         uint32
+	Time        uint64
+	Addr        uint64
+	ID          uint64
+	StreamID    uint64
+	CPU         uint32
+	Period      uint64
+	V           CounterGroup
+	IPs         []uint64
+	RawData     []byte
+	Branches    []BranchEntry
+	UserABI     uint64
+	UserRegs    []uint64
+	StackData   []uint64
+	Weight      uint64
+	DataSrc     uint64
+	Transaction uint64
+	IntrABI     uint64
+	IntrRegs    []uint64
+}
+
+func (s *SampleRecord) read(reader *bytes.Reader, sampleType uint64, readFormat uint64) error {
+	if (sampleType & PERF_SAMPLE_IDENTIFIER) != 0 {
+		binary.Read(reader, binary.LittleEndian, &s.SampleID)
+	}
+
+	if (sampleType & PERF_SAMPLE_IP) != 0 {
+		binary.Read(reader, binary.LittleEndian, &s.IP)
+	}
+
+	if (sampleType & PERF_SAMPLE_TID) != 0 {
+		binary.Read(reader, binary.LittleEndian, &s.Pid)
+		binary.Read(reader, binary.LittleEndian, &s.Tid)
+	}
+
+	if (sampleType & PERF_SAMPLE_TIME) != 0 {
+		binary.Read(reader, binary.LittleEndian, &s.Time)
+	}
+
+	if (sampleType & PERF_SAMPLE_ADDR) != 0 {
+		binary.Read(reader, binary.LittleEndian, &s.Addr)
+	}
+
+	if (sampleType & PERF_SAMPLE_ID) != 0 {
+		binary.Read(reader, binary.LittleEndian, &s.ID)
+	}
+
+	if (sampleType & PERF_SAMPLE_STREAM_ID) != 0 {
+		binary.Read(reader, binary.LittleEndian, &s.StreamID)
+	}
+
+	if (sampleType & PERF_SAMPLE_CPU) != 0 {
+		res := uint32(0)
+
+		binary.Read(reader, binary.LittleEndian, &s.CPU)
+		binary.Read(reader, binary.LittleEndian, &res)
+	}
+
+	if (sampleType & PERF_SAMPLE_PERIOD) != 0 {
+		binary.Read(reader, binary.LittleEndian, &s.Period)
+	}
+
+	if (sampleType & PERF_SAMPLE_READ) != 0 {
+		s.V.read(reader, readFormat)
+	}
+
+	if (sampleType & PERF_SAMPLE_CALLCHAIN) != 0 {
+		var nr uint64
+
+		binary.Read(reader, binary.LittleEndian, &nr)
+
+		for i := uint64(0); i < nr; i++ {
+			var ip uint64
+			binary.Read(reader, binary.LittleEndian, &ip)
+			s.IPs = append(s.IPs, ip)
+		}
+
+	}
+
+	if (sampleType & PERF_SAMPLE_RAW) != 0 {
+		rawDataSize := uint32(0)
+		binary.Read(reader, binary.LittleEndian, &rawDataSize)
+		s.RawData = make([]byte, rawDataSize)
+		binary.Read(reader, binary.LittleEndian, s.RawData)
+	}
+
+	if (sampleType & PERF_SAMPLE_BRANCH_STACK) != 0 {
+		bnr := uint64(0)
+		binary.Read(reader, binary.LittleEndian, &bnr)
+
+		for i := uint64(0); i < bnr; i++ {
+			var pbe struct {
+				from  uint64
+				to    uint64
+				flags uint64
+			}
+			binary.Read(reader, binary.LittleEndian, &pbe)
+
+			branchEntry := BranchEntry{
+				From:      pbe.from,
+				To:        pbe.to,
+				Mispred:   (pbe.flags&(1<<0) != 0),
+				Predicted: (pbe.flags&(1<<1) != 0),
+				InTx:      (pbe.flags&(1<<3) != 0),
+				Abort:     (pbe.flags&(1<<4) != 0),
+				Cycles:    uint16((pbe.flags & 0xff0) >> 4),
+			}
+
+			s.Branches = append(s.Branches, branchEntry)
+		}
+	}
+
+	if (sampleType&PERF_SAMPLE_REGS_USER) != 0 ||
+		(sampleType&PERF_SAMPLE_STACK_USER) != 0 ||
+		(sampleType&PERF_SAMPLE_WEIGHT) != 0 ||
+		(sampleType&PERF_SAMPLE_DATA_SRC) != 0 ||
+		(sampleType&PERF_SAMPLE_TRANSACTION) != 0 ||
+		(sampleType&PERF_SAMPLE_REGS_INTR) != 0 {
+
+		panic("PERF_RECORD_SAMPLE field parsing not implemented")
+	}
+
+	return nil
+}
+
+/*
+   struct sample_id {
+       { u32 pid, tid; } // if PERF_SAMPLE_TID set
+       { u64 time;     } // if PERF_SAMPLE_TIME set
+       { u64 id;       } // if PERF_SAMPLE_ID set
+       { u64 stream_id;} // if PERF_SAMPLE_STREAM_ID set
+       { u32 cpu, res; } // if PERF_SAMPLE_CPU set
+       { u64 id;       } // if PERF_SAMPLE_IDENTIFIER set
+   };
+*/
+
+type SampleID struct {
+	PID      uint32
+	TID      uint32
+	Time     uint64
+	ID       uint64
+	StreamID uint64
+	CPU      uint32
+}
+
+var sampleIDSizeCache atomic.Value
+var sampleIDSizeCacheMutex sync.Mutex
+
+func (sid *SampleID) getSize(eventSampleType uint64) int {
+	var cache map[uint64]int
+
+	sizeCache := sampleIDSizeCache.Load()
+	if sizeCache != nil {
+		cache = sizeCache.(map[uint64]int)
+		size := cache[eventSampleType]
+		if size > 0 {
+			return size
+		}
+	}
+
+	sampleIDSizeCacheMutex.Lock()
+	sizeCache = sampleIDSizeCache.Load()
+
+	if sizeCache == nil {
+		cache = make(map[uint64]int)
+	} else {
+		cache = sizeCache.(map[uint64]int)
+	}
+
+	size := int(0)
+
+	if (eventSampleType & PERF_SAMPLE_TID) != 0 {
+		size += binary.Size(sid.PID)
+		size += binary.Size(sid.TID)
+	}
+
+	if (eventSampleType & PERF_SAMPLE_TIME) != 0 {
+		size += binary.Size(sid.Time)
+	}
+
+	if (eventSampleType & PERF_SAMPLE_ID) != 0 {
+		size += binary.Size(sid.ID)
+	}
+
+	if (eventSampleType & PERF_SAMPLE_STREAM_ID) != 0 {
+		size += binary.Size(sid.StreamID)
+	}
+
+	if (eventSampleType & PERF_SAMPLE_CPU) != 0 {
+		res := uint32(0)
+
+		size += binary.Size(sid.CPU)
+		size += binary.Size(res)
+	}
+
+	if (eventSampleType & PERF_SAMPLE_IDENTIFIER) != 0 {
+		size += binary.Size(sid.ID)
+	}
+
+	cache[eventSampleType] = size
+	sampleIDSizeCache.Store(cache)
+	sampleIDSizeCacheMutex.Unlock()
+
+	return size
+}
+
+func (sid *SampleID) read(reader *bytes.Reader, eventSampleType uint64) error {
+	var err error
+
+	if (eventSampleType & PERF_SAMPLE_TID) != 0 {
+		err = binary.Read(reader, binary.LittleEndian, &sid.PID)
+		if err != nil {
+			return err
+		}
+		err = binary.Read(reader, binary.LittleEndian, &sid.TID)
+		if err != nil {
+			return err
+		}
+	}
+
+	if (eventSampleType & PERF_SAMPLE_TIME) != 0 {
+		err = binary.Read(reader, binary.LittleEndian, &sid.Time)
+		if err != nil {
+			return err
+		}
+	}
+
+	if (eventSampleType & PERF_SAMPLE_ID) != 0 {
+		err = binary.Read(reader, binary.LittleEndian, &sid.ID)
+		if err != nil {
+			return err
+		}
+	}
+
+	if (eventSampleType & PERF_SAMPLE_STREAM_ID) != 0 {
+		err = binary.Read(reader, binary.LittleEndian, &sid.StreamID)
+		if err != nil {
+			return err
+		}
+	}
+
+	if (eventSampleType & PERF_SAMPLE_CPU) != 0 {
+		res := uint32(0)
+
+		err = binary.Read(reader, binary.LittleEndian, &sid.CPU)
+		if err != nil {
+			return err
+		}
+		err = binary.Read(reader, binary.LittleEndian, &res)
+		if err != nil {
+			return err
+		}
+	}
+
+	if (eventSampleType & PERF_SAMPLE_IDENTIFIER) != 0 {
+		err = binary.Read(reader, binary.LittleEndian, &sid.ID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+type Sample struct {
+	eventHeader
+	Record interface{}
+	SampleID
+}
+
+func (sample *Sample) read(reader *bytes.Reader, sampleType, readFormat uint64) error {
+	startPos, _ := reader.Seek(0, os.SEEK_CUR)
+
+	err := sample.eventHeader.read(reader)
+	if err != nil {
+		// This is not recoverable
+		panic("Could not read perf event header")
+	}
+
+	switch sample.Type {
+	case PERF_RECORD_FORK:
+		record := new(ForkRecord)
+		err = record.read(reader)
+		if err != nil {
+			break
+		}
+
+		sample.Record = record
+
+		sample.SampleID.read(reader, sampleType)
+
+	case PERF_RECORD_EXIT:
+		record := new(ExitRecord)
+		err = record.read(reader)
+		if err != nil {
+			break
+		}
+
+		sample.Record = record
+
+		sample.SampleID.read(reader, sampleType)
+
+	case PERF_RECORD_COMM:
+		record := new(CommRecord)
+		err = record.read(reader)
+		if err != nil {
+			break
+		}
+
+		sample.Record = record
+		sample.SampleID.read(reader, sampleType)
+
+	case PERF_RECORD_SAMPLE:
+		record := new(SampleRecord)
+		err = record.read(reader, sampleType, readFormat)
+		if err != nil {
+			break
+		}
+
+		sample.Record = record
+
+		// NB: PERF_RECORD_SAMPLE does not include a trailing
+		// SampleID, even if SampleIDAll is true.
+
+	default:
+		//
+		// Unknown type, read sample record as a byte slice
+		//
+		sampleIDSize := sample.SampleID.getSize(sampleType)
+
+		recordSize := sample.Size -
+			uint16(binary.Size(sample.eventHeader)) -
+			uint16(sampleIDSize)
+
+		recordData := make([]byte, recordSize)
+
+		var n int
+		n, err = reader.Read(recordData)
+		if err != nil {
+			break
+		} else if n < int(recordSize) {
+			log.Printf("Short read: %d < %d", n, int(recordSize))
+			err = errors.New("Read error")
+			break
+		}
+
+		sample.Record = recordData
+
+		sample.SampleID.read(reader, sampleType)
+	}
+
+	// If there was a read error, seek to end of the record
+	if err != nil {
+		reader.Seek((startPos + int64(sample.Size)), os.SEEK_SET)
+	}
+
+	return err
 }

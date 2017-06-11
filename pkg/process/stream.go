@@ -114,7 +114,7 @@ func readSchedProcessForkTracepointData(data []byte) (*schedProcessForkEvent, er
 	}, nil
 }
 
-func decodeSchedProcessFork(sample *perf.Sample) (*Event, error) {
+func decodeSchedProcessFork(sample *perf.SampleRecord) (*Event, error) {
 	tpEv, err := readSchedProcessForkTracepointData(sample.RawData)
 	if err != nil {
 		return nil, err
@@ -203,7 +203,7 @@ func readSchedProcessExecTracepointData(data []byte) (*schedProcessExecEvent, er
 	return ev, nil
 }
 
-func decodeSchedProcessExec(sample *perf.Sample) (*Event, error) {
+func decodeSchedProcessExec(sample *perf.SampleRecord) (*Event, error) {
 	tpEv, err := readSchedProcessExecTracepointData(sample.RawData)
 	if err != nil {
 		return nil, err
@@ -257,7 +257,7 @@ func readSysEnterExitGroupTracepointData(data []byte) (*sysEnterExitGroupEvent, 
 	return &ev, nil
 }
 
-func decodeSysEnterExitGroup(sample *perf.Sample) (*Event, error) {
+func decodeSysEnterExitGroup(sample *perf.SampleRecord) (*Event, error) {
 	tpEv, err := readSysEnterExitGroupTracepointData(sample.RawData)
 	if err != nil {
 		return nil, err
@@ -273,30 +273,30 @@ func decodeSysEnterExitGroup(sample *perf.Sample) (*Event, error) {
 
 // -----------------------------------------------------------------------------
 
-type tracepointDecoderFn func(*perf.Sample) (*Event, error)
+type tracepointDecoderFn func(*perf.SampleRecord) (*Event, error)
 
 var tracepointDecoders struct {
 	mu       sync.Mutex
 	decoders atomic.Value // map[uint16]tracepointDecoderFn
 }
 
-func (ps *processStream) processSample(sample *perf.Sample) (*Event, error) {
+func newEvent(sr *perf.SampleRecord) (*Event, error) {
 	var tracepointEventType uint16
 
-	reader := bytes.NewReader(sample.RawData)
+	reader := bytes.NewReader(sr.RawData)
 	binary.Read(reader, binary.LittleEndian, &tracepointEventType)
 
 	val := tracepointDecoders.decoders.Load()
 	decoders := val.(map[uint16]tracepointDecoderFn)
 	decoder := decoders[tracepointEventType]
 	if decoder != nil {
-		return decoder(sample)
+		return decoder(sr)
 	}
 
 	return nil, nil
 }
 
-func (ps *processStream) processPerfEvent(perfEv *perf.Event, err error) {
+func (ps *processStream) onSample(perfEv *perf.Sample, err error) {
 	if err != nil {
 		ps.data <- err
 		return
@@ -304,76 +304,28 @@ func (ps *processStream) processPerfEvent(perfEv *perf.Event, err error) {
 
 	var procEv *Event
 
-	switch perfEv.Data.(type) {
-	case *perf.Sample:
+	switch perfEv.Record.(type) {
+	case *perf.SampleRecord:
 		//
 		// Sample events don't include the SampleID, so data like
 		// Pid and Time must be obtained from the Sample struct.
 		//
 
-		sample := perfEv.Data.(*perf.Sample)
-		procEv, err = ps.processSample(sample)
+		sample := perfEv.Record.(*perf.SampleRecord)
+		procEv, err = newEvent(sample)
 		if err != nil {
 			ps.data <- err
 			return
 		}
 
 	default:
-		// Silently drop unknown message types
+		log.Printf("Unknown perf record type %T", perfEv.Record)
+
 	}
 
 	if procEv != nil && procEv.State != 0 {
 		ps.data <- procEv
 	}
-}
-
-func (ps *processStream) runControlLoop() {
-	for {
-		select {
-		case e, ok := <-ps.ctrl:
-			if ok {
-				enable := e.(bool)
-				if enable {
-					ps.perf.Enable()
-				} else {
-					ps.perf.Disable()
-				}
-			} else {
-				ps.perf.Close()
-				return
-			}
-		}
-	}
-}
-
-func (ps *processStream) runDataLoop() {
-	ps.perf.Enable()
-
-	// This consumes everything in the loop
-	ps.perf.Run(ps.processPerfEvent)
-
-	// Perf loop terminated, we won't be sending any more events
-	close(ps.data)
-}
-
-func createStream(p *perf.Perf) (*stream.Stream, error) {
-	controlChannel := make(chan interface{})
-	dataChannel := make(chan interface{})
-
-	proc := &processStream{
-		ctrl: controlChannel,
-		data: dataChannel,
-		eventStream: &stream.Stream{
-			Ctrl: controlChannel,
-			Data: dataChannel,
-		},
-		perf: p,
-	}
-
-	go proc.runControlLoop()
-	go proc.runDataLoop()
-
-	return proc.eventStream, nil
 }
 
 func createEventAttrs() []*perf.EventAttr {
@@ -456,6 +408,55 @@ func createEventAttrs() []*perf.EventAttr {
 	}
 
 	return eventAttrs
+}
+
+func createStream(p *perf.Perf) (*stream.Stream, error) {
+	controlChannel := make(chan interface{})
+	dataChannel := make(chan interface{})
+
+	ps := &processStream{
+		ctrl: controlChannel,
+		data: dataChannel,
+		eventStream: &stream.Stream{
+			Ctrl: controlChannel,
+			Data: dataChannel,
+		},
+		perf: p,
+	}
+
+	// Control loop
+	go func(p *perf.Perf) {
+		for {
+			select {
+			case e, ok := <-ps.ctrl:
+				if ok {
+					enable := e.(bool)
+					if enable {
+						p.Enable()
+					} else {
+						p.Disable()
+					}
+				} else {
+					p.Close()
+					return
+				}
+			}
+		}
+	}(p)
+
+	// Data loop
+	go func() {
+		p.Enable()
+
+		// This consumes everything in the loop
+		p.Run(ps.onSample)
+
+		// Perf loop terminated, we won't be sending any more events
+		close(ps.data)
+	}()
+
+	return ps.eventStream, nil
+
 }
 
 func newPidStream(args ...int) (*stream.Stream, error) {

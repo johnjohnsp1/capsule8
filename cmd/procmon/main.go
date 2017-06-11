@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"time"
 
 	"fmt"
 
@@ -131,11 +132,19 @@ func main() {
 	events, joiner := stream.NewJoiner()
 	go setupEventStreams(joiner)
 
+	ticker := time.Tick(1 * time.Second)
+	numEvents := 0
+
 eventLoop:
 	for {
 		select {
+		case <-ticker:
+			fmt.Printf("Events/s: %d\n", numEvents)
+			numEvents = 0
+
 		case e, ok := <-events.Data:
 			if ok {
+				numEvents++
 				fmt.Printf("Event: %v\n", e)
 			} else {
 				fmt.Fprintf(os.Stderr, "Stream closed.\n")

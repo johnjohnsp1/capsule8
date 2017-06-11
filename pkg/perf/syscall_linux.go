@@ -8,7 +8,7 @@ import (
 )
 
 func enable(fd int) error {
-	_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), PERF_EVENT_IOC_ENABLE, 0)
+	_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), PERF_EVENT_IOC_ENABLE, 1)
 
 	err := error(nil)
 	if errno != 0 {
@@ -18,8 +18,25 @@ func enable(fd int) error {
 	return err
 }
 
+func setFilter(fd int, filter string) error {
+	f, err := unix.BytePtrFromString(filter)
+	if err != nil {
+		return err
+	}
+
+	_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd),
+		PERF_EVENT_IOC_SET_FILTER, uintptr(unsafe.Pointer(f)))
+
+	err = error(nil)
+	if errno != 0 {
+		err = errno
+	}
+
+	return err
+}
+
 func disable(fd int) error {
-	_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), PERF_EVENT_IOC_DISABLE, 0)
+	_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), PERF_EVENT_IOC_DISABLE, 1)
 
 	err := error(nil)
 	if errno != 0 {
