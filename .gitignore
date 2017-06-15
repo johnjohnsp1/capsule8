@@ -30,6 +30,7 @@ readme.txt
 
 # Compiled binaries
 dist/*
+dist/!nats*
 
 # Ignore log files
 *.log
