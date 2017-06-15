@@ -1,0 +1,49 @@
+// Copyright 2017 Capsule8 Inc. All rights reserved.
+
+syntax = "proto3";
+
+package capsule8.pubsub.v0;
+option go_package = "github.com/capsule8/reactive8/pkg/api/pubsub";
+
+//
+// Capsule8 Pubsub API
+//
+// The Pubsub API is used by capsulators to publish and subscribe to arbitrary messages
+// by topic name.
+//
+service PubsubService {
+    rpc Publish(PublishRequest) returns (PublishResponse) {}
+    rpc Subscribe(stream SubscribeRequest) returns (stream PubsubMessages) {}
+}
+
+// Publishes a message to topic `name`
+message PublishRequest {
+    string name = 1;
+    // Can publish one or more message(s) at a time
+    repeated bytes messages = 2;
+}
+
+// Empty on purpose
+message PublishResponse {
+    repeated bytes failed_messages = 1;
+
+}
+
+// Subscribe to messages on topic `name`
+message SubscribeRequest {
+    // Must be set on first request and omitted in subsequent requests
+    string name = 1;
+
+    // Raw acks from one or more `PubsubMessage`
+    repeated bytes acks = 2;
+}
+
+message PubsubMessages {
+    repeated PubsubMessage messages = 1;
+}
+
+message PubsubMessage {
+    bytes ack = 1;
+
+    bytes payload = 2;
+}

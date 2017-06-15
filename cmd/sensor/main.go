@@ -161,7 +161,12 @@ func newSensor(conn stan.Conn, sub *event.Subscription, subscriptionID string) c
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Failed to marshal event data: %v\n", err)
 				}
-				conn.Publish(fmt.Sprintf("event.%s", subscriptionID), data)
+				// TODO: We should have some retry logic in place
+				conn.PublishAsync(
+					fmt.Sprintf("event.%s", subscriptionID),
+					data,
+					func(ackedNuid string, err error) {},
+				)
 			}
 		}
 	}()

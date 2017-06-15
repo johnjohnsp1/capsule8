@@ -18,18 +18,18 @@ service EventService {
 
     // Only a single API call is exposed to clients for subscribing to events.
     rpc ReceiveEvents(stream ReceiveEventsRequest)
-        returns (stream ReceivedEvent) {}
+        returns (stream ReceivedEvents) {}
 }
 
 message ReceiveEventsRequest {
     // Must be set on first request and omitted in subsequent requests.
     Subscription subscription = 1;
 
-    // Acknowledgement IDs from one or more ReceivedEvents
+    // Raw acks from one or more `ReceivedEvent`
     repeated bytes acks = 2;
 }
 
-message ReceiveEventsResponse {
+message ReceivedEvents {
     repeated ReceivedEvent events = 1;
 }
 
