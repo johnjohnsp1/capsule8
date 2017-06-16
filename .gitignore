@@ -29,8 +29,7 @@ readme.txt
 .vagrant
 
 # Compiled binaries
-dist/*
-dist/!nats*
+bin/*
 
 # Ignore log files
 *.log
