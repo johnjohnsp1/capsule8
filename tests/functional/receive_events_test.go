@@ -41,18 +41,20 @@ func TestReceiveEvents(t *testing.T) {
 	// Attempt to collect 1 message
 	msgs := make(chan interface{})
 	go func() {
-		ev, err := stream.Recv()
+		evs, err := stream.Recv()
 		if err != nil {
 			t.Error("Error receiving events: ", err)
 		}
-		t.Log("Received event: ", ev)
+		t.Log("Received events: ", evs)
 
-		msgs <- ev
+		msgs <- evs
 
+		acks := make([][]byte, len(evs.Events))
+		for i, ev := range evs.Events {
+			acks[i] = ev.Ack
+		}
 		stream.Send(&event.ReceiveEventsRequest{
-			Acks: [][]byte{
-				ev.Ack,
-			},
+			Acks: acks,
 		})
 	}()
 
