@@ -153,7 +153,7 @@ func newSensor(conn stan.Conn, sub *event.Subscription, subscriptionID string) c
 			case ev, ok := <-stream.Data:
 				if !ok {
 					fmt.Fprint(os.Stderr, "Failed to get next event.")
-					continue sendLoop
+					break sendLoop
 				}
 				//log.Println("Sending event:", ev)
 
