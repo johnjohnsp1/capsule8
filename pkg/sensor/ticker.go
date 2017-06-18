@@ -15,14 +15,14 @@ import (
 type ticker struct {
 	ctrl     chan interface{}
 	data     chan interface{}
-	selector event.Selector
+	filter   *event.TickerEventFilter
 	duration time.Duration
 	ticker   *stream.Stream
 }
 
 func newTickerEvent(tick time.Time) *event.Event {
 	return &event.Event{
-		Subevent: &event.Event_Ticker{
+		Event: &event.Event_Ticker{
 			Ticker: &event.TickerEvent{
 				Seconds:     tick.Unix(),
 				Nanoseconds: tick.UnixNano(),
@@ -32,7 +32,7 @@ func newTickerEvent(tick time.Time) *event.Event {
 }
 
 // NewTickerSensor creates a new ticker sensor configured by the given Selector
-func NewTickerSensor(selector event.Selector) (*stream.Stream, error) {
+func NewTickerSensor(filter *event.TickerEventFilter) (*stream.Stream, error) {
 	//
 	// Each call to New creates a new session with the Sensor. It is the
 	// Sensor's responsibility to handle all of its sessions in the most
@@ -42,11 +42,11 @@ func NewTickerSensor(selector event.Selector) (*stream.Stream, error) {
 	// their own channels.
 	//
 
-	duration := time.Duration(selector.Ticker.Duration)
+	duration := time.Duration(filter.Interval)
 	t := &ticker{
 		ctrl:     make(chan interface{}),
 		data:     make(chan interface{}),
-		selector: selector,
+		filter:   filter,
 		duration: duration,
 		ticker:   stream.Ticker(duration),
 	}

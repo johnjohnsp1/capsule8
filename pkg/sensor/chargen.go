@@ -11,16 +11,16 @@ import (
 //
 
 type chargen struct {
-	ctrl     chan interface{}
-	data     chan interface{}
-	selector event.Selector
-	chargen  *stream.Stream
-	index    uint64
+	ctrl    chan interface{}
+	data    chan interface{}
+	filter  *event.ChargenEventFilter
+	chargen *stream.Stream
+	index   uint64
 }
 
 func newChargenEvent(index uint64, characters string) *event.Event {
 	return &event.Event{
-		Subevent: &event.Event_Chargen{
+		Event: &event.Event_Chargen{
 			Chargen: &event.ChargenEvent{
 				Index:      index,
 				Characters: characters,
@@ -30,7 +30,7 @@ func newChargenEvent(index uint64, characters string) *event.Event {
 }
 
 func (c *chargen) emitNextEvent(e interface{}) {
-	length := c.selector.Chargen.Length
+	length := c.filter.Length
 	payload := make([]byte, length)
 
 	i := c.index % uint64(length)
@@ -46,7 +46,7 @@ func (c *chargen) emitNextEvent(e interface{}) {
 
 // NewChargenSensor creates a new chargen sensor configured by the given
 // Selector
-func NewChargenSensor(selector event.Selector) (*stream.Stream, error) {
+func NewChargenSensor(filter *event.ChargenEventFilter) (*stream.Stream, error) {
 	//
 	// Each call to New creates a new session with the Sensor. It is the
 	// Sensor's responsibility to handle all of its sessions in the most
@@ -57,11 +57,11 @@ func NewChargenSensor(selector event.Selector) (*stream.Stream, error) {
 	//
 
 	c := &chargen{
-		ctrl:     make(chan interface{}),
-		data:     make(chan interface{}),
-		selector: selector,
-		chargen:  stream.Chargen(),
-		index:    0,
+		ctrl:    make(chan interface{}),
+		data:    make(chan interface{}),
+		filter:  filter,
+		chargen: stream.Chargen(),
+		index:   0,
 	}
 
 	go func() {

@@ -6,7 +6,44 @@ import (
 )
 
 type containerSensor struct {
-	state map[string]event.ContainerEvent_ContainerState
+	state map[string]event.ContainerEventType
+}
+
+func newContainerCreated(cID string, imageID string) *event.ContainerEvent {
+	ev := &event.ContainerEvent{
+		Id:      cID,
+		Type:    event.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED,
+		ImageId: imageID,
+	}
+
+	return ev
+}
+
+func newContainerRunning(cID string) *event.ContainerEvent {
+	ev := &event.ContainerEvent{
+		Id:   cID,
+		Type: event.ContainerEventType_CONTAINER_EVENT_TYPE_RUNNING,
+	}
+
+	return ev
+}
+
+func newContainerExited(cID string) *event.ContainerEvent {
+	ev := &event.ContainerEvent{
+		Id:   cID,
+		Type: event.ContainerEventType_CONTAINER_EVENT_TYPE_EXITED,
+	}
+
+	return ev
+}
+
+func newContainerDestroyed(cID string) *event.ContainerEvent {
+	ev := &event.ContainerEvent{
+		Id:   cID,
+		Type: event.ContainerEventType_CONTAINER_EVENT_TYPE_DESTROYED,
+	}
+
+	return ev
 }
 
 func (c *containerSensor) translateEvents(e interface{}) interface{} {
@@ -15,43 +52,30 @@ func (c *containerSensor) translateEvents(e interface{}) interface{} {
 
 	switch ev.State {
 	case ContainerCreated:
-		cev = &event.ContainerEvent{
-			ContainerID: ev.ID,
-			State:       event.ContainerEvent_CONTAINER_CREATED,
-			ImageID:     ev.ImageID,
-		}
+		cev = newContainerCreated(ev.ID, ev.ImageID)
 
 	case ContainerStarted:
-		cev = &event.ContainerEvent{
-			ContainerID: ev.ID,
-			State:       event.ContainerEvent_CONTAINER_STARTED,
-		}
+		cev = newContainerRunning(ev.ID)
 
 	case ContainerStopped:
-		cev = &event.ContainerEvent{
-			ContainerID: ev.ID,
-			State:       event.ContainerEvent_CONTAINER_STOPPED,
-		}
+		cev = newContainerExited(ev.ID)
 
 	case ContainerRemoved:
-		cev = &event.ContainerEvent{
-			ContainerID: ev.ID,
-			State:       event.ContainerEvent_CONTAINER_REMOVED,
-		}
+		cev = newContainerDestroyed(ev.ID)
 
 	default:
 		panic("Invalid value for ContainerState")
 	}
 
 	return &event.Event{
-		Subevent: &event.Event_Container{
+		Event: &event.Event_Container{
 			Container: cev,
 		},
 	}
 }
 
 // NewSensor creates a new ContainerEvent sensor
-func NewSensor(selector event.Selector) (*stream.Stream, error) {
+func NewSensor(sub *event.Subscription) (*stream.Stream, error) {
 	c := &containerSensor{}
 
 	s, err := NewEventStream()
@@ -61,7 +85,7 @@ func NewSensor(selector event.Selector) (*stream.Stream, error) {
 
 	s = stream.Map(s, c.translateEvents)
 
-	// TODO: filter by given selector
+	// TODO: filter event stream
 
 	return s, err
 }

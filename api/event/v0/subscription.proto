@@ -5,6 +5,8 @@ syntax = "proto3";
 package capsule8.event.v0;
 option go_package = "github.com/capsule8/reactive8/pkg/api/event";
 
+import "event/v0/event.proto";
+
 //
 // SignedSubscription wraps a subscription and signature.
 //
@@ -21,149 +23,159 @@ message SignedSubscription {
 // properties of the events desired by the subscriber.
 //
 message Subscription {
-    // Optional. If not set, the subscription is active over all nodes and 
-    // processes. 
-    Filter filter = 1;
+        //
+        // In all Filter messages below, optional individual fields are
+        // logically combined by 'AND' repeated fields are combined by
+        // 'OR'.
+        //
 
-    // Optional. If not set, the subscription is a no-op and doesn't receive
-    // any events.
-    Selector selector = 2;
+        // If not empty, then only return events matching one or more of
+        // the specified events. The event-specific messages are used as
+        // a mask where presence of a field indicates selection of events
+        // with a field matching the specified value. The common fields
+        // in the Event message are ignored.
+        repeated EventFilter events = 1;
 
-    // Optional. If not set, the subscription stream emits events "as is" with
-    // no modifications.
-    Modifier modifier = 3;
+        // If not empty, then only return events from processes matched
+        // by one or more of the specified process filters.
+        repeated ProcessFilter processes = 2;
+
+        // If not empty, then only return events from nodes matched by
+        // one or more of the specified node filters.
+        repeated NodeFilter nodes = 3;
+
+        // If not empty, then only return events that occurred after
+        // the specified relative duration subtracted from the current
+        // time. If the resulting time is in the past, then the
+        // subscription will search for historic events before streaming
+        // live ones.
+        int64 since_duration = 10;
+
+        // If not empty, then only return events that occurred before
+        // the specified relative duration added to the current time. If
+        // the resulting time is in the past, then the subscription will
+        // search for historic events before streaming live ones. If the
+        // resulting time is in the future, then the subscription will be
+        // automatically closed at that time.
+        int64 until_duration = 11;
+
+        // Optional. If not set, the subscription stream emits events
+        // "as is" with no modifications.
+        Modifier modifier = 20;
+}
+
+message NodeFilter {
+        // If set, then restrict events to specified ...
+}
+
+message ImageFilter {
+        string id      = 1;
+        string name    = 2;
+        string version = 3;
+}
+
+message ContainerFilter {
+        string id   = 1;
+        string name = 2;
+}
+
+message ProcessFilter {
+        sint32 pid      = 1;
+        string cgroup   = 2;
+        string filename = 3;
+
+        //
+        // Containerized environment specific conditions
+        //
+        ContainerFilter container   = 10;
+        ImageFilter container_image = 11;
+}
+
+message EventFilter {
+        oneof filter {
+                //
+                // Kernel-level events
+                //
+
+                SyscallEventFilter syscall = 10;
+                ProcessEventFilter process = 11;
+                FileEventFilter file       = 12;
+
+                //
+                // System-level events (containers, systemd, etc)
+                //
+
+                ContainerEventFilter container = 20;
+
+                //
+                // Debugging events (>= 100)
+                //
+                ChargenEventFilter chargen = 100;
+                TickerEventFilter ticker   = 101;
+        }
+}
+
+message SyscallEventFilter {
+        SyscallEventType type = 1;
+
+        int64 id = 2;
+
+        uint64 arg0 = 10;
+        uint64 arg1 = 11;
+        uint64 arg2 = 12;
+        uint64 arg3 = 13;
+        uint64 arg4 = 14;
+        uint64 arg5 = 15;
+
+        int64 ret = 20;
+}
+
+message ProcessEventFilter {
+        ProcessEventType type = 1;
+        sint32 exit_code      = 30;
+}
+
+message FileEventFilter {
+        FileEventType type = 1;
+        string filename    = 10;
+        sint32 open_flags  = 11;
+        sint32 open_mode   = 12;
+}
+
+message ContainerEventFilter {
+        ContainerEventType type = 1;
+        sint32 exit_code        = 30;
+}
+
+message ChargenEventFilter {
+        // Length of character sequence strings to generate
+        uint64 length = 1;
+}
+
+message TickerEventFilter {
+        // The interval at which ticker events are generated
+        int64 interval = 1;
 }
 
 //
-// Filter restricts an event subscription to the specified nodes and/or
-// processes. Filter fields are logically AND'd together. For example, an
-// empty Filter means that the Subscription applies globally.
-//
-message Filter {
-    //
-    // Filter.Node restricts which nodes the event subscription applies to.
-    // A node is any physical or virtual host running the Linux kernel.
-    //
-    message Node {
-        // Cluster label is bar
-        // Cluster name is foo
-        // Node name is foo
-        // Node label 
-    }
-
-    //
-    // Filter.Process restricts which processes the event subscription applies
-    // to. Processes may be specified by grouping (cgroup, container), relation
-    // (child of, descendant of) or identity (pid, name)
-    // 
-    message Process {
-        // cgroup
-        // container
-        // session id
-        // process group
-        // pid = x
-        // ppid = x
-        // name = sshd
-    }
-
-    // Optional. If not set, Filter includes all Nodes.
-    Node    node = 2;
-
-    // Optional. If not set, Filter includes all Processes.
-    Process process = 4;
-}
-
-//
-// Selector specifies which events the subscriber is interested in by type
-// and properties. Selector fields are logically OR'd together. For example,
-// an empty Selector is a no-op.
-//
-message Selector {
-    ChargenEventSelector   chargen = 1;
-    ContainerEventSelector container = 2;
-    TickerEventSelector    ticker = 3;
-
-/*
-    ContainerEventSelector container = 3;
-    ProcessEventSelector   process = 4;
-    NetworkEventSelector   network = 5;
-*/
-}
-
-//
-// The subtype selectors below each correspond to a subevent type. For a
-// given event FooEvent, the corresponding selector is FooEventSelector.
-//
-
-message ChargenEventSelector {
-  // Number of characters to generate for each Event
-  uint32 length = 1;
-}
-
-message TickerEventSelector {
-  // The elapsed time between two instants as an int64 nanosecond
-  // count. This representation limits the largest representable
-  // duration to approximately 290 years.
-  // 
-  // (https://golang.org/pkg/time/#Duration)
-  int64 duration = 2;
-}
-
-message ContainerEventSelector {
-    enum View {
-        // Events should only include foo, bar, baz.
-        // The default value.
-        BASIC = 0;
-
-        // Events should include all details made available by the container runtime.
-        FULL = 1;
-    }
-
-    // Specifies how much detail should be included in the event.
-    View view = 1;
-}
-
-message ProcessEventSelector {
-    // At minimum, the events available from perf:
-    // PERF_RECORD_COMM, PERF_RECORD_EXIT, PERF_RECORD_FORK
-    // sched:sched_process_exec                           [Tracepoint event]
-    // sched:sched_process_exit                           [Tracepoint event]
-    // sched:sched_process_fork                           [Tracepoint event]
-    // sched:sched_process_free                           [Tracepoint event]
-    // sched:sched_process_hang                           [Tracepoint event]
-    // sched:sched_process_wait
-    // fork, exec, exit
-}
-
-message FileEventSelector {
-    // Lowest common-denominator events among dnotify/fanotify/inotify/tracepoints/syscalls
-}
-
-message NetworkEventSelector {
-    // 
-}
-
-
-//
-// Modifier specifies which stream modifiers to apply if any. For a given stream,
-// a modifier can apply a throttle or limit etc. Modifiers can be used together.
+// Modifier specifies which stream modifiers to apply if any. For a given
+// stream, a modifier can apply a throttle or limit etc. Modifiers can be
+// used together.
 //
 message Modifier {
-    ThrottleModifier throttle = 1;
-    LimitModifier limit = 2;
+        ThrottleModifier throttle = 1;
+        LimitModifier limit       = 2;
 }
 
 message ThrottleModifier {
-    int64 interval = 1;
-    enum IntervalType {
-        MILLISECOND = 0;
-        SECOND = 1;
-        MINUTE = 2;
-        HOUR = 3;
-    }
-    IntervalType interval_type = 2;
+        int64 interval = 1;
+        enum IntervalType {
+                MILLISECOND = 0;
+                SECOND      = 1;
+                MINUTE      = 2;
+                HOUR        = 3;
+        }
+        IntervalType interval_type = 2;
 }
 
-message LimitModifier {
-    int64 limit = 1;
-}
+message LimitModifier { int64 limit = 1; }
