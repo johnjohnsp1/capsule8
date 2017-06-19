@@ -68,27 +68,24 @@ message NodeFilter {
         // If set, then restrict events to specified ...
 }
 
-message ImageFilter {
-        string id      = 1;
-        string name    = 2;
-        string version = 3;
-}
-
-message ContainerFilter {
-        string id   = 1;
-        string name = 2;
-}
-
 message ProcessFilter {
-        sint32 pid      = 1;
-        string cgroup   = 2;
-        string filename = 3;
+        oneof filter {
+                sint32 pid      = 1;
+                string cgroup   = 2;
+                string filename = 3;
 
-        //
-        // Containerized environment specific conditions
-        //
-        ContainerFilter container   = 10;
-        ImageFilter container_image = 11;
+                //
+                // Containerized environment specific conditions
+                //
+
+                string container_id   = 10;
+                string container_name = 11;
+
+                string image_id = 20;
+
+                // Container image name (shell-style globs are supported)
+                string image_name = 21;
+        }
 }
 
 message EventFilter {
@@ -131,8 +128,8 @@ message SyscallEventFilter {
 }
 
 message ProcessEventFilter {
+        // If not empty, specify a specific process event type of interest
         ProcessEventType type = 1;
-        sint32 exit_code      = 30;
 }
 
 message FileEventFilter {
@@ -143,8 +140,8 @@ message FileEventFilter {
 }
 
 message ContainerEventFilter {
+        // If not empty, specify a specific container event type of interest
         ContainerEventType type = 1;
-        sint32 exit_code        = 30;
 }
 
 message ChargenEventFilter {

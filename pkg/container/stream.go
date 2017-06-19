@@ -18,6 +18,7 @@ const (
 // to all supported container runtimes.
 type Event struct {
 	ID    string
+	Name  string
 	State State
 
 	ImageID string
@@ -35,6 +36,7 @@ func processEvents(e interface{}) interface{} {
 		if e.State == dockerContainerCreated {
 			ev = &Event{
 				ID:    e.ID,
+				Name:  e.Name,
 				State: ContainerCreated,
 
 				ImageID: e.ImageID,
@@ -51,6 +53,7 @@ func processEvents(e interface{}) interface{} {
 			//
 			ev = &Event{
 				ID:    e.ID,
+				Name:  e.Name,
 				State: ContainerStarted,
 
 				ImageID: e.ImageID,
@@ -61,6 +64,7 @@ func processEvents(e interface{}) interface{} {
 		} else if e.State == dockerContainerDead {
 			ev = &Event{
 				ID:    e.ID,
+				Name:  e.Name,
 				State: ContainerRemoved,
 
 				ImageID: e.ImageID,
