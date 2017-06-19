@@ -9,7 +9,7 @@ package main
 import (
 	"log"
 
-	"github.com/capsule8/capsule8/host/sensors/utils/c8dockerclient"
+	"github.com/capsule8/reactive8/pkg/container/c8dockerclient"
 )
 
 func inspectContainer(client *c8dockerclient.Client, id string) {
