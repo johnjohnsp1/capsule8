@@ -4,6 +4,8 @@ package c8dockerclient
 
 import (
 	"bytes"
+	"crypto/sha1"
+	"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -12,22 +14,22 @@ import (
 	"time"
 )
 
-var unixSockPath = "./dockersock_sock.sock"
+var dockerSock = "docker.sock"
 
 //FakeDockerServer serves as a mock docker server. It is loaded with recorded responses
 //from an actual docker session at the version specified. We use a serve mux to
 //encapsulate the responses
 type FakeDockerServer struct{}
 
-func (f *FakeDockerServer) listenAndServe(t *testing.T, expected chan []byte) (err error) {
+func (f *FakeDockerServer) listenAndServe(t *testing.T, expected chan []byte, dockerSockPath string) (err error) {
 	var buf [1024]byte
 
-	l, err := net.Listen("unix", unixSockPath)
+	l, err := net.Listen("unix", dockerSockPath)
 	if err != nil {
 		t.Log(err)
 		return err
 	}
-	defer os.Remove(unixSockPath)
+	defer os.Remove(dockerSockPath)
 
 	msg := <-expected
 	resp := &http.Response{Body: ioutil.NopCloser(bytes.NewBuffer(msg))}
@@ -55,14 +57,18 @@ func (f *FakeDockerServer) listenAndServe(t *testing.T, expected chan []byte) (e
 func DockerTestSetup(t *testing.T, filename string) (cli *Client) {
 	f := FakeDockerServer{}
 	expectedMsg := make(chan []byte)
-	go f.listenAndServe(t, expectedMsg)
+	// Hash the filename to a prefix for the docker sock
+	h := sha1.New()
+	h.Write([]byte(filename))
+	dockerSockPath := fmt.Sprintf("/tmp/%x-%s", h.Sum(nil), dockerSock)
+	go f.listenAndServe(t, expectedMsg, dockerSockPath)
 
 	msg, err := ioutil.ReadFile(filename)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	cli = &Client{SocketPath: unixSockPath}
+	cli = &Client{SocketPath: dockerSockPath}
 
 	//important do not move the order of this channel send as we're using
 	//it as an ad hoc means of coordinating the server
