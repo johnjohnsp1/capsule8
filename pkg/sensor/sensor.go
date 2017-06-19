@@ -2,7 +2,6 @@ package sensor
 
 import (
 	"github.com/capsule8/reactive8/pkg/api/event"
-	"github.com/capsule8/reactive8/pkg/container"
 	"github.com/capsule8/reactive8/pkg/stream"
 )
 
@@ -48,7 +47,7 @@ func NewSensor(sub *event.Subscription) (*stream.Stream, error) {
 		//
 		// Enable all non-debugging sensors
 		//
-		s, err := container.NewSensor(sub)
+		s, err := NewContainerSensor(sub)
 		if err != nil {
 			return nil, err
 		}
