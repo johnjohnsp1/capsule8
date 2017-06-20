@@ -118,30 +118,37 @@ func (client *Client) DockerInfo() (*DockerInfo, error) {
 
 //EventChannel connects to the Docker socket and executes the docker events
 //command, this returns a channel for receiving those events, and an error
-func (client *Client) EventChannel() (chan DockerEventMessage, error) {
+func (client *Client) EventChannel() (chan DockerEventMessage, chan interface{}, error) {
 	response, err := client.Request(ApiPrefix+"/events", "GET", nil)
 
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
+	stopChan := make(chan interface{})
 	eventChannel := make(chan DockerEventMessage, 64)
 	go func() {
 		defer response.Body.Close()
 		defer close(eventChannel)
 		jsonDecoder := json.NewDecoder(response.Body)
+	sendLoop:
 		for {
-			eventMessage := DockerEventMessage{}
-			err := jsonDecoder.Decode(&eventMessage)
-			if err != nil {
-				break
-			}
+			select {
+			case <-stopChan:
+				break sendLoop
+			default:
+				eventMessage := DockerEventMessage{}
+				err := jsonDecoder.Decode(&eventMessage)
+				if err != nil {
+					break sendLoop
+				}
 
-			eventChannel <- eventMessage
+				eventChannel <- eventMessage
+			}
 		}
 	}()
 
-	return eventChannel, nil
+	return eventChannel, stopChan, nil
 }
 
 //InspectContainer gets all of the information the docker engine has on a container

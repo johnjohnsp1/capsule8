@@ -20,7 +20,7 @@ func main() {
 	}
 
 	client := c8dockerclient.NewClient()
-	events, err := client.EventChannel()
+	events, stopChan, err := client.EventChannel()
 	if err != nil {
 		fmt.Fprintf(os.Stderr,
 			"Could not get docker events channel: %v\n", err)
@@ -30,11 +30,6 @@ func main() {
 	// Close the stop channel on Control-C to exit cleanly.
 	signals := make(chan os.Signal)
 	signal.Notify(signals, os.Interrupt)
-
-	go func() {
-		<-signals
-		s.Close()
-	}()
 
 selectLoop:
 	for {
@@ -54,6 +49,12 @@ selectLoop:
 				fmt.Fprintf(os.Stderr, "Stream closed.\n")
 				break selectLoop
 			}
+		case <-signals:
+			break selectLoop
 		}
 	}
+
+	// Housekeeping
+	s.Close()
+	close(stopChan)
 }

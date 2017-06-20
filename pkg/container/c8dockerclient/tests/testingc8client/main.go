@@ -62,7 +62,8 @@ func main() {
 
 	log.Println(dockerInfo.String())
 
-	eventChannel, err := client.EventChannel()
+	eventChannel, stopChan, err := client.EventChannel()
+	defer close(stopChan)
 
 	if err != nil {
 		log.Fatal("Error: ", err)
