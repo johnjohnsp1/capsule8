@@ -5,6 +5,8 @@ syntax = "proto3";
 package capsule8.config.v0;
 option go_package = "github.com/capsule8/reactive8/pkg/api/config";
 
+import "google/api/annotations.proto";
+
 //
 // Capsule8 Configuration API
 //
@@ -12,10 +14,19 @@ option go_package = "github.com/capsule8/reactive8/pkg/api/config";
 // from STAN channels.
 //
 service ConfigurationService {
-    rpc CreateConfig(CreateConfigRequest) returns (Config) {}
-    rpc GetConfig(GetConfigRequest) returns (Config) {}
+    rpc CreateConfig(CreateConfigRequest) returns (Config) {
+        option (google.api.http) = {
+            post: "/v0/config/{name}"
+            body: "config"
+        };
+    }
+    rpc GetConfig(GetConfigRequest) returns (Config) {
+        option (google.api.http) = { get: "/v0/config/{name}" };
+    }
     // Watch for Config updates
-    rpc WatchConfig(GetConfigRequest) returns (stream Config) {}
+    rpc WatchConfig(GetConfigRequest) returns (stream Config) {
+        option (google.api.http) = { get: "/v0/config/{name}/watch" };
+    }
 }
 
 // This message is just a wrapper around the actual config contained w/in the payload

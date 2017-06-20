@@ -5,6 +5,8 @@ syntax = "proto3";
 package capsule8.pubsub.v0;
 option go_package = "github.com/capsule8/reactive8/pkg/api/pubsub";
 
+import "google/api/annotations.proto";
+
 //
 // Capsule8 Pubsub API
 //
@@ -12,8 +14,15 @@ option go_package = "github.com/capsule8/reactive8/pkg/api/pubsub";
 // by topic name.
 //
 service PubsubService {
-    rpc Publish(PublishRequest) returns (PublishResponse) {}
-    rpc Subscribe(stream SubscribeRequest) returns (stream PubsubMessages) {}
+    rpc Publish(PublishRequest) returns (PublishResponse) {
+        option (google.api.http) = {
+            post: "/v0/publish"
+            body: "*"
+        };
+    }
+    rpc Subscribe(stream SubscribeRequest) returns (stream PubsubMessages) {
+        option (google.api.http) = { get: "/v0/subscribe" };
+    }
 }
 
 // Publishes a message to topic `name`
