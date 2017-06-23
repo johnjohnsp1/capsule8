@@ -6,12 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/capsule8/reactive8/pkg/api/apiserver"
 	"github.com/capsule8/reactive8/pkg/api/event"
 	"github.com/gogo/protobuf/proto"
 	nats "github.com/nats-io/go-nats"
 	stan "github.com/nats-io/go-nats-streaming"
-	"github.com/nats-io/go-nats/encoders/protobuf"
 	"github.com/nats-io/nats-streaming-server/server"
 	"github.com/nats-io/nats-streaming-server/test"
 )
@@ -29,8 +27,8 @@ func TestMain(m *testing.M) {
 	defer server.Shutdown()
 
 	// Set test env variables
-	os.Setenv("TESTSENSOR_NATSURL", fmt.Sprintf("nats://localhost:%d", NATS_PORT))
-	os.Setenv("TESTSENSOR_STANCLUSTERNAME", STAN_CLUSTER_NAME)
+	os.Setenv("STAN_NATSURL", fmt.Sprintf("nats://localhost:%d", NATS_PORT))
+	os.Setenv("STAN_CLUSTERNAME", STAN_CLUSTER_NAME)
 
 	LoadConfig("testsensor")
 	// We don't need to remove stale subscriptions here so we're not calling `RemoveStaleSubscriptions`
@@ -41,30 +39,26 @@ func TestMain(m *testing.M) {
 
 // TestCreateSubscription tests for the successful creation of a subscription over NATS.
 // It verifies sub creation by ensuring the delivery of a single message over the sub STAN channel.
-func DisabledTestCreateSubscription(t *testing.T) {
+func TestCreateSubscription(t *testing.T) {
 	nc, err := nats.Connect(Config.NatsURL)
 	if err != nil {
 		t.Error("Failed to connect to NATS:", err)
 	}
-	ec, _ := nats.NewEncodedConn(nc, protobuf.PROTOBUF_ENCODER)
-
 	// Broadcast a subscription
-	ec.Publish("subscription.TESTID", &apiserver.SubscriptionHeartbeat{
-		ClientId:       "fakeapiserver.fakehost",
-		SubscriptionId: "TESTID",
-		Subscription: &event.Subscription{
-			Selector: &event.Selector{
-				Chargen: &event.ChargenEventSelector{
-					Length: 1,
-				},
+	b, _ := proto.Marshal(&event.Subscription{
+		Selector: &event.Selector{
+			Chargen: &event.ChargenEventSelector{
+				Length: 1,
 			},
-			Modifier: &event.Modifier{
-				Limit: &event.LimitModifier{
-					Limit: 1,
-				},
+		},
+		Modifier: &event.Modifier{
+			Throttle: &event.ThrottleModifier{
+				Interval:     1,
+				IntervalType: 0,
 			},
 		},
 	})
+	nc.Publish("subscription.TESTID", b)
 
 	sc, err := stan.Connect(Config.StanClusterName, "testsensor", stan.NatsURL(Config.NatsURL))
 	if err != nil {

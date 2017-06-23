@@ -5,38 +5,35 @@ package main
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"os"
 
-	"github.com/capsule8/reactive8/pkg/api/apiserver"
 	"github.com/capsule8/reactive8/pkg/api/event"
 	"github.com/capsule8/reactive8/pkg/sensor"
 	"github.com/golang/protobuf/proto"
 	"github.com/kelseyhightower/envconfig"
 	nats "github.com/nats-io/go-nats"
 	stan "github.com/nats-io/go-nats-streaming"
-	"github.com/nats-io/go-nats/encoders/protobuf"
 )
 
 type sensorConfig struct {
-	StanClusterName     string `default:"c8-backplane"`
-	NatsURL             string `default:"nats://localhost:4222"`
+	StanClusterName     string `default:"c8-backplane" envconfig:"STAN_CLUSTERNAME"`
+	NatsURL             string `default:"nats://localhost:4222" envconfig:"STAN_NATSURL"`
 	SubscriptionTimeout int64  `default:"5"` // Default to a subscription timeout of 5 seconds
 }
 
 type subscriptionMetadata struct {
 	lastSeen     int64 // Unix timestamp w/ second level precision of when sub was last seen
 	subscription *event.Subscription
+	stopChan     chan interface{}
 }
 
 var Config sensorConfig
 
-// Map of subscription ID -> client ID -> Subscription metadata
-var subscriptions = make(map[string]map[string]*subscriptionMetadata)
-
-// Map of subscription ID -> sensor stop channel
-var sensorStopChans = make(map[string]chan interface{})
+// Map of subscription ID -> Subscription metadata
+var subscriptions = make(map[string]*subscriptionMetadata)
 
 func main() {
 	log.Println("[NODE-SENSOR] starting up")
@@ -70,58 +67,63 @@ func StartSensor() {
 		fmt.Fprintf(os.Stderr, "Failed to connect to NATS: %v\n", err)
 		os.Exit(1)
 	}
-	ec, _ := nats.NewEncodedConn(natsConn, protobuf.PROTOBUF_ENCODER)
-	_, err = ec.Subscribe("subscription.*", func(hb *apiserver.SubscriptionHeartbeat) {
+
+	_, err = natsConn.Subscribe("subscription.*", func(m *nats.Msg) {
+		subID := strings.Split(m.Subject, ".")[1]
+
+		sub := &event.Subscription{}
+		if err = proto.Unmarshal(m.Data, sub); err != nil {
+			fmt.Fprintf(os.Stderr, "No selector specified in subscription.%s\n", err.Error())
+			return
+		}
+
 		// TODO: Filter subscriptions based on cluster/node information
 
 		// Check if there is actually a `Selector` in the request. If not, ignore.
-		if hb.Subscription.Selector == nil {
+		if sub.Selector == nil {
+			fmt.Fprint(os.Stderr, "No selector specified in subscription.\n")
 			return
 		}
 
 		// New subscription?
-		if _, ok := subscriptions[hb.SubscriptionId]; !ok {
-			subscriptions[hb.SubscriptionId] = make(map[string]*subscriptionMetadata)
-			stopChan := newSensor(stanConn, hb.Subscription, hb.SubscriptionId)
-			sensorStopChans[hb.SubscriptionId] = stopChan
-		}
-
-		// New client for subscription?
-		if _, ok := subscriptions[hb.SubscriptionId][hb.ClientId]; !ok {
-			subscriptions[hb.SubscriptionId][hb.ClientId] = &subscriptionMetadata{
-				lastSeen:     time.Now().Unix(), // Gives us second precision
-				subscription: hb.Subscription,
+		if _, ok := subscriptions[subID]; !ok {
+			subscriptions[subID] = &subscriptionMetadata{
+				lastSeen:     time.Now().Add(time.Duration(Config.SubscriptionTimeout) * time.Second).Unix(),
+				subscription: sub,
 			}
+			subscriptions[subID].stopChan = newSensor(stanConn, sub, subID)
 		} else {
-			// Existing client? Update unix ts
-			subscriptions[hb.SubscriptionId][hb.ClientId].lastSeen = time.Now().Unix()
-
+			// Existing subscription? Update unix ts
+			subscriptions[subID].lastSeen = time.Now().Unix()
 		}
 	})
 	if err != nil {
 		log.Fatal("Failed to listen for new subscriptions:", err)
+	}
+
+	_, err = natsConn.Subscribe("heartbeat.*", func(m *nats.Msg) {
+		// Update last seen at time for sub ID
+		subID := strings.Split(m.Subject, ".")[1]
+		if _, ok := subscriptions[subID]; ok {
+			subscriptions[subID].lastSeen = time.Now().Unix()
+		} else {
+			// TODO: We should notify the client if we are getting heartbeats
+			// for a subscription that was killed,
+		}
+	})
+	if err != nil {
+		log.Fatal("Failed to listen for heartbeats:", err)
 	}
 }
 
 // RemoveStaleSubscriptions is a blocking call that removes stale subscriptions @ `SubscriptionTimeout` interval
 func RemoveStaleSubscriptions() {
 	for {
-		// Need a double loop to iterate over subscription ID -> client ID -> subscription
 		now := time.Now().Unix()
-		for subscriptionID, clientMap := range subscriptions {
-			for clientID, subscription := range clientMap {
-				// Close and remove the subscription if the sub is stale
-				if now-subscription.lastSeen >= Config.SubscriptionTimeout {
-					delete(clientMap, clientID)
-				}
-			}
-
-			// Delete subscription if there are no clients subscribed for it
-			// and clean up sensor broadcasting to `SUBSCRIPTION ID`
-			if len(clientMap) == 0 {
+		for subscriptionID, subscription := range subscriptions {
+			if now-subscription.lastSeen >= Config.SubscriptionTimeout {
+				close(subscriptions[subscriptionID].stopChan)
 				delete(subscriptions, subscriptionID)
-				close(sensorStopChans[subscriptionID])
-				delete(sensorStopChans, subscriptionID)
 			}
 
 		}
@@ -152,7 +154,7 @@ func newSensor(conn stan.Conn, sub *event.Subscription, subscriptionID string) c
 				break sendLoop
 			case ev, ok := <-stream.Data:
 				if !ok {
-					fmt.Fprint(os.Stderr, "Failed to get next event.")
+					fmt.Fprint(os.Stderr, "Failed to get next event.\n")
 					break sendLoop
 				}
 				//log.Println("Sending event:", ev)

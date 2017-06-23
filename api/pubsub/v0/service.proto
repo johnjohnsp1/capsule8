@@ -10,48 +10,56 @@ import "google/api/annotations.proto";
 //
 // Capsule8 Pubsub API
 //
-// The Pubsub API is used by capsulators to publish and subscribe to arbitrary messages
-// by topic name.
+// The Pubsub API is used by capsulators to publish and subscribe to typed messages
+// for well defined topic names. Arbitrary types can be sent over non well defined topics.
 //
 service PubsubService {
+    // Publishes a
     rpc Publish(PublishRequest) returns (PublishResponse) {
         option (google.api.http) = {
             post: "/v0/publish"
             body: "*"
         };
     }
-    rpc Subscribe(stream SubscribeRequest) returns (stream PubsubMessages) {
-        option (google.api.http) = { get: "/v0/subscribe" };
+    // Pulls messages off of a topic
+    rpc Pull(stream PullRequest) returns (stream PullResponse) {
+        option (google.api.http) = { 
+            get: "/v0/pull" 
+        };
     }
 }
 
-// Publishes a message to topic `name`
+// Publishes a message to topic
 message PublishRequest {
-    string name = 1;
+    string topic = 1;
     // Can publish one or more message(s) at a time
     repeated bytes messages = 2;
 }
 
-// Empty on purpose
+// PublishResponse returns any failed messages
 message PublishResponse {
-    repeated bytes failed_messages = 1;
-
+    repeated FailedMessage failed_messages = 1;
 }
 
-// Subscribe to messages on topic `name`
-message SubscribeRequest {
-    // Must be set on first request and omitted in subsequent requests
-    string name = 1;
+message FailedMessage {
+    bytes payload = 1;
+    string error = 2;
+}
 
-    // Raw acks from one or more `PubsubMessage`
+// Pull messages off a topic
+message PullRequest {
+    // Must be set on first request and omitted in subsequent requests
+    string topic = 1;
+
+    // Raw acks from one or more `ReceivedMessage`s
     repeated bytes acks = 2;
 }
 
-message PubsubMessages {
-    repeated PubsubMessage messages = 1;
+message PullResponse {
+    repeated ReceivedMessage messages = 1;
 }
 
-message PubsubMessage {
+message ReceivedMessage {
     bytes ack = 1;
 
     bytes payload = 2;
