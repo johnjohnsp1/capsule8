@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"testing"
@@ -45,20 +46,25 @@ func TestCreateSubscription(t *testing.T) {
 		t.Error("Failed to connect to NATS:", err)
 	}
 	// Broadcast a subscription
-	b, _ := proto.Marshal(&event.Subscription{
-		Selector: &event.Selector{
-			Chargen: &event.ChargenEventSelector{
-				Length: 1,
+	b, _ := proto.Marshal(&event.SignedSubscription{
+		Subscription: &event.Subscription{
+			Selector: &event.Selector{
+				Chargen: &event.ChargenEventSelector{
+					Length: 1,
+				},
 			},
-		},
-		Modifier: &event.Modifier{
-			Throttle: &event.ThrottleModifier{
-				Interval:     1,
-				IntervalType: 0,
+			Modifier: &event.Modifier{
+				Throttle: &event.ThrottleModifier{
+					Interval:     1,
+					IntervalType: 0,
+				},
 			},
 		},
 	})
-	nc.Publish("subscription.TESTID", b)
+	h := sha256.New()
+	h.Write(b)
+	subID := fmt.Sprintf("%x", h.Sum(nil))
+	nc.Publish(fmt.Sprintf("subscription.%s", subID), b)
 
 	sc, err := stan.Connect(Config.StanClusterName, "testsensor", stan.NatsURL(Config.NatsURL))
 	if err != nil {
@@ -70,7 +76,7 @@ func TestCreateSubscription(t *testing.T) {
 	// use with a `select` to check for timeouts
 	go func() {
 		// Only one message so we don't need a for loop
-		sc.Subscribe("event.TESTID", func(m *stan.Msg) {
+		sc.Subscribe(fmt.Sprintf("event.%s", subID), func(m *stan.Msg) {
 			ev := &event.Event{}
 			proto.Unmarshal(m.Data, ev)
 			msgs <- ev

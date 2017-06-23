@@ -5,8 +5,6 @@ syntax = "proto3";
 package capsule8.pubsub.v0;
 option go_package = "github.com/capsule8/reactive8/pkg/api/pubsub";
 
-import "google/api/annotations.proto";
-
 message Ack {
     string inbox = 1;
     string subject = 2;

@@ -14,17 +14,23 @@ import "google/api/annotations.proto";
 // for well defined topic names. Arbitrary types can be sent over non well defined topics.
 //
 service PubsubService {
-    // Publishes a
+    // Publishes messages to a topic
     rpc Publish(PublishRequest) returns (PublishResponse) {
         option (google.api.http) = {
-            post: "/v0/publish"
+            post: "/v0/topic/{topic}"
             body: "*"
         };
     }
     // Pulls messages off of a topic
-    rpc Pull(stream PullRequest) returns (stream PullResponse) {
+    rpc Pull(PullRequest) returns (stream PullResponse) {
         option (google.api.http) = { 
-            get: "/v0/pull" 
+            get: "/v0/topic/{topic}"
+        };
+    }
+    rpc Acknowledge(AcknowledgeRequest) returns (AcknowledgeResponse) {
+        option (google.api.http) = {
+            post: "/v0/ack"
+            body: "*"
         };
     }
 }
@@ -50,9 +56,8 @@ message FailedMessage {
 message PullRequest {
     // Must be set on first request and omitted in subsequent requests
     string topic = 1;
-
-    // Raw acks from one or more `ReceivedMessage`s
-    repeated bytes acks = 2;
+    // Optional, timeout in milliseconds
+    int64 timeout = 2;
 }
 
 message PullResponse {
@@ -63,4 +68,12 @@ message ReceivedMessage {
     bytes ack = 1;
 
     bytes payload = 2;
+}
+
+message AcknowledgeRequest {
+    repeated bytes acks = 1;
+}
+
+message AcknowledgeResponse {
+    repeated bytes failed_acks = 1;
 }

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"log"
 	"testing"
 	"time"
@@ -22,36 +24,39 @@ func TestPullEvents(t *testing.T) {
 	c := pubsub.NewPubsubServiceClient(conn)
 
 	// Create a subscription first
-	sub := &event.Subscription{
-		Selector: &event.Selector{
-			Chargen: &event.ChargenEventSelector{
-				Length: 1,
+	sub := &event.SignedSubscription{
+		Subscription: &event.Subscription{
+			Selector: &event.Selector{
+				Chargen: &event.ChargenEventSelector{
+					Length: 1,
+				},
 			},
-		},
-		Modifier: &event.Modifier{
-			Throttle: &event.ThrottleModifier{
-				Interval:     1,
-				IntervalType: 0,
+			Modifier: &event.Modifier{
+				Throttle: &event.ThrottleModifier{
+					Interval:     1,
+					IntervalType: 0,
+				},
 			},
 		},
 	}
 	b, _ := proto.Marshal(sub)
+	h := sha256.New()
+	h.Write(b)
+	subID := fmt.Sprintf("%x", h.Sum(nil))
 	_, err = c.Publish(context.Background(), &pubsub.PublishRequest{
-		Topic: "subscription.SOMEID",
+		Topic: fmt.Sprintf("subscription.%s", subID),
 		Messages: [][]byte{
 			b,
 		},
 	})
 
 	// Stream subscription
-	stream, err := c.Pull(context.Background())
+	stream, err := c.Pull(context.Background(), &pubsub.PullRequest{
+		Topic: fmt.Sprintf("event.%s", subID),
+	})
 	if err != nil {
 		t.Error("Failed to create receive event stream:", err)
 	}
-
-	stream.Send(&pubsub.PullRequest{
-		Topic: "event.SOMEID",
-	})
 
 	// Attempt to collect 1 message
 	msgs := make(chan interface{})
@@ -70,7 +75,7 @@ func TestPullEvents(t *testing.T) {
 		for i, msg := range resp.Messages {
 			acks[i] = msg.Ack
 		}
-		stream.Send(&pubsub.PullRequest{
+		c.Acknowledge(context.Background(), &pubsub.AcknowledgeRequest{
 			Acks: acks,
 		})
 	}()

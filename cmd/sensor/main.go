@@ -71,8 +71,8 @@ func StartSensor() {
 	_, err = natsConn.Subscribe("subscription.*", func(m *nats.Msg) {
 		subID := strings.Split(m.Subject, ".")[1]
 
-		sub := &event.Subscription{}
-		if err = proto.Unmarshal(m.Data, sub); err != nil {
+		ss := &event.SignedSubscription{}
+		if err = proto.Unmarshal(m.Data, ss); err != nil {
 			fmt.Fprintf(os.Stderr, "No selector specified in subscription.%s\n", err.Error())
 			return
 		}
@@ -80,7 +80,7 @@ func StartSensor() {
 		// TODO: Filter subscriptions based on cluster/node information
 
 		// Check if there is actually a `Selector` in the request. If not, ignore.
-		if sub.Selector == nil {
+		if ss.Subscription.Selector == nil {
 			fmt.Fprint(os.Stderr, "No selector specified in subscription.\n")
 			return
 		}
@@ -89,9 +89,9 @@ func StartSensor() {
 		if _, ok := subscriptions[subID]; !ok {
 			subscriptions[subID] = &subscriptionMetadata{
 				lastSeen:     time.Now().Add(time.Duration(Config.SubscriptionTimeout) * time.Second).Unix(),
-				subscription: sub,
+				subscription: ss.Subscription,
 			}
-			subscriptions[subID].stopChan = newSensor(stanConn, sub, subID)
+			subscriptions[subID].stopChan = newSensor(stanConn, ss.Subscription, subID)
 		} else {
 			// Existing subscription? Update unix ts
 			subscriptions[subID].lastSeen = time.Now().Unix()
@@ -99,20 +99,6 @@ func StartSensor() {
 	})
 	if err != nil {
 		log.Fatal("Failed to listen for new subscriptions:", err)
-	}
-
-	_, err = natsConn.Subscribe("heartbeat.*", func(m *nats.Msg) {
-		// Update last seen at time for sub ID
-		subID := strings.Split(m.Subject, ".")[1]
-		if _, ok := subscriptions[subID]; ok {
-			subscriptions[subID].lastSeen = time.Now().Unix()
-		} else {
-			// TODO: We should notify the client if we are getting heartbeats
-			// for a subscription that was killed,
-		}
-	})
-	if err != nil {
-		log.Fatal("Failed to listen for heartbeats:", err)
 	}
 }
 

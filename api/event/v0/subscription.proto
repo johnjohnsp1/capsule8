@@ -6,6 +6,14 @@ package capsule8.event.v0;
 option go_package = "github.com/capsule8/reactive8/pkg/api/event";
 
 //
+// SignedSubscription wraps a subscription and signature.
+//
+message SignedSubscription {
+    Subscription subscription = 1;
+    string signature = 2; // (Soon to be) Required, will used to sign the subscription
+}
+
+//
 // Subscription identifies a subscriber's interest in events. The optional
 // Filter field restricts the subscription to the nodes and processes
 // specified within. The optional Selector field specifies the types and
