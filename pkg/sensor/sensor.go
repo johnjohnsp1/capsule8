@@ -40,6 +40,13 @@ func NewSensor(sub *event.Subscription) (*stream.Stream, error) {
 				}
 				streams = append(streams, s)
 
+			case *event.EventFilter_Process:
+				s, err := NewProcessSensor(sub)
+				if err != nil {
+					return nil, err
+				}
+				streams = append(streams, s)
+
 				// and so on...
 			}
 		}
@@ -53,6 +60,11 @@ func NewSensor(sub *event.Subscription) (*stream.Stream, error) {
 		}
 		streams = append(streams, s)
 
+		s, err = NewProcessSensor(sub)
+		if err != nil {
+			return nil, err
+		}
+		streams = append(streams, s)
 	}
 
 	//

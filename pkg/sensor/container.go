@@ -52,7 +52,7 @@ func newContainerDestroyed(cID string) *event.ContainerEvent {
 	return ev
 }
 
-func translateEvents(e interface{}) interface{} {
+func translateContainerEvents(e interface{}) interface{} {
 	ev := e.(*container.Event)
 	var cev *event.ContainerEvent
 
@@ -259,7 +259,7 @@ func NewContainerSensor(sub *event.Subscription) (*stream.Stream, error) {
 	s = stream.Filter(s, cf.filterContainerEvent)
 	s = stream.Do(s, cf.pruneFilter)
 	s = stream.Filter(s, cf.filterEventState)
-	s = stream.Map(s, translateEvents)
+	s = stream.Map(s, translateContainerEvents)
 
 	return s, err
 }
