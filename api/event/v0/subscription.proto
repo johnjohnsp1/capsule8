@@ -10,7 +10,8 @@ option go_package = "github.com/capsule8/reactive8/pkg/api/event";
 //
 message SignedSubscription {
     Subscription subscription = 1;
-    string signature = 2; // (Soon to be) Required, will used to sign the subscription
+    string subscription_id = 2;
+    string signature = 3; // (Soon to be) Required, will used to sign the subscription
 }
 
 //

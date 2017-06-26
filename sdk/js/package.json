@@ -1,0 +1,15 @@
+{
+  "name": "client",
+  "version": "1.0.0",
+  "description": "JS API Client SDK",
+  "main": "client/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Capsule8 Inc.",
+  "license": "All rights reserved.",
+  "dependencies": {
+    "axios": "^0.16.2",
+    "ws": "^3.0.0"
+  }
+}
