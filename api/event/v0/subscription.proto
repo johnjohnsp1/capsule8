@@ -6,7 +6,7 @@ package capsule8.event.v0;
 
 option go_package = "github.com/capsule8/reactive8/pkg/api/event";
 
-import "ptypes/wrappers/wrappers.proto";
+import "google/protobuf/wrappers.proto";
 import "event/v0/event.proto";
 
 //
@@ -115,8 +115,10 @@ message EventFilter {
 }
 
 message SyscallEventFilter {
+        // Required.
         SyscallEventType type = 1;
 
+        // Required system call number (arch/x86/entry/syscalls/syscall_64.tbl)
         google.protobuf.Int64Value id = 2;
 
         google.protobuf.UInt64Value arg0 = 10;
@@ -130,19 +132,42 @@ message SyscallEventFilter {
 }
 
 message ProcessEventFilter {
-        // If not empty, specify a specific process event type of interest
+        // Required; the process event type to match
         ProcessEventType type = 1;
+
+        // Optional; require exact match on the command name associated
+        // with the process as shown in /proc/[pid]/comm
+        // google.protobuf.StringValue comm = 10;
+
+        // Optional; require pattern match on the command name associated
+        // with the process as shown in /proc/[pid]/comm
+        // google.protobuf.StringValue comm_pattern = 11;
+
+        // google.protobuf.StringValue exec_filename         = 12;
+        // google.protobuf.StringValue exec_filename_pattern = 13;
+
+        // google.protobuf.Int32Value exit_code = 14;
 }
 
 message FileEventFilter {
+        // Required
         FileEventType type = 1;
-        string filename    = 10;
-        sint32 open_flags  = 11;
-        sint32 open_mode   = 12;
+
+        // Optional filename exact match
+        google.protobuf.StringValue filename = 10;
+
+        // Optional filename pattern
+        google.protobuf.StringValue filename_pattern = 11;
+
+        // Optional open(2) flags mask value
+        google.protobuf.Int32Value open_flags_mask = 12;
+
+        // Optional open(2)/creat(2) mode mask value
+        google.protobuf.Int32Value create_mode_mask = 13;
 }
 
 message ContainerEventFilter {
-        // If not empty, specify a specific container event type of interest
+        // Required.
         ContainerEventType type = 1;
 }
 
