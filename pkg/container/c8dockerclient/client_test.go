@@ -116,7 +116,7 @@ func TestC8DockerClientDocker1_13_0_listContainers(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(containers) != 1 {
-		t.Fatalf("Incorrect number of containers from listContainer expected 1 got %s",
+		t.Fatalf("Incorrect number of containers from listContainer expected 1 got %d",
 			len(containers))
 	}
 
@@ -215,7 +215,7 @@ func TestC8DockerClientDocker1_12_2_listContainers(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(containers) != 1 {
-		t.Fatalf("Incorrect number of containers from listContainer expected 1 got %s",
+		t.Fatalf("Incorrect number of containers from listContainer expected 1 got %d",
 			len(containers))
 	}
 

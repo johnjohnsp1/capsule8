@@ -36,10 +36,10 @@ var Config sensorConfig
 var subscriptions = make(map[string]*subscriptionMetadata)
 
 func main() {
-	log.Println("[NODE-SENSOR] starting up")
+	log.Println("starting up")
 	LoadConfig("sensor")
 	StartSensor()
-	log.Println("[NODE-SENSOR] started")
+	log.Println("started")
 	// Blocking call to remove stale subscriptions on a 5 second interval
 	RemoveStaleSubscriptions()
 }
