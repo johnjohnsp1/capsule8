@@ -65,7 +65,7 @@ message PullResponse {
 }
 
 message ReceivedMessage {
-    bytes ack = 1;
+    bytes ack = 1; // Optional
 
     bytes payload = 2;
 }

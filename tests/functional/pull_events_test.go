@@ -1,89 +1,53 @@
 package main
 
 import (
-	"crypto/sha256"
-	"fmt"
-	"log"
+	"os"
 	"testing"
 	"time"
 
-	"golang.org/x/net/context"
-
 	"github.com/capsule8/reactive8/pkg/api/event"
-	"github.com/capsule8/reactive8/pkg/api/pubsub"
-	"github.com/golang/protobuf/proto"
-	"google.golang.org/grpc"
+	"github.com/capsule8/reactive8/pkg/client"
 )
 
+var c client.Client
+
+func TestMain(m *testing.M) {
+	c, _ = client.CreateClient("localhost:8080")
+	os.Exit(m.Run())
+}
+
 func TestPullEvents(t *testing.T) {
-	conn, err := grpc.Dial("localhost:8080", grpc.WithInsecure())
-	if err != nil {
-		t.Error("Failed to connect to grpc server:", err)
-	}
-
-	c := pubsub.NewPubsubServiceClient(conn)
-
-	// Create a subscription first
-	sub := &event.SignedSubscription{
-		Subscription: &event.Subscription{
-			Selector: &event.Selector{
-				Chargen: &event.ChargenEventSelector{
-					Length: 1,
-				},
-			},
-			Modifier: &event.Modifier{
-				Throttle: &event.ThrottleModifier{
-					Interval:     1,
-					IntervalType: 0,
-				},
+	ss, err := c.CreateTelemetrySubscription(&event.Subscription{
+		Selector: &event.Selector{
+			Chargen: &event.ChargenEventSelector{
+				Length: 1,
 			},
 		},
-	}
-	b, _ := proto.Marshal(sub)
-	h := sha256.New()
-	h.Write(b)
-	subID := fmt.Sprintf("%x", h.Sum(nil))
-	_, err = c.Publish(context.Background(), &pubsub.PublishRequest{
-		Topic: fmt.Sprintf("subscription.%s", subID),
-		Messages: [][]byte{
-			b,
+		Modifier: &event.Modifier{
+			Throttle: &event.ThrottleModifier{
+				Interval:     1,
+				IntervalType: 0,
+			},
 		},
 	})
-
-	// Stream subscription
-	stream, err := c.Pull(context.Background(), &pubsub.PullRequest{
-		Topic: fmt.Sprintf("event.%s", subID),
-	})
 	if err != nil {
-		t.Error("Failed to create receive event stream:", err)
+		t.Error("Failed to create signed subscription:", err)
 	}
 
-	// Attempt to collect 1 message
-	msgs := make(chan interface{})
-	go func() {
-		resp, err := stream.Recv()
-		if err != nil {
-			t.Error("Error receiving messages: ", err)
-		}
-		log.Println("Received messages: ", resp.Messages)
-
-		for msg := range resp.Messages {
-			msgs <- msg
-		}
-
-		acks := make([][]byte, len(resp.Messages))
-		for i, msg := range resp.Messages {
-			acks[i] = msg.Ack
-		}
-		c.Acknowledge(context.Background(), &pubsub.AcknowledgeRequest{
-			Acks: acks,
-		})
-	}()
+	events, closeSignal, err := c.GetTelemetryEvents(ss)
+	if err != nil {
+		t.Error("Failed to get telemetry events:", err)
+	}
 
 	select {
 	case <-time.After(3 * time.Second):
 		t.Error("Receive events timeout")
-	case <-msgs:
-		t.Log("Successfully received event")
+	case _, ok := <-events:
+		if !ok {
+			t.Error("Failed to receive event")
+		} else {
+			t.Log("Successfully received event")
+			close(closeSignal)
+		}
 	}
 }

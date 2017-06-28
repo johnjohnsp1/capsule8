@@ -19,10 +19,14 @@ import (
 	nats "github.com/nats-io/go-nats"
 	stan "github.com/nats-io/go-nats-streaming"
 	npb "github.com/nats-io/go-nats-streaming/pb"
+	uuid "github.com/satori/go.uuid"
 )
 
-var stanConn stan.Conn
-var natsConn *nats.Conn
+// Errors
+var (
+	ErrInvalidMessageType  = func(err string) error { return fmt.Errorf("invalid message type %s", err) }
+	ErrNoSubscriptionFound = errors.New("no subscription found")
+)
 
 var config struct {
 	ClusterName string `default:"c8-backplane"`
@@ -30,26 +34,11 @@ var config struct {
 	AckWait     int    `default:"1"`
 }
 
-type Subscription struct {
-	stanSub stan.Subscription
-	natsSub *nats.Subscription
-}
-
-func (s *Subscription) Close() error {
-	if s.stanSub != nil {
-		// Close retains durable subscriptions.
-		// This way, a client can d/c -> r/c to resume their durable sub.
-		return s.stanSub.Close()
-	}
-	if s.natsSub != nil {
-		return s.natsSub.Unsubscribe()
-	}
-	// We always set the inner subscription but just in case.
-	return errors.New("No subscription found")
-}
-
 // Backend is actually both STAN/NATS backends
-type Backend struct{}
+type Backend struct {
+	stanConn stan.Conn
+	natsConn *nats.Conn
+}
 
 // Connect backend to STAN/NATS cluster(s)
 func (sb *Backend) Connect() error {
@@ -59,12 +48,12 @@ func (sb *Backend) Connect() error {
 		return err
 	}
 
-	if stanConn, err = stan.Connect(config.ClusterName, "apiserver", stan.NatsURL(config.NatsURL)); err != nil {
+	if sb.stanConn, err = stan.Connect(config.ClusterName, uuid.NewV4().String(), stan.NatsURL(config.NatsURL)); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect to STAN server: %v\n", err)
 		return err
 	}
 
-	if natsConn, err = nats.Connect(config.NatsURL); err != nil {
+	if sb.natsConn, err = nats.Connect(config.NatsURL); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect to NATS server: %v\n", err)
 		return err
 	}
@@ -81,7 +70,7 @@ func (sb *Backend) Publish(topic string, message interface{}) error {
 		if err != nil {
 			return err
 		}
-		if err = natsConn.Publish(topic, bytes); err != nil {
+		if err = sb.natsConn.Publish(topic, bytes); err != nil {
 			return err
 		}
 	case *pbconfig.Config:
@@ -90,18 +79,18 @@ func (sb *Backend) Publish(topic string, message interface{}) error {
 		if err != nil {
 			return err
 		}
-		if _, err = stanConn.PublishAsync(topic, bytes, func(_ string, _ error) {}); err != nil {
+		if _, err = sb.stanConn.PublishAsync(topic, bytes, func(_ string, _ error) {}); err != nil {
 			return err
 		}
 	case []byte:
 		// Publish arbitrary bytes to the specified topic
 		bytes := message.([]byte)
-		if _, err := stanConn.PublishAsync(topic, bytes, func(_ string, _ error) {}); err != nil {
+		if _, err := sb.stanConn.PublishAsync(topic, bytes, func(_ string, _ error) {}); err != nil {
 			return err
 		}
 	default:
 		// Message must be one of the types above
-		return fmt.Errorf("Message is of unknown type %s", reflect.TypeOf(message))
+		return ErrInvalidMessageType(fmt.Sprintf("%v", reflect.TypeOf(message)))
 	}
 
 	return nil
@@ -112,24 +101,31 @@ func (sb *Backend) Pull(topic string) (backend.Subscription, <-chan *pubsub.Rece
 	// Return one channel for receiving messages
 	messages := make(chan *pubsub.ReceivedMessage)
 	// Return a subscription object for managing subscriptions
-	sub := &Subscription{}
+	sub := &subscription{}
 
 	// Check for topics that need special treatment
 	maybeConfig := regexp.MustCompile(`config\..*`)
+	maybeSubscription := regexp.MustCompile(`subscription\..*`)
 	//maybeEvents := regexp.MustCompile(`events\..*`)
 
 	switch {
 	case maybeConfig.MatchString(topic):
 		// We send EVERY message sitting in the channel for topic `config.*`
-		stanSub, err := stanSubscribe(topic, messages, stan.DeliverAllAvailable())
+		stanSub, err := sb.stanSubscribe(topic, messages, stan.DeliverAllAvailable())
 		if err != nil {
 			return sub, messages, err
 		}
 		sub.stanSub = stanSub
+	case maybeSubscription.MatchString(topic):
+		natsSub, err := sb.natsSubscribe(topic, messages)
+		if err != nil {
+			return sub, messages, err
+		}
+		sub.natsSub = natsSub
 	//case maybeEvents.MatchString(topic):
 	// TODO: We will probably use an (in memory) STAN cluster for handling telemetry events
 	default:
-		stanSub, err := stanSubscribe(topic, messages)
+		stanSub, err := sb.stanSubscribe(topic, messages)
 		if err != nil {
 			return sub, messages, err
 		}
@@ -139,6 +135,7 @@ func (sb *Backend) Pull(topic string) (backend.Subscription, <-chan *pubsub.Rece
 	return sub, messages, nil
 }
 
+// Acknowledge all raw acks
 func (sb *Backend) Acknowledge(acks [][]byte) ([][]byte, error) {
 	var failedAcks [][]byte
 ackLoop:
@@ -156,7 +153,7 @@ ackLoop:
 			fmt.Fprintf(os.Stderr, "Unable to marshal ack: %s\n", err.Error())
 			continue ackLoop
 		}
-		if err = natsConn.Publish(ack.Inbox, b); err != nil {
+		if err = sb.natsConn.Publish(ack.Inbox, b); err != nil {
 			fmt.Fprintf(os.Stderr, "Unable to publish ack: %s\n", err.Error())
 			failedAcks = append(failedAcks, ackBytes)
 		}
@@ -165,14 +162,25 @@ ackLoop:
 	return failedAcks, nil
 }
 
-func stanSubscribe(topic string, messages chan *pubsub.ReceivedMessage, options ...stan.SubscriptionOption) (stan.Subscription, error) {
+func (sb *Backend) natsSubscribe(topic string, messages chan *pubsub.ReceivedMessage) (*nats.Subscription, error) {
+	sub, err := sb.natsConn.Subscribe(topic, func(m *nats.Msg) {
+		messages <- &pubsub.ReceivedMessage{
+			Payload: m.Data,
+		}
+	})
+	if err != nil {
+		return sub, err
+	}
+	return sub, nil
+}
+
+func (sb *Backend) stanSubscribe(topic string, messages chan *pubsub.ReceivedMessage, options ...stan.SubscriptionOption) (stan.Subscription, error) {
 	var ackInbox string
 
 	// By default, we deliver messages off of a stan channel
 	// from when the subscriber subscribes
-	options = append(options, stan.SetManualAckMode())
-	options = append(options, stan.AckWait(time.Duration(config.AckWait)*time.Second))
-	stanSub, err := stanConn.Subscribe(topic, func(m *stan.Msg) {
+	options = append(options, stan.SetManualAckMode(), stan.AckWait(time.Duration(config.AckWait)*time.Second))
+	stanSub, err := sb.stanConn.Subscribe(topic, func(m *stan.Msg) {
 		if ackInbox == "" {
 			ackInbox = reflect.ValueOf(m.Sub).Elem().FieldByName("ackInbox").String()
 		}
@@ -197,4 +205,24 @@ func stanSubscribe(topic string, messages chan *pubsub.ReceivedMessage, options 
 		return nil, err
 	}
 	return stanSub, nil
+}
+
+// Subscription object wrapping a nats or stan subscription
+type subscription struct {
+	stanSub stan.Subscription
+	natsSub *nats.Subscription
+}
+
+// Close cleans up a subscription
+func (s *subscription) Close() error {
+	if s.stanSub != nil {
+		// Close retains durable subscriptions.
+		// This way, a client can d/c -> r/c to resume their durable sub.
+		return s.stanSub.Close()
+	}
+	if s.natsSub != nil {
+		return s.natsSub.Unsubscribe()
+	}
+	// We always set the inner subscription but just in case.
+	return ErrNoSubscriptionFound
 }
