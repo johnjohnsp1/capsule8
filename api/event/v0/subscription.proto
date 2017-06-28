@@ -25,26 +25,18 @@ message SignedSubscription {
 // properties of the events desired by the subscriber.
 //
 message Subscription {
-        //
-        // In all Filter messages below, optional individual fields are
-        // logically combined by 'AND' repeated fields are combined by
-        // 'OR'.
-        //
+        // Return events matching one or more of the specified event
+        // filters. If no event filters are specified, then no events
+        // will be returned.
+        EventFilter event_filter = 1;
 
-        // If not empty, then only return events matching one or more of
-        // the specified events. The event-specific messages are used as
-        // a mask where presence of a field indicates selection of events
-        // with a field matching the specified value. The common fields
-        // in the Event message are ignored.
-        repeated EventFilter events = 1;
-
-        // If not empty, then only return events from processes matched
-        // by one or more of the specified process filters.
-        repeated ProcessFilter processes = 2;
+        // If not empty, then only return events from containers matched
+        // by one or more of the specified container filters.
+        ContainerFilter container_filter = 2;
 
         // If not empty, then only return events from nodes matched by
         // one or more of the specified node filters.
-        repeated NodeFilter nodes = 3;
+        NodeFilter node_filter = 3;
 
         // If not empty, then only return events that occurred after
         // the specified relative duration subtracted from the current
@@ -61,8 +53,7 @@ message Subscription {
         // automatically closed at that time.
         int64 until_duration = 11;
 
-        // Optional. If not set, the subscription stream emits events
-        // "as is" with no modifications.
+        // If not empty, apply the specified modifier to the subscription.
         Modifier modifier = 20;
 }
 
@@ -70,55 +61,41 @@ message NodeFilter {
         // If set, then restrict events to specified ...
 }
 
-message ProcessFilter {
-        oneof filter {
-                sint32 pid      = 1;
-                string cgroup   = 2;
-                string filename = 3;
+message ContainerFilter {
+        repeated string ids   = 1;
+        repeated string names = 2;
 
-                //
-                // Containerized environment specific conditions
-                //
+        repeated string image_ids = 3;
 
-                string container_id   = 10;
-                string container_name = 11;
-
-                string image_id = 20;
-
-                // Container image name (shell-style globs are supported)
-                string image_name = 21;
-        }
+        // Container image name (shell-style globs are supported)
+        repeated string image_names = 4;
 }
 
 message EventFilter {
-        oneof filter {
-                //
-                // Kernel-level events
-                //
+        //
+        // Kernel-level events
+        //
+        repeated SyscallEventFilter syscall_events = 1;
+        repeated ProcessEventFilter process_events = 2;
+        repeated FileEventFilter file_events       = 3;
 
-                SyscallEventFilter syscall = 10;
-                ProcessEventFilter process = 11;
-                FileEventFilter file       = 12;
+        //
+        // Operating System-level events (containers, etc)
+        //
+        repeated ContainerEventFilter container_events = 10;
 
-                //
-                // System-level events (containers, systemd, etc)
-                //
-
-                ContainerEventFilter container = 20;
-
-                //
-                // Debugging events (>= 100)
-                //
-                ChargenEventFilter chargen = 100;
-                TickerEventFilter ticker   = 101;
-        }
+        //
+        // Debugging events (>= 100)
+        //
+        repeated ChargenEventFilter chargen_events = 100;
+        repeated TickerEventFilter ticker_events   = 101;
 }
 
 message SyscallEventFilter {
-        // Required.
+        // Type of system call event (entry w/ args or exit w/ ret)
         SyscallEventType type = 1;
 
-        // Required system call number (arch/x86/entry/syscalls/syscall_64.tbl)
+        // System call number (arch/x86/entry/syscalls/syscall_64.tbl)
         google.protobuf.Int64Value id = 2;
 
         google.protobuf.UInt64Value arg0 = 10;
@@ -128,7 +105,7 @@ message SyscallEventFilter {
         google.protobuf.UInt64Value arg4 = 14;
         google.protobuf.UInt64Value arg5 = 15;
 
-        google.protobuf.UInt64Value ret = 20;
+        google.protobuf.Int64Value ret = 20;
 }
 
 message ProcessEventFilter {
@@ -169,6 +146,10 @@ message FileEventFilter {
 message ContainerEventFilter {
         // Required.
         ContainerEventType type = 1;
+
+        // StringValue image_id
+        // StringValue image_name
+        // StringValue layer_id
 }
 
 message ChargenEventFilter {

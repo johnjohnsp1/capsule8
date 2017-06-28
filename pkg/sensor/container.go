@@ -223,31 +223,30 @@ func NewContainerSensor(sub *event.Subscription) (*stream.Stream, error) {
 
 	cf := &containerFilter{}
 
-	for _, p := range sub.Processes {
-		switch p.Filter.(type) {
-		case *event.ProcessFilter_ContainerId:
-			cid := p.GetContainerId()
-			cf.addContainerID(cid)
+	if sub.ContainerFilter != nil {
+		scf := sub.ContainerFilter
 
-		case *event.ProcessFilter_ContainerName:
-			cname := p.GetContainerName()
-			cf.addContainerName(cname)
-
-		case *event.ProcessFilter_ImageId:
-			iid := p.GetImageId()
-			cf.addImageID(iid)
-
-		case *event.ProcessFilter_ImageName:
-			iname := p.GetImageName()
-			cf.addImageName(iname)
+		for _, v := range scf.Ids {
+			cf.addContainerID(v)
 		}
+
+		for _, v := range scf.Names {
+			cf.addContainerName(v)
+		}
+
+		for _, v := range scf.ImageIds {
+			cf.addImageID(v)
+		}
+
+		for _, v := range scf.ImageNames {
+			cf.addImageName(v)
+		}
+
 	}
 
-	for _, c := range sub.Events {
-		switch c.Filter.(type) {
-		case *event.EventFilter_Container:
-			cef := c.GetContainer()
-			cf.addEventType(cef.GetType())
+	if sub.EventFilter != nil {
+		for _, v := range sub.EventFilter.ContainerEvents {
+			cf.addEventType(v.Type)
 		}
 	}
 

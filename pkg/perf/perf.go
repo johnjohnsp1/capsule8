@@ -37,19 +37,23 @@ type Perf struct {
 	ringBuffers []*ringBuffer
 }
 
-func NewWithCgroup(eventAttrs []*EventAttr, name string) (*Perf, error) {
+func NewWithCgroup(eventAttrs []*EventAttr, filters []string, name string) (*Perf, error) {
+	return newCgroupSession(eventAttrs, filters, name)
+}
+
+func newCgroupSession(eventAttrs []*EventAttr, filters []string, cgroup string) (*Perf, error) {
 	// Cgroup can be either a:
 	// - cgroupfs path ("/docker/abcd09876...")
 	// - systemd cgroup path ("system.slice:docker:abcd09876...")
 
 	var path string
 
-	if name[0] == '/' {
-		path = filepath.Join(cgroupfs, "perf_event", name)
+	if cgroup[0] == '/' {
+		path = filepath.Join(cgroupfs, "perf_event", cgroup)
 	} else {
-		parts := strings.Split(name, ":")
+		parts := strings.Split(cgroup, ":")
 		if parts[1] != "docker" {
-			log.Printf("Couldn't parse cgroup %s", name)
+			log.Printf("Couldn't parse cgroup %s", cgroup)
 			return nil, errors.New("Couldn't parse cgroup")
 		}
 
@@ -64,17 +68,17 @@ func NewWithCgroup(eventAttrs []*EventAttr, name string) (*Perf, error) {
 		return nil, err
 	}
 
-	return newSession(eventAttrs, PERF_FLAG_PID_CGROUP, int(f.Fd()))
+	return newSession(eventAttrs, filters, PERF_FLAG_PID_CGROUP, int(f.Fd()))
 }
 
 // New creates a new performance monitoring session for the events specified
 // in events. The two optional arguments pid and cpu affect the scope of
 // processes and CPUs to monitor.
-func New(eventAttrs []*EventAttr, args ...int) (*Perf, error) {
-	return newSession(eventAttrs, 0, args...)
+func New(eventAttrs []*EventAttr, filters []string, args ...int) (*Perf, error) {
+	return newSession(eventAttrs, filters, 0, args...)
 }
 
-func newSession(eventAttrs []*EventAttr, initFlags uintptr, args ...int) (*Perf, error) {
+func newSession(eventAttrs []*EventAttr, filters []string, initFlags uintptr, args ...int) (*Perf, error) {
 	var pid, cpu int
 	var perfFds []int
 
@@ -124,6 +128,13 @@ func newSession(eventAttrs []*EventAttr, initFlags uintptr, args ...int) (*Perf,
 			fd, err := open(eventAttrs[j], pid, i, groupFd, flags)
 			if err != nil {
 				return nil, err
+			}
+
+			if filters != nil && len(filters[j]) > 0 {
+				err := setFilter(fd, filters[j])
+				if err != nil {
+					return nil, err
+				}
 			}
 
 			if j > 0 {

@@ -1,84 +1,279 @@
 package sensor
 
 import (
-	"fmt"
+	"bytes"
+	"encoding/binary"
+	"errors"
+	"log"
 
 	"github.com/capsule8/reactive8/pkg/api/event"
-	"github.com/capsule8/reactive8/pkg/process"
-	"github.com/capsule8/reactive8/pkg/stream"
+	"github.com/capsule8/reactive8/pkg/perf"
 )
 
-//
-// The Process
-//
+/*
+# cat /sys/kernel/debug/tracing/events/sched/sched_process_fork/format
+name: sched_process_fork
+ID: 284
+format:
+	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
+	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
+	field:unsigned char common_preempt_count;	offset:3;	size:1;	signed:0;
+	field:int common_pid;	offset:4;	size:4;	signed:1;
 
-func translateProcessEvents(e interface{}) interface{} {
-	ev := e.(*process.Event)
-	pev := &event.ProcessEvent{}
+	field:char parent_comm[16];	offset:8;	size:16;	signed:1;
+	field:pid_t parent_pid;	offset:24;	size:4;	signed:1;
+	field:char child_comm[16];	offset:28;	size:16;	signed:1;
+	field:pid_t child_pid;	offset:44;	size:4;	signed:1;
 
-	switch ev.State {
-	case process.ProcessFork:
-		pev.Type = event.ProcessEventType_PROCESS_EVENT_TYPE_FORK
-		pev.Pid = int32(ev.Pid)
-		pev.ChildPid = int32(ev.ForkPid)
+print fmt: "comm=%s pid=%d child_comm=%s child_pid=%d", REC->parent_comm, REC->parent_pid, REC->child_comm, REC->child_pid
+*/
 
-	case process.ProcessExec:
-		pev.Type = event.ProcessEventType_PROCESS_EVENT_TYPE_EXEC
-		pev.Pid = int32(ev.Pid)
-		pev.ExecFilename = ev.ExecFilename
-
-	case process.ProcessExit:
-		pev.Type = event.ProcessEventType_PROCESS_EVENT_TYPE_EXIT
-		pev.Pid = int32(ev.Pid)
-		pev.ExitCode = int32(ev.ExitStatus)
-
-	default:
-		panic(fmt.Sprintf("Unknown process event state %v", ev.State))
-	}
-
-	return &event.Event{
-		Event: &event.Event_Process{
-			Process: pev,
-		},
-	}
+type schedProcessForkEvent struct {
+	Type         uint16
+	Flags        uint8
+	PreemptCount uint8
+	Pid          int32
+	ParentComm   string
+	ParentPid    int32
+	ChildComm    string
+	ChildPid     int32
 }
 
-// NewSensor creates a new ContainerEvent sensor
-func NewProcessSensor(sub *event.Subscription) (*stream.Stream, error) {
-
-	/*
-		for _, processFilter := range sub.Processes {
-			switch processFilter.Filter.(type) {
-			case *event.ProcessFilter_Pid:
-				pid := processFilter.GetPid()
-				s, err := process.NewEventStreamForPid(int(pid))
-				if err != nil {
-					return nil, err
-				}
-
-			case *event.ProcessFilter_Cgroup:
-				name := processFilter.GetCgroup()
-				s, err := process.NewEventStreamForCgroup(name)
-				if err != nil {
-					return nil, err
-				}
-
-			case nil:
-				s, err := process.NewEventStream()
-				if err != nil {
-					return nil, err
-				}
-			}
+func clen(n []byte) int {
+	for i := 0; i < len(n); i++ {
+		if n[i] == 0 {
+			return i
 		}
-	*/
-	s, err := process.NewEventStream()
+	}
+	return len(n)
+}
+
+func readSchedProcessForkTracepointData(data []byte) (*schedProcessForkEvent, error) {
+
+	var format struct {
+		Type         uint16
+		Flags        uint8
+		PreemptCount uint8
+		Pid          int32
+		ParentComm   [16]byte
+		ParentPid    int32
+		ChildComm    [16]byte
+		ChildPid     int32
+	}
+
+	reader := bytes.NewReader(data)
+	err := binary.Read(reader, binary.LittleEndian, &format)
 	if err != nil {
 		return nil, err
 	}
 
-	s = stream.Map(s, translateProcessEvents)
+	parentComm := string(format.ParentComm[:clen(format.ParentComm[:])])
+	childComm := string(format.ChildComm[:clen(format.ChildComm[:])])
 
-	// TODO: filter event stream
+	return &schedProcessForkEvent{
+		Type:         format.Type,
+		Flags:        format.Flags,
+		PreemptCount: format.PreemptCount,
+		Pid:          format.Pid,
+		ParentComm:   parentComm,
+		ParentPid:    format.ParentPid,
+		ChildComm:    childComm,
+		ChildPid:     format.ChildPid,
+	}, nil
+}
 
-	return s, err
+func decodeSchedProcessFork(rawData []byte) (interface{}, error) {
+	tpEv, err := readSchedProcessForkTracepointData(rawData)
+	if err != nil {
+		return nil, err
+	}
+
+	return &event.Event{
+		Event: &event.Event_Process{
+			Process: &event.ProcessEvent{
+				Type:     event.ProcessEventType_PROCESS_EVENT_TYPE_FORK,
+				Pid:      tpEv.Pid,
+				ChildPid: tpEv.ChildPid,
+			},
+		},
+	}, nil
+}
+
+/*
+# cat /sys/kernel/debug/tracing/events/sched/sched_process_exec/format
+name: sched_process_exec
+ID: 283
+format:
+	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
+	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
+	field:unsigned char common_preempt_count;	offset:3;	size:1;	signed:0;
+	field:int common_pid;	offset:4;	size:4;	signed:1;
+
+	field:__data_loc char[] filename;	offset:8;	size:4;	signed:1;
+	field:pid_t pid;	offset:12;	size:4;	signed:1;
+	field:pid_t old_pid;	offset:16;	size:4;	signed:1;
+
+print fmt: "filename=%s pid=%d old_pid=%d", __get_str(filename), REC->pid, REC->old_pid
+*/
+
+type schedProcessExecEvent struct {
+	Type         uint16
+	Flags        uint8
+	PreemptCount uint8
+	Pid          int32
+	Filename     string
+}
+
+func readSchedProcessExecTracepointData(data []byte) (*schedProcessExecEvent, error) {
+	reader := bytes.NewReader(data)
+
+	var format struct {
+		Type           uint16
+		Flags          uint8
+		PreemptCount   uint8
+		CommonPid      int32
+		FilenameOffset int16
+		FilenameLength int16
+		Pid            int32
+		OldPid         int32
+	}
+
+	err := binary.Read(reader, binary.LittleEndian, &format)
+	if err != nil {
+		return nil, err
+	}
+
+	ev := &schedProcessExecEvent{
+		Type:         format.Type,
+		Flags:        format.Flags,
+		PreemptCount: format.PreemptCount,
+		Pid:          format.CommonPid,
+	}
+
+	if format.CommonPid != format.Pid ||
+		format.Pid != format.OldPid ||
+		format.CommonPid != format.OldPid {
+
+		return nil, errors.New("Could not read sched_process_exec data")
+	}
+
+	filename := make([]byte, format.FilenameLength)
+	n, err := reader.ReadAt(filename, int64(format.FilenameOffset))
+	if err != nil {
+		return nil, err
+	} else if n != int(format.FilenameLength) {
+		return nil, errors.New("sched_process_exec filename read failed")
+	}
+	if filename[len(filename)-1] == 0 {
+		// Create string without NULL terminator
+		ev.Filename = string(filename[:len(filename)-1])
+	} else {
+		return nil, errors.New("sched_process_exec filename not terminated")
+	}
+
+	return ev, nil
+}
+
+func decodeSchedProcessExec(rawData []byte) (interface{}, error) {
+	tpEv, err := readSchedProcessExecTracepointData(rawData)
+	if err != nil {
+		return nil, err
+	}
+
+	return &event.Event{
+		Event: &event.Event_Process{
+			Process: &event.ProcessEvent{
+				Type:         event.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
+				Pid:          tpEv.Pid,
+				ExecFilename: tpEv.Filename,
+			},
+		},
+	}, nil
+}
+
+/*
+# cat /sys/kernel/debug/tracing/events/syscalls/sys_enter_exit_group/format
+name: sys_enter_exit_group
+ID: 120
+format:
+	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
+	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
+	field:unsigned char common_preempt_count;	offset:3;	size:1;	signed:0;
+	field:int common_pid;	offset:4;	size:4;	signed:1;
+
+	field:int __syscall_nr;	offset:8;	size:4;	signed:1;
+	field:int error_code;	offset:16;	size:8;	signed:0;
+
+print fmt: "error_code: 0x%08lx", ((unsigned long)(REC->error_code))
+*/
+
+type sysEnterExitGroupEvent struct {
+	Type         uint16
+	Flags        uint8
+	PreemptCount uint8
+	Pid          int32
+	SyscallNr    int32
+	_            uint32
+	ErrorCode    uint64
+}
+
+func readSysEnterExitGroupTracepointData(data []byte) (*sysEnterExitGroupEvent, error) {
+	reader := bytes.NewReader(data)
+
+	var ev sysEnterExitGroupEvent
+
+	err := binary.Read(reader, binary.LittleEndian, &ev)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ev, nil
+}
+
+func decodeSysEnterExitGroup(rawData []byte) (interface{}, error) {
+	tpEv, err := readSysEnterExitGroupTracepointData(rawData)
+	if err != nil {
+		return nil, err
+	}
+
+	return &event.Event{
+		Event: &event.Event_Process{
+			Process: &event.ProcessEvent{
+				Type:     event.ProcessEventType_PROCESS_EVENT_TYPE_EXIT,
+				Pid:      tpEv.Pid,
+				ExitCode: int32(tpEv.ErrorCode),
+			},
+		},
+	}, nil
+}
+
+// -----------------------------------------------------------------------------
+
+func init() {
+	sensor := getSensor()
+
+	eventName := "sched/sched_process_fork"
+	schedProcessForkID, err := perf.GetTraceEventID(eventName)
+	if err != nil {
+		log.Printf("Couldn't get %s event id: %v", eventName, err)
+	}
+
+	sensor.registerDecoder(schedProcessForkID, decodeSchedProcessFork)
+
+	eventName = "sched/sched_process_exec"
+	schedProcessExecID, err := perf.GetTraceEventID(eventName)
+	if err != nil {
+		log.Printf("Couldn't get %s event id: %v", eventName, err)
+	}
+
+	sensor.registerDecoder(schedProcessExecID, decodeSchedProcessExec)
+
+	eventName = "syscalls/sys_enter_exit_group"
+	sysEnterExitGroupID, err := perf.GetTraceEventID(eventName)
+
+	if err != nil {
+		log.Printf("Couldn't get %s event id: %v", eventName, err)
+	}
+
+	sensor.registerDecoder(sysEnterExitGroupID, decodeSysEnterExitGroup)
 }

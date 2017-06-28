@@ -476,7 +476,7 @@ func newPidStream(args ...int) (*stream.Stream, error) {
 		return nil, err
 	}
 
-	p, err := perf.New(eventAttrs, pid)
+	p, err := perf.New(eventAttrs, nil, pid)
 	if err != nil {
 		log.Printf("Couldn't open perf events: %v\n", err)
 		return nil, err
@@ -493,7 +493,7 @@ func newCgroupStream(cgroup string) (*stream.Stream, error) {
 		return nil, err
 	}
 
-	p, err := perf.NewWithCgroup(eventAttrs, cgroup)
+	p, err := perf.NewWithCgroup(eventAttrs, nil, cgroup)
 	if err != nil {
 		log.Printf("Couldn't open perf events: %v\n", err)
 		return nil, err
