@@ -5,16 +5,18 @@ import (
 	"github.com/gobwas/glob"
 )
 
-func subscriptionMatchEvent(s *event.Subscription, e *event.Event) bool {
-	if s.EventFilter == nil {
-		return false
-	}
+type eventFilter struct {
+	ef *event.EventFilter
+}
+
+func (ef *eventFilter) filterEvent(i interface{}) bool {
+	e := i.(*event.Event)
 
 	switch e.Event.(type) {
 	case *event.Event_Syscall:
 		sev := e.GetSyscall()
 
-		for _, sef := range s.EventFilter.SyscallEvents {
+		for _, sef := range ef.ef.SyscallEvents {
 			if sef.Type != sev.Type {
 				continue
 			}
@@ -57,7 +59,7 @@ func subscriptionMatchEvent(s *event.Subscription, e *event.Event) bool {
 	case *event.Event_Process:
 		pev := e.GetProcess()
 
-		for _, pef := range s.EventFilter.ProcessEvents {
+		for _, pef := range ef.ef.ProcessEvents {
 			if pef.Type != pev.Type {
 				continue
 			}
@@ -68,7 +70,7 @@ func subscriptionMatchEvent(s *event.Subscription, e *event.Event) bool {
 	case *event.Event_File:
 		fev := e.GetFile()
 
-		for _, fef := range s.EventFilter.FileEvents {
+		for _, fef := range ef.ef.FileEvents {
 			if fef.Type != fev.Type {
 				continue
 			}
@@ -111,7 +113,7 @@ func subscriptionMatchEvent(s *event.Subscription, e *event.Event) bool {
 	case *event.Event_Container:
 		cev := e.GetContainer()
 
-		for _, cef := range s.EventFilter.ContainerEvents {
+		for _, cef := range ef.ef.ContainerEvents {
 			if cef.Type != cev.Type {
 				continue
 			}
@@ -121,4 +123,10 @@ func subscriptionMatchEvent(s *event.Subscription, e *event.Event) bool {
 	}
 
 	return false
+}
+
+func NewEventFilter(ef *event.EventFilter) *eventFilter {
+	return &eventFilter{
+		ef: ef,
+	}
 }

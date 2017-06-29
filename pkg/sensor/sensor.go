@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/capsule8/reactive8/pkg/api/event"
+	"github.com/capsule8/reactive8/pkg/container"
 	"github.com/capsule8/reactive8/pkg/perf"
 	"github.com/capsule8/reactive8/pkg/stream"
 )
@@ -43,10 +44,8 @@ func (s *Sensor) onSampleEvent(perfEv *perf.Sample, err error) {
 
 		event := e.(*event.Event)
 
-		for s, c := range s.eventStreams {
-			if subscriptionMatchEvent(s, event) {
-				c <- event
-			}
+		for _, c := range s.eventStreams {
+			c <- event
 		}
 
 	default:
@@ -628,11 +627,7 @@ func (s *Sensor) update() error {
 	return nil
 }
 
-// Add returns a stream
-func (s *Sensor) AddSubscription(sub *event.Subscription) *stream.Stream {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+func (s *Sensor) createPerfEventStream(sub *event.Subscription) (*stream.Stream, error) {
 	ctrl := make(chan interface{})
 	data := make(chan interface{})
 
@@ -660,17 +655,96 @@ func (s *Sensor) AddSubscription(sub *event.Subscription) *stream.Stream {
 
 	err := s.update()
 	if err != nil {
-		log.Printf("Couldn't update perf: %v", err)
-		return nil
+		return nil, err
 	}
 
 	return &stream.Stream{
 		Ctrl: ctrl,
 		Data: data,
-	}
+	}, nil
 }
 
-func (s *Sensor) RemoveSubscription(subscription *event.Subscription) bool {
+func applyModifiers(strm *stream.Stream, modifier event.Modifier) *stream.Stream {
+	if modifier.Throttle != nil {
+		strm = stream.Throttle(strm, *modifier.Throttle)
+	}
+
+	if modifier.Limit != nil {
+		strm = stream.Limit(strm, *modifier.Limit)
+	}
+
+	return strm
+}
+
+// Add returns a stream
+func (s *Sensor) Add(sub *event.Subscription) (*stream.Stream, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	eventStream, joiner := stream.NewJoiner()
+
+	if len(sub.EventFilter.SyscallEvents) > 0 ||
+		len(sub.EventFilter.ProcessEvents) > 0 ||
+		len(sub.EventFilter.FileEvents) > 0 {
+
+		//
+		// Create a perf event stream
+		//
+		pes, err := s.createPerfEventStream(sub)
+		if err != nil {
+			joiner.Close()
+			return nil, err
+		}
+
+		joiner.Add(pes)
+	}
+
+	if len(sub.EventFilter.ContainerEvents) > 0 {
+		//
+		// Create a container event stream
+		//
+		ces, err := container.NewEventStream()
+		if err != nil {
+			joiner.Close()
+			return nil, err
+		}
+
+		// Translate container events to protobuf versions
+		ces = stream.Map(ces, translateContainerEvents)
+
+		joiner.Add(ces)
+	}
+
+	// TODO: Chargen, Ticker, etc.
+
+	//
+	// Filter event stream by event type first
+	//
+	ef := NewEventFilter(sub.EventFilter)
+	eventStream = stream.Filter(eventStream, ef.filterEvent)
+
+	if sub.ContainerFilter != nil {
+		//
+		// Attach a ContainerFilter to filter events
+		//
+		cef, err := NewContainerFilter(sub.ContainerFilter)
+		if err != nil {
+			joiner.Close()
+			return nil, err
+		}
+
+		// Filter eventStream by container
+		eventStream = stream.Filter(eventStream, cef.filterEvent)
+	}
+
+	if sub.Modifier != nil {
+		eventStream = applyModifiers(eventStream, *sub.Modifier)
+	}
+
+	return eventStream, nil
+}
+
+func (s *Sensor) Remove(subscription *event.Subscription) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -690,23 +764,10 @@ func (s *Sensor) RemoveSubscription(subscription *event.Subscription) bool {
 
 func NewSensor(sub *event.Subscription) (*stream.Stream, error) {
 	s := getSensor()
-	eventStream := s.AddSubscription(sub)
-
-	if sub.Modifier != nil {
-		return applyModifiers(eventStream, *sub.Modifier), nil
+	eventStream, err := s.Add(sub)
+	if err != nil {
+		return nil, err
 	}
 
 	return eventStream, nil
-}
-
-func applyModifiers(strm *stream.Stream, modifier event.Modifier) *stream.Stream {
-	if modifier.Throttle != nil {
-		strm = stream.Throttle(strm, *modifier.Throttle)
-	}
-
-	if modifier.Limit != nil {
-		strm = stream.Limit(strm, *modifier.Limit)
-	}
-
-	return strm
 }

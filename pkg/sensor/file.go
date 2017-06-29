@@ -53,7 +53,11 @@ func decodeDoSysOpen(rawData []byte) (interface{}, error) {
 		fileName = fileName[:len(fileName)-1]
 	}
 
+	containerID, err := pidMapGetContainerID(format.CommonPid)
+
 	return &event.Event{
+		ContainerId: containerID,
+
 		Event: &event.Event_File{
 			File: &event.FileEvent{
 				Type:      event.FileEventType_FILE_EVENT_TYPE_OPEN,

@@ -6,7 +6,14 @@ package capsule8.event.v0;
 option go_package = "github.com/capsule8/reactive8/pkg/api/event";
 
 message Event {
-        // TBD
+        // Unique identifier for the event
+        string id = 1;
+
+        // Container identifier associated with the event
+        string container_id = 2;
+
+        // Node identifier
+        string node_id = 3;
 
         oneof event {
                 //
@@ -63,8 +70,7 @@ enum ContainerEventType {
 // ContainerEvent describes a Docker container or Rkt App lifecycle event
 message ContainerEvent {
         ContainerEventType type = 1;
-        string id               = 2;
-        string name             = 3;
+        string name             = 2;
 
         //
         // The fields below are state-dependent and may not always be present

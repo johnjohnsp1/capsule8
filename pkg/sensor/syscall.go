@@ -43,15 +43,23 @@ func decodeSysEnter(rawData []byte) (interface{}, error) {
 		return nil, err
 	}
 
-	return &event.SyscallEvent{
-		Type: event.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER,
-		Id:   format.ID,
-		Arg0: format.Args[0],
-		Arg1: format.Args[1],
-		Arg2: format.Args[2],
-		Arg3: format.Args[3],
-		Arg4: format.Args[4],
-		Arg5: format.Args[5],
+	containerID, err := pidMapGetContainerID(format.Pid)
+
+	return &event.Event{
+		ContainerId: containerID,
+
+		Event: &event.Event_Syscall{
+			Syscall: &event.SyscallEvent{
+				Type: event.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER,
+				Id:   format.ID,
+				Arg0: format.Args[0],
+				Arg1: format.Args[1],
+				Arg2: format.Args[2],
+				Arg3: format.Args[3],
+				Arg4: format.Args[4],
+				Arg5: format.Args[5],
+			},
+		},
 	}, nil
 }
 
@@ -89,7 +97,11 @@ func decodeSysExit(rawData []byte) (interface{}, error) {
 		return nil, err
 	}
 
+	containerID, err := pidMapGetContainerID(format.Pid)
+
 	return &event.Event{
+		ContainerId: containerID,
+
 		Event: &event.Event_Syscall{
 			Syscall: &event.SyscallEvent{
 				Type: event.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT,

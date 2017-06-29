@@ -88,7 +88,13 @@ func decodeSchedProcessFork(rawData []byte) (interface{}, error) {
 		return nil, err
 	}
 
+	pidMapOnFork(tpEv.ParentPid, tpEv.ChildPid)
+
+	containerID, err := pidMapGetContainerID(tpEv.Pid)
+
 	return &event.Event{
+		ContainerId: containerID,
+
 		Event: &event.Event_Process{
 			Process: &event.ProcessEvent{
 				Type:     event.ProcessEventType_PROCESS_EVENT_TYPE_FORK,
@@ -180,7 +186,11 @@ func decodeSchedProcessExec(rawData []byte) (interface{}, error) {
 		return nil, err
 	}
 
+	containerID, err := pidMapGetContainerID(tpEv.Pid)
+
 	return &event.Event{
+		ContainerId: containerID,
+
 		Event: &event.Event_Process{
 			Process: &event.ProcessEvent{
 				Type:         event.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
@@ -236,7 +246,11 @@ func decodeSysEnterExitGroup(rawData []byte) (interface{}, error) {
 		return nil, err
 	}
 
+	containerID, err := pidMapGetContainerID(tpEv.Pid)
+
 	return &event.Event{
+		ContainerId: containerID,
+
 		Event: &event.Event_Process{
 			Process: &event.ProcessEvent{
 				Type:     event.ProcessEventType_PROCESS_EVENT_TYPE_EXIT,
