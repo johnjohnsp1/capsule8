@@ -113,9 +113,9 @@ func (s *sensor) Start() (chan interface{}, error) {
 
 				// TODO: Filter subscriptions based on cluster/node information
 
-				// Check if there is actually a `Selector` in the request. If not, ignore.
-				if ss.Subscription.Selector == nil {
-					fmt.Fprint(os.Stderr, "No selector specified in subscription\n")
+				// Check if there is actually an EventFilter in the request. If not, ignore.
+				if ss.Subscription.EventFilter == nil {
+					fmt.Fprint(os.Stderr, "No EventFilter specified in subscription\n")
 					return
 				}
 
@@ -164,7 +164,7 @@ func (s *sensor) newSensor(sub *event.Subscription, subscriptionID string) chan 
 	if modifier == nil {
 		modifier = &event.Modifier{}
 	}
-	stream, err := pbsensor.NewSensor(*sub.Selector, *modifier)
+	stream, err := pbsensor.NewSensor(sub)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Couldn't start Sensor: %v\n", err)
 		os.Exit(1)
