@@ -1,57 +1,25 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/capsule8/reactive8/pkg/api/apiserver"
 	"github.com/capsule8/reactive8/pkg/api/event"
-	"github.com/gogo/protobuf/proto"
-	nats "github.com/nats-io/go-nats"
-	stan "github.com/nats-io/go-nats-streaming"
-	"github.com/nats-io/go-nats/encoders/protobuf"
-	"github.com/nats-io/nats-streaming-server/server"
-	"github.com/nats-io/nats-streaming-server/test"
+	"github.com/capsule8/reactive8/pkg/pubsub/mock"
 )
 
-var NATS_PORT = 4223                        // Default NATS port is 4222, let's use 4223 to avoid conflicts
-var STAN_CLUSTER_NAME = "test-c8-backplane" //  Not test cluster ID to avoid conflicts w/ "c8-backplane" default.
-
 func TestMain(m *testing.M) {
-	// Start STAN/NATS server for testing
-	opts := server.GetDefaultOptions()
-	opts.ID = STAN_CLUSTER_NAME
-	natsOpts := server.DefaultNatsServerOptions
-	natsOpts.Port = NATS_PORT
-	server := test.RunServerWithOpts(opts, &natsOpts)
-	defer server.Shutdown()
-
 	// Set test env variables
-	os.Setenv("TESTSENSOR_NATSURL", fmt.Sprintf("nats://localhost:%d", NATS_PORT))
-	os.Setenv("TESTSENSOR_STANCLUSTERNAME", STAN_CLUSTER_NAME)
-
-	LoadConfig("testsensor")
-	// We don't need to remove stale subscriptions here so we're not calling `RemoveStaleSubscriptions`
-	StartSensor()
-
+	os.Setenv("TESTSENSOR_PUBSUB", "mock") // Specify mock pubsub backend
 	os.Exit(m.Run())
 }
 
 // TestCreateSubscription tests for the successful creation of a subscription over NATS.
 // It verifies sub creation by ensuring the delivery of a single message over the sub STAN channel.
-func DisabledTestCreateSubscription(t *testing.T) {
-	nc, err := nats.Connect(Config.NatsURL)
-	if err != nil {
-		t.Error("Failed to connect to NATS:", err)
-	}
-	ec, _ := nats.NewEncodedConn(nc, protobuf.PROTOBUF_ENCODER)
-
-	// Broadcast a subscription
-	ec.Publish("subscription.TESTID", &apiserver.SubscriptionHeartbeat{
-		ClientId:       "fakeapiserver.fakehost",
-		SubscriptionId: "TESTID",
+func TestCreateSubscription(t *testing.T) {
+	mock.SetMockReturn("subscription.*", &event.SignedSubscription{
 		Subscription: &event.Subscription{
 			Selector: &event.Selector{
 				Chargen: &event.ChargenEventSelector{
@@ -59,28 +27,39 @@ func DisabledTestCreateSubscription(t *testing.T) {
 				},
 			},
 			Modifier: &event.Modifier{
-				Limit: &event.LimitModifier{
-					Limit: 1,
+				Throttle: &event.ThrottleModifier{
+					Interval:     1,
+					IntervalType: 0,
 				},
 			},
 		},
 	})
 
-	sc, err := stan.Connect(Config.StanClusterName, "testsensor", stan.NatsURL(Config.NatsURL))
+	s, err := CreateSensor("testsensor")
 	if err != nil {
-		t.Error("Failed to connect to STAN:", err)
+		log.Fatal("Error creating sensor:", err)
+	}
+	stopSignal, err := s.Start()
+	if err != nil {
+		log.Fatal("Error starting sensor:", err)
 	}
 
-	msgs := make(chan interface{}, 1)
-	// Fetch messages in a separate goroutine and pass msges into a chan which we can
-	// use with a `select` to check for timeouts
+	msgs := make(chan interface{})
 	go func() {
-		// Only one message so we don't need a for loop
-		sc.Subscribe("event.TESTID", func(m *stan.Msg) {
-			ev := &event.Event{}
-			proto.Unmarshal(m.Data, ev)
-			msgs <- ev
-		})
+	getMessageLoop:
+		for {
+			select {
+			case <-stopSignal:
+				break getMessageLoop
+			default:
+				if len(mock.GetOutboundMessages()) > 0 {
+					// We only care about getting a single event here
+					msgs <- mock.GetOutboundMessages()[0]
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		}
+
 	}()
 
 	select {
@@ -89,4 +68,8 @@ func DisabledTestCreateSubscription(t *testing.T) {
 	case ev := <-msgs:
 		t.Log("Recevied message:", ev)
 	}
+
+	close(stopSignal)
+	// Clear mock values after we're done
+	mock.ClearMockValues()
 }

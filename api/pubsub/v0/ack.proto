@@ -2,10 +2,9 @@
 
 syntax = "proto3";
 
-package capsule8.apiserver;
-option go_package = "github.com/capsule8/reactive8/pkg/api/apiserver";
+package capsule8.pubsub.v0;
+option go_package = "github.com/capsule8/reactive8/pkg/api/pubsub";
 
-// Client acknowledgements of the receipt of messages
 message Ack {
     string inbox = 1;
     string subject = 2;

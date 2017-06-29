@@ -5,45 +5,75 @@ syntax = "proto3";
 package capsule8.pubsub.v0;
 option go_package = "github.com/capsule8/reactive8/pkg/api/pubsub";
 
+import "google/api/annotations.proto";
+
 //
 // Capsule8 Pubsub API
 //
-// The Pubsub API is used by capsulators to publish and subscribe to arbitrary messages
-// by topic name.
+// The Pubsub API is used by capsulators to publish and subscribe to typed messages
+// for well defined topic names. Arbitrary types can be sent over non well defined topics.
 //
 service PubsubService {
-    rpc Publish(PublishRequest) returns (PublishResponse) {}
-    rpc Subscribe(stream SubscribeRequest) returns (stream PubsubMessages) {}
+    // Publishes messages to a topic
+    rpc Publish(PublishRequest) returns (PublishResponse) {
+        option (google.api.http) = {
+            post: "/v0/topic/{topic}"
+            body: "*"
+        };
+    }
+    // Pulls messages off of a topic
+    rpc Pull(PullRequest) returns (stream PullResponse) {
+        option (google.api.http) = { 
+            get: "/v0/topic/{topic}"
+        };
+    }
+    rpc Acknowledge(AcknowledgeRequest) returns (AcknowledgeResponse) {
+        option (google.api.http) = {
+            post: "/v0/ack"
+            body: "*"
+        };
+    }
 }
 
-// Publishes a message to topic `name`
+// Publishes a message to topic
 message PublishRequest {
-    string name = 1;
+    string topic = 1;
     // Can publish one or more message(s) at a time
     repeated bytes messages = 2;
 }
 
-// Empty on purpose
+// PublishResponse returns any failed messages
 message PublishResponse {
-    repeated bytes failed_messages = 1;
-
+    repeated FailedMessage failed_messages = 1;
 }
 
-// Subscribe to messages on topic `name`
-message SubscribeRequest {
+message FailedMessage {
+    bytes payload = 1;
+    string error = 2;
+}
+
+// Pull messages off a topic
+message PullRequest {
     // Must be set on first request and omitted in subsequent requests
-    string name = 1;
-
-    // Raw acks from one or more `PubsubMessage`
-    repeated bytes acks = 2;
+    string topic = 1;
+    // Optional, timeout in milliseconds
+    int64 timeout = 2;
 }
 
-message PubsubMessages {
-    repeated PubsubMessage messages = 1;
+message PullResponse {
+    repeated ReceivedMessage messages = 1;
 }
 
-message PubsubMessage {
-    bytes ack = 1;
+message ReceivedMessage {
+    bytes ack = 1; // Optional
 
     bytes payload = 2;
+}
+
+message AcknowledgeRequest {
+    repeated bytes acks = 1;
+}
+
+message AcknowledgeResponse {
+    repeated bytes failed_acks = 1;
 }
