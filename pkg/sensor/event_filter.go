@@ -120,6 +120,20 @@ func (ef *eventFilter) filterEvent(i interface{}) bool {
 
 			return true
 		}
+
+	case *event.Event_Chargen:
+		// These debugging events are only enabled when the subscription
+		// specifies a ChargenEventFilter, so we don't actually need to
+		// filter here.
+
+		return true
+
+	case *event.Event_Ticker:
+		// These debugging events are only enabled when the subscription
+		// specifies a TickerEventFilter, so we don't actually need to
+		// filter here.
+
+		return true
 	}
 
 	return false

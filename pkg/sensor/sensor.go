@@ -716,17 +716,25 @@ func (s *Sensor) Add(sub *event.Subscription) (*stream.Stream, error) {
 		joiner.Add(ces)
 	}
 
-	if len(sub.EventFilter.ChargenEvents) > 0 {
-		for _, filter := range sub.EventFilter.ChargenEvents {
-			cges, err := NewChargenSensor(filter)
-			if err != nil {
-				joiner.Close()
-				return nil, err
-			}
-			joiner.Add(cges)
+	for _, cf := range sub.EventFilter.ChargenEvents {
+		cs, err := NewChargenSensor(cf)
+		if err != nil {
+			joiner.Close()
+			return nil, err
 		}
+
+		joiner.Add(cs)
 	}
-	// TODO: Ticker, etc.
+
+	for _, tf := range sub.EventFilter.TickerEvents {
+		ts, err := NewTickerSensor(tf)
+		if err != nil {
+			joiner.Close()
+			return nil, err
+		}
+
+		joiner.Add(ts)
+	}
 
 	//
 	// Filter event stream by event type first
