@@ -45,7 +45,7 @@ func (c *chargen) emitNextEvent(e interface{}) {
 }
 
 // NewChargenSensor creates a new chargen sensor configured by the given
-// Selector
+// Filter
 func NewChargenSensor(filter *event.ChargenEventFilter) (*stream.Stream, error) {
 	//
 	// Each call to New creates a new session with the Sensor. It is the
