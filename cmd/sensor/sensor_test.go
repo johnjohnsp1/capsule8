@@ -21,11 +21,14 @@ func TestMain(m *testing.M) {
 func TestCreateSubscription(t *testing.T) {
 	mock.SetMockReturn("subscription.*", &event.SignedSubscription{
 		Subscription: &event.Subscription{
-			Selector: &event.Selector{
-				Chargen: &event.ChargenEventSelector{
-					Length: 1,
+			EventFilter: &event.EventFilter{
+				ChargenEvents: []*event.ChargenEventFilter{
+					&event.ChargenEventFilter{
+						Length: 1,
+					},
 				},
 			},
+
 			Modifier: &event.Modifier{
 				Throttle: &event.ThrottleModifier{
 					Interval:     1,
