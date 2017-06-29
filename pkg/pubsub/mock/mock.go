@@ -12,7 +12,7 @@ import (
 	"github.com/capsule8/reactive8/pkg/api/event"
 	"github.com/capsule8/reactive8/pkg/api/pubsub"
 	backend "github.com/capsule8/reactive8/pkg/pubsub"
-	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/proto"
 )
 
 var (

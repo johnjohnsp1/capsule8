@@ -148,7 +148,7 @@ ackLoop:
 			continue ackLoop
 		}
 		pback := &npb.Ack{Subject: ack.Subject, Sequence: ack.Sequence}
-		b, err := proto.Marshal(pback)
+		b, err := pback.Marshal()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Unable to marshal ack: %s\n", err.Error())
 			continue ackLoop
@@ -185,9 +185,9 @@ func (sb *Backend) stanSubscribe(topic string, messages chan *pubsub.ReceivedMes
 			ackInbox = reflect.ValueOf(m.Sub).Elem().FieldByName("ackInbox").String()
 		}
 		ack := &pubsub.Ack{
+			Inbox:    ackInbox,
 			Subject:  m.Subject,
 			Sequence: m.Sequence,
-			Inbox:    ackInbox,
 		}
 		ackBytes, err := proto.Marshal(ack)
 		if err != nil {

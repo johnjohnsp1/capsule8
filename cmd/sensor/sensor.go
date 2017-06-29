@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"os"
@@ -60,6 +61,7 @@ func CreateSensor(name string) (Sensor, error) {
 }
 
 type sensor struct {
+	sync.Mutex
 	uuid   string
 	pubsub backend.Backend
 	config *sensorConfig
@@ -120,6 +122,7 @@ func (s *sensor) Start() (chan interface{}, error) {
 				}
 
 				// New subscription?
+				s.Lock()
 				if _, ok := s.subscriptions[ss.SubscriptionId]; !ok {
 					s.subscriptions[ss.SubscriptionId] = &subscriptionMetadata{
 						lastSeen:     time.Now().Add(time.Duration(s.config.SubscriptionTimeout) * time.Second).Unix(),
@@ -130,6 +133,7 @@ func (s *sensor) Start() (chan interface{}, error) {
 					// Existing subscription? Update unix ts
 					s.subscriptions[ss.SubscriptionId].lastSeen = time.Now().Unix()
 				}
+				s.Unlock()
 
 			}
 		}
@@ -144,6 +148,7 @@ func (s *sensor) Start() (chan interface{}, error) {
 
 func (s *sensor) RemoveStaleSubscriptions() {
 	for {
+		s.Lock()
 		now := time.Now().Unix()
 		for subscriptionID, subscription := range s.subscriptions {
 			if now-subscription.lastSeen >= s.config.SubscriptionTimeout {
@@ -152,6 +157,7 @@ func (s *sensor) RemoveStaleSubscriptions() {
 			}
 
 		}
+		s.Unlock()
 		time.Sleep(time.Duration(s.config.SubscriptionTimeout) * time.Second)
 	}
 }
