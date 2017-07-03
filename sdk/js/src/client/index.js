@@ -1,11 +1,11 @@
 // Copyright 2017 Capsule8 Inc. All rights reserved.
 
-const path = require("path");
+import path from "path";
 
-const WebSocket = require("ws");
-const axios = require("axios");
+import WebSocket from "ws";
+import axios from "axios";
 
-const Subscription = require("./subscription");
+import Subscription from "./subscription";
 
 // Thin wrapper around the node ws lib to handle grabbing events
 class Client {
@@ -39,4 +39,4 @@ class Client {
   }
 };
 
-module.exports = Client;
+export default Client;
