@@ -603,26 +603,27 @@ func (s *Sensor) update() error {
 		filters[i] = filterMap[uint16(eventAttrs[i].Config)]
 	}
 
-	//
-	// Attach to root cgroup of all docker containers
-	//
-	p, err := perf.NewWithCgroup(eventAttrs, filters, "/docker")
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		p.Run(s.onSampleEvent)
-	}()
-
+	// Stop old perf session
 	if s.perf != nil {
 		s.perf.Disable()
 		s.perf.Close()
+		s.perf = nil
 	}
-
-	p.Enable()
-
-	s.perf = p
+	// Create a new perf session only if we have perf event config info
+	if len(eventAttrs) > 0 {
+		//
+		// Attach to root cgroup of all docker containers
+		//
+		p, err := perf.NewWithCgroup(eventAttrs, filters, "/docker")
+		if err != nil {
+			return err
+		}
+		go func() {
+			p.Run(s.onSampleEvent)
+		}()
+		p.Enable()
+		s.perf = p
+	}
 
 	return nil
 }
@@ -754,7 +755,8 @@ func (s *Sensor) Add(sub *event.Subscription) (*stream.Stream, error) {
 	return eventStream, nil
 }
 
-func (s *Sensor) Remove(subscription *event.Subscription) bool {
+func Remove(subscription *event.Subscription) bool {
+	s := getSensor()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

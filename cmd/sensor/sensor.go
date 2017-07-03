@@ -182,6 +182,8 @@ func (s *sensor) newSensor(sub *event.Subscription, subscriptionID string) chan 
 			select {
 			// Stop the send loop
 			case <-stopChan:
+				pbsensor.Remove(sub)
+				stream.Close()
 				break sendLoop
 			case ev, ok := <-stream.Data:
 				if !ok {
