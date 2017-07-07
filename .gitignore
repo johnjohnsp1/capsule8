@@ -16,9 +16,6 @@
 # Ignore vscode workspace settings.
 .vscode/
 
-# Generated protobuf files
-pkg/api/
-
 # Ignore vim swap files
 *.swp
 
