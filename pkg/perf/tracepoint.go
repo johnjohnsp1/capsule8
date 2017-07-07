@@ -2,6 +2,9 @@ package perf
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -10,6 +13,46 @@ import (
 )
 
 const tracefs = "/sys/kernel/debug/tracing"
+
+func AddKprobe(definition string) error {
+	keFilename := filepath.Join(tracefs, "kprobe_events")
+	keFile, err := os.OpenFile(keFilename, os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+
+	defer keFile.Close()
+
+	_, err = keFile.Write([]byte(definition))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func RemoveKprobe(name string) error {
+	keFilename := filepath.Join(tracefs, "kprobe_events")
+	keFile, err := os.OpenFile(keFilename, os.O_APPEND, 0)
+	if err != nil {
+		return err
+	}
+
+	defer keFile.Close()
+
+	_, err = keFile.Seek(0, os.SEEK_END)
+	if err != nil {
+		return err
+	}
+
+	cmd := fmt.Sprintf("-:%s", name)
+	_, err = keFile.Write([]byte(cmd))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
 
 func GetAvailableTraceEvents() ([]string, error) {
 	var events []string
@@ -71,11 +114,21 @@ func GetTraceEventFormat(name string) (string, error) {
 	}
 
 	var buf [4096]byte
-	_, err = file.Read(buf[:])
+	n, err := file.Read(buf[:])
 	if err != nil {
 		return "", err
 	}
 
-	return string(buf[:]), nil
+	return string(buf[:n]), nil
 
+}
+
+func GetTraceEventFormatSHA256(name string) (string, error) {
+	format, err := GetTraceEventFormat(name)
+	if err != nil {
+		return "", err
+	}
+
+	sha := sha256.Sum256([]byte(format))
+	return hex.EncodeToString(sha[:]), nil
 }
