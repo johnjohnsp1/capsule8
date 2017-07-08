@@ -21,14 +21,15 @@ type ticker struct {
 }
 
 func newTickerEvent(tick time.Time) *event.Event {
-	return &event.Event{
-		Event: &event.Event_Ticker{
-			Ticker: &event.TickerEvent{
-				Seconds:     tick.Unix(),
-				Nanoseconds: tick.UnixNano(),
-			},
+	e := NewEvent()
+	e.Event = &event.Event_Ticker{
+		Ticker: &event.TickerEvent{
+			Seconds:     tick.Unix(),
+			Nanoseconds: tick.UnixNano(),
 		},
 	}
+
+	return e
 }
 
 // NewTickerSensor creates a new ticker sensor configured by the given Selector
@@ -63,7 +64,9 @@ func NewTickerSensor(filter *event.TickerEventFilter) (*stream.Stream, error) {
 			case e, ok := <-t.ticker.Data:
 				if ok {
 					tick := e.(time.Time)
-					t.data <- newTickerEvent(tick)
+					ev := newTickerEvent(tick)
+					t.data <- ev
+
 				} else {
 					return
 				}

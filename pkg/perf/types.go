@@ -11,7 +11,17 @@ import (
 	"sync/atomic"
 )
 
-const sizeofPerfEventAttr = 112
+//
+// We support PERF_ATTR_SIZE_VER0, which is the first published version
+//
+const sizeofPerfEventAttrVer0 = 64
+const sizeofPerfEventAttrVer1 = 72
+const sizeofPerfEventAttrVer2 = 80
+const sizeofPerfEventAttrVer3 = 96
+const sizeofPerfEventAttrVer4 = 104
+const sizeofPerfEventAttrVer5 = 112
+
+const sizeofPerfEventAttr = sizeofPerfEventAttrVer0
 
 const (
 	PERF_EVENT_IOC_ENABLE       uintptr = 0x2400 + 0
@@ -558,6 +568,14 @@ func (fr *ForkRecord) read(reader *bytes.Reader) error {
 	}
 
 	return nil
+}
+
+// TraceEvent represents the common header on all trace events
+type TraceEvent struct {
+	Type         uint16
+	Flags        uint8
+	PreemptCount uint8
+	Pid          int32
 }
 
 // CounterValue resepresents the read value of a counter event

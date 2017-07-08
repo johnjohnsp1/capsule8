@@ -29,14 +29,11 @@ print fmt: "comm=%s pid=%d child_comm=%s child_pid=%d", REC->parent_comm, REC->p
 */
 
 type schedProcessForkEvent struct {
-	Type         uint16
-	Flags        uint8
-	PreemptCount uint8
-	Pid          int32
-	ParentComm   string
-	ParentPid    int32
-	ChildComm    string
-	ChildPid     int32
+	perf.TraceEvent
+	ParentComm string
+	ParentPid  int32
+	ChildComm  string
+	ChildPid   int32
 }
 
 func clen(n []byte) int {
@@ -71,14 +68,16 @@ func readSchedProcessForkTracepointData(data []byte) (*schedProcessForkEvent, er
 	childComm := string(format.ChildComm[:clen(format.ChildComm[:])])
 
 	return &schedProcessForkEvent{
-		Type:         format.Type,
-		Flags:        format.Flags,
-		PreemptCount: format.PreemptCount,
-		Pid:          format.Pid,
-		ParentComm:   parentComm,
-		ParentPid:    format.ParentPid,
-		ChildComm:    childComm,
-		ChildPid:     format.ChildPid,
+		TraceEvent: perf.TraceEvent{
+			Type:         format.Type,
+			Flags:        format.Flags,
+			PreemptCount: format.PreemptCount,
+			Pid:          format.Pid,
+		},
+		ParentComm: parentComm,
+		ParentPid:  format.ParentPid,
+		ChildComm:  childComm,
+		ChildPid:   format.ChildPid,
 	}, nil
 }
 
@@ -88,21 +87,19 @@ func decodeSchedProcessFork(rawData []byte) (interface{}, error) {
 		return nil, err
 	}
 
+	// Notify pidmap of fork event
 	pidMapOnFork(tpEv.ParentPid, tpEv.ChildPid)
 
-	containerID, err := pidMapGetContainerID(tpEv.Pid)
-
-	return &event.Event{
-		ContainerId: containerID,
-
-		Event: &event.Event_Process{
-			Process: &event.ProcessEvent{
-				Type:     event.ProcessEventType_PROCESS_EVENT_TYPE_FORK,
-				Pid:      tpEv.Pid,
-				ChildPid: tpEv.ChildPid,
-			},
+	ev := newEventFromTraceEvent(&tpEv.TraceEvent)
+	ev.Event = &event.Event_Process{
+		Process: &event.ProcessEvent{
+			Type:     event.ProcessEventType_PROCESS_EVENT_TYPE_FORK,
+			Pid:      tpEv.Pid,
+			ChildPid: tpEv.ChildPid,
 		},
-	}, nil
+	}
+
+	return ev, nil
 }
 
 /*
@@ -123,11 +120,8 @@ print fmt: "filename=%s pid=%d old_pid=%d", __get_str(filename), REC->pid, REC->
 */
 
 type schedProcessExecEvent struct {
-	Type         uint16
-	Flags        uint8
-	PreemptCount uint8
-	Pid          int32
-	Filename     string
+	perf.TraceEvent
+	Filename string
 }
 
 func readSchedProcessExecTracepointData(data []byte) (*schedProcessExecEvent, error) {
@@ -150,10 +144,12 @@ func readSchedProcessExecTracepointData(data []byte) (*schedProcessExecEvent, er
 	}
 
 	ev := &schedProcessExecEvent{
-		Type:         format.Type,
-		Flags:        format.Flags,
-		PreemptCount: format.PreemptCount,
-		Pid:          format.CommonPid,
+		TraceEvent: perf.TraceEvent{
+			Type:         format.Type,
+			Flags:        format.Flags,
+			PreemptCount: format.PreemptCount,
+			Pid:          format.CommonPid,
+		},
 	}
 
 	if format.CommonPid != format.Pid ||
@@ -186,19 +182,16 @@ func decodeSchedProcessExec(rawData []byte) (interface{}, error) {
 		return nil, err
 	}
 
-	containerID, err := pidMapGetContainerID(tpEv.Pid)
-
-	return &event.Event{
-		ContainerId: containerID,
-
-		Event: &event.Event_Process{
-			Process: &event.ProcessEvent{
-				Type:         event.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
-				Pid:          tpEv.Pid,
-				ExecFilename: tpEv.Filename,
-			},
+	ev := newEventFromTraceEvent(&tpEv.TraceEvent)
+	ev.Event = &event.Event_Process{
+		Process: &event.ProcessEvent{
+			Type:         event.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
+			Pid:          tpEv.Pid,
+			ExecFilename: tpEv.Filename,
 		},
-	}, nil
+	}
+
+	return ev, nil
 }
 
 /*
@@ -218,13 +211,10 @@ print fmt: "error_code: 0x%08lx", ((unsigned long)(REC->error_code))
 */
 
 type sysEnterExitGroupEvent struct {
-	Type         uint16
-	Flags        uint8
-	PreemptCount uint8
-	Pid          int32
-	SyscallNr    int32
-	_            uint32
-	ErrorCode    uint64
+	perf.TraceEvent
+	SyscallNr int32
+	_         uint32
+	ErrorCode uint64
 }
 
 func readSysEnterExitGroupTracepointData(data []byte) (*sysEnterExitGroupEvent, error) {
@@ -246,19 +236,16 @@ func decodeSysEnterExitGroup(rawData []byte) (interface{}, error) {
 		return nil, err
 	}
 
-	containerID, err := pidMapGetContainerID(tpEv.Pid)
-
-	return &event.Event{
-		ContainerId: containerID,
-
-		Event: &event.Event_Process{
-			Process: &event.ProcessEvent{
-				Type:     event.ProcessEventType_PROCESS_EVENT_TYPE_EXIT,
-				Pid:      tpEv.Pid,
-				ExitCode: int32(tpEv.ErrorCode),
-			},
+	ev := newEventFromTraceEvent(&tpEv.TraceEvent)
+	ev.Event = &event.Event_Process{
+		Process: &event.ProcessEvent{
+			Type:     event.ProcessEventType_PROCESS_EVENT_TYPE_EXIT,
+			Pid:      tpEv.Pid,
+			ExitCode: int32(tpEv.ErrorCode),
 		},
-	}, nil
+	}
+
+	return ev, nil
 }
 
 // -----------------------------------------------------------------------------

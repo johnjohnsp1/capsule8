@@ -12,8 +12,21 @@ message Event {
         // Container identifier associated with the event
         string container_id = 2;
 
-        // Node identifier
-        string node_id = 3;
+        // Sensor identifier of the sensor instance that observed the event
+        string sensor_id = 3;
+
+        // Sequence number from some unspecified starting point unique
+        // to the Sensor. Provides a strict linear ordering of events with
+        // the same sensor_id where no two events can have the same sequence
+        // number. If it is present, it must be greater than zero. A zero
+        // value indicates that there is no sequence number associated with
+        // the event.
+        uint64 sensor_sequence_number = 4;
+
+        // Monotonic nanosecond timestamp from some unspecified starting
+        // point unique to the Sensor. Can only be used to calculate time
+        // intervals between events with the same sensor_id.
+        int64 sensor_monotime_nanos = 5;
 
         oneof event {
                 //

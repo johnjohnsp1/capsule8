@@ -26,12 +26,9 @@ print fmt: "NR %ld (%lx, %lx, %lx, %lx, %lx, %lx)", REC->id, REC->args[0], REC->
 */
 
 type sysEnterFormat struct {
-	Type         uint16
-	Flags        uint8
-	PreemptCount uint8
-	Pid          int32
-	ID           int64
-	Args         [6]uint64
+	perf.TraceEvent
+	ID   int64
+	Args [6]uint64
 }
 
 func decodeSysEnter(rawData []byte) (interface{}, error) {
@@ -43,24 +40,21 @@ func decodeSysEnter(rawData []byte) (interface{}, error) {
 		return nil, err
 	}
 
-	containerID, err := pidMapGetContainerID(format.Pid)
-
-	return &event.Event{
-		ContainerId: containerID,
-
-		Event: &event.Event_Syscall{
-			Syscall: &event.SyscallEvent{
-				Type: event.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER,
-				Id:   format.ID,
-				Arg0: format.Args[0],
-				Arg1: format.Args[1],
-				Arg2: format.Args[2],
-				Arg3: format.Args[3],
-				Arg4: format.Args[4],
-				Arg5: format.Args[5],
-			},
+	ev := newEventFromTraceEvent(&format.TraceEvent)
+	ev.Event = &event.Event_Syscall{
+		Syscall: &event.SyscallEvent{
+			Type: event.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER,
+			Id:   format.ID,
+			Arg0: format.Args[0],
+			Arg1: format.Args[1],
+			Arg2: format.Args[2],
+			Arg3: format.Args[3],
+			Arg4: format.Args[4],
+			Arg5: format.Args[5],
 		},
-	}, nil
+	}
+
+	return ev, nil
 }
 
 /*
@@ -80,12 +74,9 @@ print fmt: "NR %ld = %ld", REC->id, REC->ret
 */
 
 type sysExitFormat struct {
-	Type         uint16
-	Flags        uint8
-	PreemptCount uint8
-	Pid          int32
-	ID           int64
-	Ret          int64
+	perf.TraceEvent
+	ID  int64
+	Ret int64
 }
 
 func decodeSysExit(rawData []byte) (interface{}, error) {
@@ -97,19 +88,16 @@ func decodeSysExit(rawData []byte) (interface{}, error) {
 		return nil, err
 	}
 
-	containerID, err := pidMapGetContainerID(format.Pid)
-
-	return &event.Event{
-		ContainerId: containerID,
-
-		Event: &event.Event_Syscall{
-			Syscall: &event.SyscallEvent{
-				Type: event.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT,
-				Id:   format.ID,
-				Ret:  format.Ret,
-			},
+	ev := newEventFromTraceEvent(&format.TraceEvent)
+	ev.Event = &event.Event_Syscall{
+		Syscall: &event.SyscallEvent{
+			Type: event.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT,
+			Id:   format.ID,
+			Ret:  format.Ret,
 		},
-	}, nil
+	}
+
+	return ev, nil
 }
 
 // -----------------------------------------------------------------------------

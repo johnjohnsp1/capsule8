@@ -13,9 +13,11 @@ import "event/v0/event.proto";
 // SignedSubscription wraps a subscription and signature.
 //
 message SignedSubscription {
-    Subscription subscription = 1;
-    string subscription_id = 2;
-    string signature = 3; // (Soon to be) Required, will used to sign the subscription
+        Subscription subscription = 1;
+        string subscription_id    = 2;
+
+        // (Soon to be) Required, will used to sign the subscription
+        string signature = 3;
 }
 
 //
@@ -34,9 +36,9 @@ message Subscription {
         // by one or more of the specified container filters.
         ContainerFilter container_filter = 2;
 
-        // If not empty, then only return events from nodes matched by
-        // one or more of the specified node filters.
-        NodeFilter node_filter = 3;
+        // If not empty, then only return events from Sensors matched by
+        // one or more of the specified sensor filters.
+        SensorFilter sensor_filter = 3;
 
         // If not empty, then only return events that occurred after
         // the specified relative duration subtracted from the current
@@ -57,7 +59,7 @@ message Subscription {
         Modifier modifier = 20;
 }
 
-message NodeFilter {
+message SensorFilter {
         // If set, then restrict events to specified ...
 }
 

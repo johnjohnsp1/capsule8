@@ -44,6 +44,10 @@ func (s *Sensor) onSampleEvent(perfEv *perf.Sample, err error) {
 
 		event := e.(*event.Event)
 
+		// Use monotime based on perf event vs. Event construction
+		event.SensorMonotimeNanos =
+			HostMonotimeNanosToSensor(int64(sample.Time))
+
 		for _, c := range s.eventStreams {
 			c <- event
 		}
@@ -344,11 +348,17 @@ func (sfs *syscallFilterSet) getPerfEventAttrs() []*perf.EventAttr {
 }
 
 func (sfs *syscallFilterSet) getPerfFilters(filters map[uint16]string) {
-	sysEnterID, _ :=
+	sysEnterID, err :=
 		perf.GetTraceEventID("raw_syscalls/sys_enter")
+	if err != nil {
+		return
+	}
 
-	sysExitID, _ :=
+	sysExitID, err :=
 		perf.GetTraceEventID("raw_syscalls/sys_exit")
+	if err != nil {
+		return
+	}
 
 	var enter_filters []string
 	var exit_filters []string
@@ -443,14 +453,21 @@ func (pfs *processFilterSet) getPerfFilters(filters map[uint16]string) {
 func (ffs *fileFilterSet) getPerfEventAttrs() []*perf.EventAttr {
 	if ffs.filters != nil {
 		ea := newTraceEventAttr("fs/do_sys_open")
-		return []*perf.EventAttr{ea}
+		if ea == nil {
+			return []*perf.EventAttr{}
+		} else {
+			return []*perf.EventAttr{ea}
+		}
 	}
 
 	return nil
 }
 
 func (ffs *fileFilterSet) getPerfFilters(filters map[uint16]string) {
-	eventID, _ := perf.GetTraceEventID("fs/do_sys_open")
+	eventID, err := perf.GetTraceEventID("fs/do_sys_open")
+	if err != nil {
+		return
+	}
 
 	var openFilters []string
 
@@ -501,7 +518,9 @@ func (fs *filterSet) getPerfEventAttrs() []*perf.EventAttr {
 
 	if fs.files != nil {
 		ea := fs.files.getPerfEventAttrs()
-		eventAttrs = append(eventAttrs, ea...)
+		if ea != nil {
+			eventAttrs = append(eventAttrs, ea...)
+		}
 	}
 
 	return eventAttrs

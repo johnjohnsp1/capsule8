@@ -41,14 +41,11 @@ print fmt: "(%lx) filename=\"%s\" flags=%d mode=%d", REC->__probe_ip, __get_str(
 */
 
 type doSysOpenFormat struct {
-	CommonType         uint16
-	CommonFlags        uint8
-	CommonPreemptCount uint8
-	CommonPid          int32
-	FilenameOffset     int16
-	FilenameLength     int16
-	Flags              int32
-	Mode               int32
+	perf.TraceEvent
+	FilenameOffset int16
+	FilenameLength int16
+	Flags          int32
+	Mode           int32
 }
 
 type kpDoSysOpenFormat struct {
@@ -124,20 +121,17 @@ func decodeDoSysOpen(rawData []byte) (interface{}, error) {
 		fileName = fileName[:len(fileName)-1]
 	}
 
-	containerID, err := pidMapGetContainerID(format.CommonPid)
-
-	return &event.Event{
-		ContainerId: containerID,
-
-		Event: &event.Event_File{
-			File: &event.FileEvent{
-				Type:      event.FileEventType_FILE_EVENT_TYPE_OPEN,
-				Filename:  string(fileName),
-				OpenFlags: format.Flags,
-				OpenMode:  format.Mode,
-			},
+	ev := newEventFromTraceEvent(&format.TraceEvent)
+	ev.Event = &event.Event_File{
+		File: &event.FileEvent{
+			Type:      event.FileEventType_FILE_EVENT_TYPE_OPEN,
+			Filename:  string(fileName),
+			OpenFlags: format.Flags,
+			OpenMode:  format.Mode,
 		},
-	}, nil
+	}
+
+	return ev, nil
 }
 
 // -----------------------------------------------------------------------------

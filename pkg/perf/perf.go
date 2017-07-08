@@ -118,7 +118,6 @@ func newSession(eventAttrs []*EventAttr, filters []string, initFlags uintptr, ar
 			if j == 0 {
 				// Event group leader
 				groupFd = -1
-				flags |= PERF_FLAG_FD_CLOEXEC
 			} else {
 				// Additional events in the group
 				groupFd = perfFds[i]

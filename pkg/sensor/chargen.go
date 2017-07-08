@@ -19,14 +19,15 @@ type chargen struct {
 }
 
 func newChargenEvent(index uint64, characters string) *event.Event {
-	return &event.Event{
-		Event: &event.Event_Chargen{
-			Chargen: &event.ChargenEvent{
-				Index:      index,
-				Characters: characters,
-			},
+	e := NewEvent()
+	e.Event = &event.Event_Chargen{
+		Chargen: &event.ChargenEvent{
+			Index:      index,
+			Characters: characters,
 		},
 	}
+
+	return e
 }
 
 func (c *chargen) emitNextEvent(e interface{}) {

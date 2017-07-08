@@ -39,31 +39,30 @@ func newContainerDestroyed(cID string) *event.ContainerEvent {
 }
 
 func translateContainerEvents(e interface{}) interface{} {
-	ev := e.(*container.Event)
-	var cev *event.ContainerEvent
+	ce := e.(*container.Event)
+	var ece *event.ContainerEvent
 
-	switch ev.State {
+	switch ce.State {
 	case container.ContainerCreated:
-		cev = newContainerCreated(ev.ID, ev.ImageID)
+		ece = newContainerCreated(ce.ID, ce.ImageID)
 
 	case container.ContainerStarted:
-		cev = newContainerRunning(ev.ID)
+		ece = newContainerRunning(ce.ID)
 
 	case container.ContainerStopped:
-		cev = newContainerExited(ev.ID)
+		ece = newContainerExited(ce.ID)
 
 	case container.ContainerRemoved:
-		cev = newContainerDestroyed(ev.ID)
+		ece = newContainerDestroyed(ce.ID)
 
 	default:
 		panic("Invalid value for ContainerState")
 	}
 
-	return &event.Event{
-		ContainerId: ev.ID,
-
-		Event: &event.Event_Container{
-			Container: cev,
-		},
+	ev := newEventFromContainer(ce.ID)
+	ev.Event = &event.Event_Container{
+		Container: ece,
 	}
+
+	return ev
 }
