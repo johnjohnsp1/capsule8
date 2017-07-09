@@ -8,9 +8,7 @@ import (
 	"regexp"
 	"time"
 
-	pbconfig "github.com/capsule8/reactive8/pkg/api/config"
-	"github.com/capsule8/reactive8/pkg/api/event"
-	"github.com/capsule8/reactive8/pkg/api/pubsub"
+	api "github.com/capsule8/reactive8/pkg/api/v0"
 	backend "github.com/capsule8/reactive8/pkg/pubsub"
 	"github.com/golang/protobuf/proto"
 )
@@ -39,9 +37,9 @@ func (sb *Backend) Connect() error {
 // Publish a known message type to a topic
 func (sb *Backend) Publish(topic string, message interface{}) error {
 	switch message.(type) {
-	case *event.SignedSubscription:
+	case *api.SignedSubscription:
 		// do nothing
-	case *pbconfig.Config:
+	case *api.Config:
 		// do nothing
 	case []byte:
 		// do nothing
@@ -58,9 +56,9 @@ func (sb *Backend) Publish(topic string, message interface{}) error {
 }
 
 // Pull messages off of a topic
-func (sb *Backend) Pull(topic string) (backend.Subscription, <-chan *pubsub.ReceivedMessage, error) {
+func (sb *Backend) Pull(topic string) (backend.Subscription, <-chan *api.ReceivedMessage, error) {
 	// Return one channel for receiving messages
-	messages := make(chan *pubsub.ReceivedMessage)
+	messages := make(chan *api.ReceivedMessage)
 
 	// Return a subscription object for managing subscriptions
 	closeSignal := make(chan interface{})
@@ -76,18 +74,18 @@ func (sb *Backend) Pull(topic string) (backend.Subscription, <-chan *pubsub.Rece
 			case <-closeSignal:
 				break sendLoop
 			default:
-				msg := &pubsub.ReceivedMessage{
+				msg := &api.ReceivedMessage{
 					Ack: []byte("mock ack"),
 				}
 				// Check to see if the topic is configured to emit a mock event
 				if ev, ok := mockTopics[topic]; ok {
 					switch {
 					case maybeSubscription.MatchString(topic):
-						payload := ev.(*event.SignedSubscription)
+						payload := ev.(*api.SignedSubscription)
 						b, _ := proto.Marshal(payload)
 						msg.Payload = b
 					case maybeEvent.MatchString(topic):
-						payload := ev.(*event.Event)
+						payload := ev.(*api.Event)
 						b, _ := proto.Marshal(payload)
 						msg.Payload = b
 					}

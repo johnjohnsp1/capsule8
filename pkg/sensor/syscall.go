@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"log"
 
-	"github.com/capsule8/reactive8/pkg/api/event"
+	api "github.com/capsule8/reactive8/pkg/api/v0"
 	"github.com/capsule8/reactive8/pkg/perf"
 )
 
@@ -41,9 +41,9 @@ func decodeSysEnter(rawData []byte) (interface{}, error) {
 	}
 
 	ev := newEventFromTraceEvent(&format.TraceEvent)
-	ev.Event = &event.Event_Syscall{
-		Syscall: &event.SyscallEvent{
-			Type: event.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER,
+	ev.Event = &api.Event_Syscall{
+		Syscall: &api.SyscallEvent{
+			Type: api.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER,
 			Id:   format.ID,
 			Arg0: format.Args[0],
 			Arg1: format.Args[1],
@@ -89,9 +89,9 @@ func decodeSysExit(rawData []byte) (interface{}, error) {
 	}
 
 	ev := newEventFromTraceEvent(&format.TraceEvent)
-	ev.Event = &event.Event_Syscall{
-		Syscall: &event.SyscallEvent{
-			Type: event.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT,
+	ev.Event = &api.Event_Syscall{
+		Syscall: &api.SyscallEvent{
+			Type: api.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT,
 			Id:   format.ID,
 			Ret:  format.Ret,
 		},

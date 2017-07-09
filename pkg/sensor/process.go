@@ -6,7 +6,7 @@ import (
 	"errors"
 	"log"
 
-	"github.com/capsule8/reactive8/pkg/api/event"
+	api "github.com/capsule8/reactive8/pkg/api/v0"
 	"github.com/capsule8/reactive8/pkg/perf"
 )
 
@@ -91,9 +91,9 @@ func decodeSchedProcessFork(rawData []byte) (interface{}, error) {
 	pidMapOnFork(tpEv.ParentPid, tpEv.ChildPid)
 
 	ev := newEventFromTraceEvent(&tpEv.TraceEvent)
-	ev.Event = &event.Event_Process{
-		Process: &event.ProcessEvent{
-			Type:     event.ProcessEventType_PROCESS_EVENT_TYPE_FORK,
+	ev.Event = &api.Event_Process{
+		Process: &api.ProcessEvent{
+			Type:     api.ProcessEventType_PROCESS_EVENT_TYPE_FORK,
 			Pid:      tpEv.Pid,
 			ChildPid: tpEv.ChildPid,
 		},
@@ -182,8 +182,8 @@ func decodeSchedProcessExec(rawData []byte) (interface{}, error) {
 		return nil, err
 	}
 
-	processEvent := &event.ProcessEvent{
-			Type:         event.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
+	processEvent := &api.ProcessEvent{
+			Type:         api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
 			Pid:          tpEv.Pid,
 			ExecFilename: tpEv.Filename,
 	}
@@ -191,7 +191,7 @@ func decodeSchedProcessExec(rawData []byte) (interface{}, error) {
 	processEvent.ExecCommandLine, err = pidMapGetCommandLine(tpEv.Pid)
 
 	ev := newEventFromTraceEvent(&tpEv.TraceEvent)
-	ev.Event = &event.Event_Process{
+	ev.Event = &api.Event_Process{
 		Process: processEvent,
 	}
 
@@ -241,9 +241,9 @@ func decodeSysEnterExitGroup(rawData []byte) (interface{}, error) {
 	}
 
 	ev := newEventFromTraceEvent(&tpEv.TraceEvent)
-	ev.Event = &event.Event_Process{
-		Process: &event.ProcessEvent{
-			Type:     event.ProcessEventType_PROCESS_EVENT_TYPE_EXIT,
+	ev.Event = &api.Event_Process{
+		Process: &api.ProcessEvent{
+			Type:     api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT,
 			Pid:      tpEv.Pid,
 			ExitCode: int32(tpEv.ErrorCode),
 		},

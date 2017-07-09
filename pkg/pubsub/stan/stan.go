@@ -10,9 +10,7 @@ import (
 	"regexp"
 	"time"
 
-	pbconfig "github.com/capsule8/reactive8/pkg/api/config"
-	"github.com/capsule8/reactive8/pkg/api/event"
-	"github.com/capsule8/reactive8/pkg/api/pubsub"
+	api "github.com/capsule8/reactive8/pkg/api/v0"
 	backend "github.com/capsule8/reactive8/pkg/pubsub"
 	"github.com/golang/protobuf/proto"
 	"github.com/kelseyhightower/envconfig"
@@ -64,8 +62,8 @@ func (sb *Backend) Connect() error {
 // Publish a known message type to a topic
 func (sb *Backend) Publish(topic string, message interface{}) error {
 	switch message.(type) {
-	case *event.SignedSubscription:
-		payload := message.(*event.SignedSubscription)
+	case *api.SignedSubscription:
+		payload := message.(*api.SignedSubscription)
 		bytes, err := proto.Marshal(payload)
 		if err != nil {
 			return err
@@ -73,8 +71,8 @@ func (sb *Backend) Publish(topic string, message interface{}) error {
 		if err = sb.natsConn.Publish(topic, bytes); err != nil {
 			return err
 		}
-	case *pbconfig.Config:
-		payload := message.(*pbconfig.Config)
+	case *api.Config:
+		payload := message.(*api.Config)
 		bytes, err := proto.Marshal(payload)
 		if err != nil {
 			return err
@@ -97,9 +95,9 @@ func (sb *Backend) Publish(topic string, message interface{}) error {
 }
 
 // Pull messages off of a topic
-func (sb *Backend) Pull(topic string) (backend.Subscription, <-chan *pubsub.ReceivedMessage, error) {
+func (sb *Backend) Pull(topic string) (backend.Subscription, <-chan *api.ReceivedMessage, error) {
 	// Return one channel for receiving messages
-	messages := make(chan *pubsub.ReceivedMessage)
+	messages := make(chan *api.ReceivedMessage)
 	// Return a subscription object for managing subscriptions
 	sub := &subscription{}
 
@@ -140,7 +138,7 @@ func (sb *Backend) Acknowledge(acks [][]byte) ([][]byte, error) {
 	var failedAcks [][]byte
 ackLoop:
 	for _, ackBytes := range acks {
-		ack := &pubsub.Ack{}
+		ack := &api.Ack{}
 		if err := proto.Unmarshal(ackBytes, ack); err != nil {
 			fmt.Fprintf(os.Stderr, "Unable to marshal ack: %s\n", err.Error())
 			failedAcks = append(failedAcks, ackBytes)
@@ -162,9 +160,9 @@ ackLoop:
 	return failedAcks, nil
 }
 
-func (sb *Backend) natsSubscribe(topic string, messages chan *pubsub.ReceivedMessage) (*nats.Subscription, error) {
+func (sb *Backend) natsSubscribe(topic string, messages chan *api.ReceivedMessage) (*nats.Subscription, error) {
 	sub, err := sb.natsConn.Subscribe(topic, func(m *nats.Msg) {
-		messages <- &pubsub.ReceivedMessage{
+		messages <- &api.ReceivedMessage{
 			Payload: m.Data,
 		}
 	})
@@ -174,7 +172,7 @@ func (sb *Backend) natsSubscribe(topic string, messages chan *pubsub.ReceivedMes
 	return sub, nil
 }
 
-func (sb *Backend) stanSubscribe(topic string, messages chan *pubsub.ReceivedMessage, options ...stan.SubscriptionOption) (stan.Subscription, error) {
+func (sb *Backend) stanSubscribe(topic string, messages chan *api.ReceivedMessage, options ...stan.SubscriptionOption) (stan.Subscription, error) {
 	var ackInbox string
 
 	// By default, we deliver messages off of a stan channel
@@ -184,7 +182,7 @@ func (sb *Backend) stanSubscribe(topic string, messages chan *pubsub.ReceivedMes
 		if ackInbox == "" {
 			ackInbox = reflect.ValueOf(m.Sub).Elem().FieldByName("ackInbox").String()
 		}
-		ack := &pubsub.Ack{
+		ack := &api.Ack{
 			Inbox:    ackInbox,
 			Subject:  m.Subject,
 			Sequence: m.Sequence,
@@ -195,7 +193,7 @@ func (sb *Backend) stanSubscribe(topic string, messages chan *pubsub.ReceivedMes
 		}
 
 		// Pass the messages along
-		messages <- &pubsub.ReceivedMessage{
+		messages <- &api.ReceivedMessage{
 			Payload: m.Data,
 			Ack:     ackBytes,
 		}

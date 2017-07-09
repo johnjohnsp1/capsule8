@@ -10,7 +10,7 @@ import (
 
 	"encoding/binary"
 
-	"github.com/capsule8/reactive8/pkg/api/event"
+	api "github.com/capsule8/reactive8/pkg/api/v0"
 	"github.com/capsule8/reactive8/pkg/perf"
 	"golang.org/x/sys/unix"
 )
@@ -65,7 +65,7 @@ func getNextSequenceNumber() uint64 {
 	return sequenceNumber
 }
 
-func NewEvent() *event.Event {
+func NewEvent() *api.Event {
 	monotime := getMonotimeNanos()
 	sequenceNumber := getNextSequenceNumber()
 
@@ -79,7 +79,7 @@ func NewEvent() *event.Event {
 	h := sha256.Sum256(b)
 	eventID := hex.EncodeToString(h[:])
 
-	return &event.Event{
+	return &api.Event{
 		Id:                   eventID,
 		SensorId:             sensorID,
 		SensorMonotimeNanos:  monotime,
@@ -87,13 +87,13 @@ func NewEvent() *event.Event {
 	}
 }
 
-func newEventFromTraceEvent(traceEvent *perf.TraceEvent) *event.Event {
+func newEventFromTraceEvent(traceEvent *perf.TraceEvent) *api.Event {
 	e := NewEvent()
 	e.ContainerId, _ = pidMapGetContainerID(traceEvent.Pid)
 	return e
 }
 
-func newEventFromContainer(containerID string) *event.Event {
+func newEventFromContainer(containerID string) *api.Event {
 	e := NewEvent()
 	e.ContainerId = containerID
 	return e

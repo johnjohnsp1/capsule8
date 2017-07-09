@@ -10,7 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/capsule8/reactive8/pkg/api/event"
+	api "github.com/capsule8/reactive8/pkg/api/v0"
 	"github.com/capsule8/reactive8/pkg/container"
 	"github.com/capsule8/reactive8/pkg/perf"
 	"github.com/capsule8/reactive8/pkg/stream"
@@ -42,7 +42,7 @@ func (s *Sensor) onSampleEvent(perfEv *perf.Sample, err error) {
 			return
 		}
 
-		event := e.(*event.Event)
+		event := e.(*api.Event)
 
 		// Use monotime based on perf event vs. Event construction
 		event.SensorMonotimeNanos =
@@ -107,7 +107,7 @@ type syscallFilterSet struct {
 	exit []syscallExitFilter
 }
 
-func (ses *syscallFilterSet) addEnter(sef *event.SyscallEventFilter) {
+func (ses *syscallFilterSet) addEnter(sef *api.SyscallEventFilter) {
 	if sef.Id == nil {
 		// No system call wildcards for now
 		return
@@ -160,7 +160,7 @@ func (ses *syscallFilterSet) addEnter(sef *event.SyscallEventFilter) {
 	}
 }
 
-func (ses *syscallFilterSet) addExit(sef *event.SyscallEventFilter) {
+func (ses *syscallFilterSet) addExit(sef *api.SyscallEventFilter) {
 	if sef.Id == nil {
 		// No system call wildcards for now
 		return
@@ -187,12 +187,12 @@ func (ses *syscallFilterSet) addExit(sef *event.SyscallEventFilter) {
 	}
 }
 
-func (ses *syscallFilterSet) add(sef *event.SyscallEventFilter) {
+func (ses *syscallFilterSet) add(sef *api.SyscallEventFilter) {
 	switch sef.Type {
-	case event.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER:
+	case api.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER:
 		ses.addEnter(sef)
 
-	case event.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT:
+	case api.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT:
 		ses.addExit(sef)
 	}
 }
@@ -202,12 +202,12 @@ func (ses *syscallFilterSet) len() int {
 }
 
 type processFilterSet struct {
-	events map[event.ProcessEventType]struct{}
+	events map[api.ProcessEventType]struct{}
 }
 
-func (pes *processFilterSet) add(pef *event.ProcessEventFilter) {
+func (pes *processFilterSet) add(pef *api.ProcessEventFilter) {
 	if pes.events == nil {
-		pes.events = make(map[event.ProcessEventType]struct{})
+		pes.events = make(map[api.ProcessEventType]struct{})
 	}
 
 	pes.events[pef.Type] = struct{}{}
@@ -228,8 +228,8 @@ type fileFilterSet struct {
 	filters []*fileOpenFilter
 }
 
-func (fes *fileFilterSet) add(fef *event.FileEventFilter) {
-	if fef.Type != event.FileEventType_FILE_EVENT_TYPE_OPEN {
+func (fes *fileFilterSet) add(fef *api.FileEventFilter) {
+	if fef.Type != api.FileEventType_FILE_EVENT_TYPE_OPEN {
 		// Do nothing if UNKNOWN
 		return
 	}
@@ -285,7 +285,7 @@ type filterSet struct {
 	files     *fileFilterSet
 }
 
-func (fs *filterSet) addSyscallEventFilter(sef *event.SyscallEventFilter) {
+func (fs *filterSet) addSyscallEventFilter(sef *api.SyscallEventFilter) {
 	if fs.syscalls == nil {
 		fs.syscalls = new(syscallFilterSet)
 	}
@@ -293,7 +293,7 @@ func (fs *filterSet) addSyscallEventFilter(sef *event.SyscallEventFilter) {
 	fs.syscalls.add(sef)
 }
 
-func (fs *filterSet) addProcessEventFilter(pef *event.ProcessEventFilter) {
+func (fs *filterSet) addProcessEventFilter(pef *api.ProcessEventFilter) {
 	if fs.processes == nil {
 		fs.processes = new(processFilterSet)
 	}
@@ -301,7 +301,7 @@ func (fs *filterSet) addProcessEventFilter(pef *event.ProcessEventFilter) {
 	fs.processes.add(pef)
 }
 
-func (fs *filterSet) addFileEventFilter(fef *event.FileEventFilter) {
+func (fs *filterSet) addFileEventFilter(fef *api.FileEventFilter) {
 	if fs.files == nil {
 		fs.files = new(fileFilterSet)
 	}
@@ -405,19 +405,19 @@ func (sfs *syscallFilterSet) getPerfFilters(filters map[uint16]string) {
 func (pfs *processFilterSet) getPerfEventAttrs() []*perf.EventAttr {
 	var eventAttrs []*perf.EventAttr
 
-	_, ok := pfs.events[event.ProcessEventType_PROCESS_EVENT_TYPE_FORK]
+	_, ok := pfs.events[api.ProcessEventType_PROCESS_EVENT_TYPE_FORK]
 	if ok {
 		ea := newTraceEventAttr("sched/sched_process_fork")
 		eventAttrs = append(eventAttrs, ea)
 	}
 
-	_, ok = pfs.events[event.ProcessEventType_PROCESS_EVENT_TYPE_EXEC]
+	_, ok = pfs.events[api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC]
 	if ok {
 		ea := newTraceEventAttr("sched/sched_process_exec")
 		eventAttrs = append(eventAttrs, ea)
 	}
 
-	_, ok = pfs.events[event.ProcessEventType_PROCESS_EVENT_TYPE_EXIT]
+	_, ok = pfs.events[api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT]
 	if ok {
 		ea := newTraceEventAttr("syscalls/sys_enter_exit_group")
 		eventAttrs = append(eventAttrs, ea)
@@ -427,21 +427,21 @@ func (pfs *processFilterSet) getPerfEventAttrs() []*perf.EventAttr {
 }
 
 func (pfs *processFilterSet) getPerfFilters(filters map[uint16]string) {
-	_, ok := pfs.events[event.ProcessEventType_PROCESS_EVENT_TYPE_FORK]
+	_, ok := pfs.events[api.ProcessEventType_PROCESS_EVENT_TYPE_FORK]
 	if ok {
 		eventID, _ := perf.GetTraceEventID("sched/sched_process_fork")
 
 		filters[eventID] = ""
 	}
 
-	_, ok = pfs.events[event.ProcessEventType_PROCESS_EVENT_TYPE_EXEC]
+	_, ok = pfs.events[api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC]
 	if ok {
 		eventID, _ := perf.GetTraceEventID("sched/sched_process_exec")
 
 		filters[eventID] = ""
 	}
 
-	_, ok = pfs.events[event.ProcessEventType_PROCESS_EVENT_TYPE_EXIT]
+	_, ok = pfs.events[api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT]
 	if ok {
 		eventID, _ :=
 			perf.GetTraceEventID("syscalls/sys_enter_exit_group")
@@ -552,7 +552,7 @@ type Sensor struct {
 	events       []*perf.EventAttr
 	filters      []string
 	perf         *perf.Perf
-	eventStreams map[*event.Subscription]chan interface{}
+	eventStreams map[*api.Subscription]chan interface{}
 }
 
 //
@@ -647,7 +647,7 @@ func (s *Sensor) update() error {
 	return nil
 }
 
-func (s *Sensor) createPerfEventStream(sub *event.Subscription) (*stream.Stream, error) {
+func (s *Sensor) createPerfEventStream(sub *api.Subscription) (*stream.Stream, error) {
 	ctrl := make(chan interface{})
 	data := make(chan interface{})
 
@@ -668,7 +668,7 @@ func (s *Sensor) createPerfEventStream(sub *event.Subscription) (*stream.Stream,
 	// We only need to save the data channel
 	//
 	if s.eventStreams == nil {
-		s.eventStreams = make(map[*event.Subscription]chan interface{})
+		s.eventStreams = make(map[*api.Subscription]chan interface{})
 	}
 
 	s.eventStreams[sub] = data
@@ -684,7 +684,7 @@ func (s *Sensor) createPerfEventStream(sub *event.Subscription) (*stream.Stream,
 	}, nil
 }
 
-func applyModifiers(strm *stream.Stream, modifier event.Modifier) *stream.Stream {
+func applyModifiers(strm *stream.Stream, modifier api.Modifier) *stream.Stream {
 	if modifier.Throttle != nil {
 		strm = stream.Throttle(strm, *modifier.Throttle)
 	}
@@ -697,7 +697,7 @@ func applyModifiers(strm *stream.Stream, modifier event.Modifier) *stream.Stream
 }
 
 // Add returns a stream
-func (s *Sensor) Add(sub *event.Subscription) (*stream.Stream, error) {
+func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -782,7 +782,7 @@ func (s *Sensor) Add(sub *event.Subscription) (*stream.Stream, error) {
 	return eventStream, nil
 }
 
-func Remove(subscription *event.Subscription) bool {
+func Remove(subscription *api.Subscription) bool {
 	s := getSensor()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -801,7 +801,7 @@ func Remove(subscription *event.Subscription) bool {
 // Configure Process Monitor based on the Process Filter
 // Configure Sensors based on the Selectors
 
-func NewSensor(sub *event.Subscription) (*stream.Stream, error) {
+func NewSensor(sub *api.Subscription) (*stream.Stream, error) {
 	s := getSensor()
 	eventStream, err := s.Add(sub)
 	if err != nil {

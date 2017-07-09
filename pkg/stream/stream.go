@@ -17,7 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/capsule8/reactive8/pkg/api/event"
+	api "github.com/capsule8/reactive8/pkg/api/v0"
 )
 
 const dataChannelBufferSize = 32
@@ -589,19 +589,19 @@ func OnOffValve(in *Stream) (*Stream, chan<- bool) {
 }
 
 // Throttles the number of events emitted by the stream
-func Throttle(in *Stream, mod event.ThrottleModifier) *Stream {
+func Throttle(in *Stream, mod api.ThrottleModifier) *Stream {
 	data := make(chan interface{})
 
 	// Convert `IntervalType` to a `Duration`
 	var interval time.Duration
 	switch mod.IntervalType {
-	case event.ThrottleModifier_MILLISECOND:
+	case api.ThrottleModifier_MILLISECOND:
 		interval = time.Millisecond
-	case event.ThrottleModifier_SECOND:
+	case api.ThrottleModifier_SECOND:
 		interval = time.Second
-	case event.ThrottleModifier_MINUTE:
+	case api.ThrottleModifier_MINUTE:
 		interval = time.Minute
-	case event.ThrottleModifier_HOUR:
+	case api.ThrottleModifier_HOUR:
 		interval = time.Hour
 	}
 
@@ -628,7 +628,7 @@ func Throttle(in *Stream, mod event.ThrottleModifier) *Stream {
 }
 
 // Limits the number of results returned
-func Limit(in *Stream, mod event.LimitModifier) *Stream {
+func Limit(in *Stream, mod api.LimitModifier) *Stream {
 	data := make(chan interface{})
 
 	go func() {

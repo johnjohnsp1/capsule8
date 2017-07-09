@@ -3,27 +3,27 @@ package sensor
 import (
 	"time"
 
-	"github.com/capsule8/reactive8/pkg/api/event"
+	api "github.com/capsule8/reactive8/pkg/api/v0"
 	"github.com/capsule8/reactive8/pkg/stream"
 )
 
 //
 // Sensors are singletons that emit events through one or more sessions
-// configured by a event.Selector.
+// configured by a api.Selector.
 //
 
 type ticker struct {
 	ctrl     chan interface{}
 	data     chan interface{}
-	filter   *event.TickerEventFilter
+	filter   *api.TickerEventFilter
 	duration time.Duration
 	ticker   *stream.Stream
 }
 
-func newTickerEvent(tick time.Time) *event.Event {
+func newTickerEvent(tick time.Time) *api.Event {
 	e := NewEvent()
-	e.Event = &event.Event_Ticker{
-		Ticker: &event.TickerEvent{
+	e.Event = &api.Event_Ticker{
+		Ticker: &api.TickerEvent{
 			Seconds:     tick.Unix(),
 			Nanoseconds: tick.UnixNano(),
 		},
@@ -33,7 +33,7 @@ func newTickerEvent(tick time.Time) *event.Event {
 }
 
 // NewTickerSensor creates a new ticker sensor configured by the given Selector
-func NewTickerSensor(filter *event.TickerEventFilter) (*stream.Stream, error) {
+func NewTickerSensor(filter *api.TickerEventFilter) (*stream.Stream, error) {
 	//
 	// Each call to New creates a new session with the Sensor. It is the
 	// Sensor's responsibility to handle all of its sessions in the most

@@ -2,8 +2,8 @@
 
 syntax = "proto3";
 
-package capsule8.config.v0;
-option go_package = "github.com/capsule8/reactive8/pkg/api/config";
+package capsule8.v0;
+option go_package = "v0";
 
 // This message is just a wrapper around the actual config contained w/in the payload
 message Config {

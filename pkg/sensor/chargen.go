@@ -1,27 +1,27 @@
 package sensor
 
 import (
-	"github.com/capsule8/reactive8/pkg/api/event"
+	api "github.com/capsule8/reactive8/pkg/api/v0"
 	"github.com/capsule8/reactive8/pkg/stream"
 )
 
 //
 // Sensors are singletons that emit events through one or more sessions
-// configured by a event.Selector.
+// configured by a api.Subscription.
 //
 
 type chargen struct {
 	ctrl    chan interface{}
 	data    chan interface{}
-	filter  *event.ChargenEventFilter
+	filter  *api.ChargenEventFilter
 	chargen *stream.Stream
 	index   uint64
 }
 
-func newChargenEvent(index uint64, characters string) *event.Event {
+func newChargenEvent(index uint64, characters string) *api.Event {
 	e := NewEvent()
-	e.Event = &event.Event_Chargen{
-		Chargen: &event.ChargenEvent{
+	e.Event = &api.Event_Chargen{
+		Chargen: &api.ChargenEvent{
 			Index:      index,
 			Characters: characters,
 		},
@@ -47,7 +47,7 @@ func (c *chargen) emitNextEvent(e interface{}) {
 
 // NewChargenSensor creates a new chargen sensor configured by the given
 // Filter
-func NewChargenSensor(filter *event.ChargenEventFilter) (*stream.Stream, error) {
+func NewChargenSensor(filter *api.ChargenEventFilter) (*stream.Stream, error) {
 	//
 	// Each call to New creates a new session with the Sensor. It is the
 	// Sensor's responsibility to handle all of its sessions in the most

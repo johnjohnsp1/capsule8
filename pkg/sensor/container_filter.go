@@ -1,7 +1,7 @@
 package sensor
 
 import (
-	"github.com/capsule8/reactive8/pkg/api/event"
+	api "github.com/capsule8/reactive8/pkg/api/v0"
 	"github.com/capsule8/reactive8/pkg/container"
 	"github.com/capsule8/reactive8/pkg/stream"
 	"github.com/gobwas/glob"
@@ -58,22 +58,22 @@ func (c *containerFilter) addState(state container.State) {
 	c.states[state] = struct{}{}
 }
 
-func (c *containerFilter) addEventType(ev event.ContainerEventType) {
+func (c *containerFilter) addEventType(ev api.ContainerEventType) {
 	switch ev {
-	case event.ContainerEventType_CONTAINER_EVENT_TYPE_UNKNOWN:
+	case api.ContainerEventType_CONTAINER_EVENT_TYPE_UNKNOWN:
 		// Match all states
 		c.addState(container.ContainerCreated)
 		c.addState(container.ContainerStarted)
 		c.addState(container.ContainerStopped)
 		c.addState(container.ContainerRemoved)
 
-	case event.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED:
+	case api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED:
 		c.addState(container.ContainerCreated)
-	case event.ContainerEventType_CONTAINER_EVENT_TYPE_RUNNING:
+	case api.ContainerEventType_CONTAINER_EVENT_TYPE_RUNNING:
 		c.addState(container.ContainerStarted)
-	case event.ContainerEventType_CONTAINER_EVENT_TYPE_EXITED:
+	case api.ContainerEventType_CONTAINER_EVENT_TYPE_EXITED:
 		c.addState(container.ContainerStopped)
-	case event.ContainerEventType_CONTAINER_EVENT_TYPE_DESTROYED:
+	case api.ContainerEventType_CONTAINER_EVENT_TYPE_DESTROYED:
 		c.addState(container.ContainerRemoved)
 	}
 }
@@ -147,7 +147,7 @@ func (cf *containerFilter) pruneFilter(i interface{}) {
 }
 
 func (cf *containerFilter) filterEvent(i interface{}) bool {
-	e := i.(*event.Event)
+	e := i.(*api.Event)
 
 	if len(e.ContainerId) > 0 {
 		if cf.containerIds != nil {
@@ -163,7 +163,7 @@ func (cf *containerFilter) filterEvent(i interface{}) bool {
 }
 
 // NewSensor creates a new ContainerEvent sensor
-func NewContainerFilter(ecf *event.ContainerFilter) (*containerFilter, error) {
+func NewContainerFilter(ecf *api.ContainerFilter) (*containerFilter, error) {
 	cf := &containerFilter{}
 
 	for _, v := range ecf.Ids {

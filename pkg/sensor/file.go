@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"log"
 
-	"github.com/capsule8/reactive8/pkg/api/event"
+	api "github.com/capsule8/reactive8/pkg/api/v0"
 	"github.com/capsule8/reactive8/pkg/perf"
 )
 
@@ -79,12 +79,12 @@ func decodeKpDoSysOpen(rawData []byte) (interface{}, error) {
 
 	containerID, err := pidMapGetContainerID(format.CommonPid)
 
-	return &event.Event{
+	return &api.Event{
 		ContainerId: containerID,
 
-		Event: &event.Event_File{
-			File: &event.FileEvent{
-				Type:      event.FileEventType_FILE_EVENT_TYPE_OPEN,
+		Event: &api.Event_File{
+			File: &api.FileEvent{
+				Type:      api.FileEventType_FILE_EVENT_TYPE_OPEN,
 				Filename:  string(fileName),
 				OpenFlags: format.Flags,
 				OpenMode:  format.Mode,
@@ -122,9 +122,9 @@ func decodeDoSysOpen(rawData []byte) (interface{}, error) {
 	}
 
 	ev := newEventFromTraceEvent(&format.TraceEvent)
-	ev.Event = &event.Event_File{
-		File: &event.FileEvent{
-			Type:      event.FileEventType_FILE_EVENT_TYPE_OPEN,
+	ev.Event = &api.Event_File{
+		File: &api.FileEvent{
+			Type:      api.FileEventType_FILE_EVENT_TYPE_OPEN,
 			Filename:  string(fileName),
 			OpenFlags: format.Flags,
 			OpenMode:  format.Mode,

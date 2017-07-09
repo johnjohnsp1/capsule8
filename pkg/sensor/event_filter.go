@@ -1,19 +1,19 @@
 package sensor
 
 import (
-	"github.com/capsule8/reactive8/pkg/api/event"
+	api "github.com/capsule8/reactive8/pkg/api/v0"
 	"github.com/gobwas/glob"
 )
 
 type eventFilter struct {
-	ef *event.EventFilter
+	ef *api.EventFilter
 }
 
 func (ef *eventFilter) filterEvent(i interface{}) bool {
-	e := i.(*event.Event)
+	e := i.(*api.Event)
 
 	switch e.Event.(type) {
-	case *event.Event_Syscall:
+	case *api.Event_Syscall:
 		sev := e.GetSyscall()
 
 		for _, sef := range ef.ef.SyscallEvents {
@@ -56,7 +56,7 @@ func (ef *eventFilter) filterEvent(i interface{}) bool {
 			return true
 		}
 
-	case *event.Event_Process:
+	case *api.Event_Process:
 		pev := e.GetProcess()
 
 		for _, pef := range ef.ef.ProcessEvents {
@@ -67,7 +67,7 @@ func (ef *eventFilter) filterEvent(i interface{}) bool {
 			return true
 		}
 
-	case *event.Event_File:
+	case *api.Event_File:
 		fev := e.GetFile()
 
 		for _, fef := range ef.ef.FileEvents {
@@ -110,7 +110,7 @@ func (ef *eventFilter) filterEvent(i interface{}) bool {
 			return true
 		}
 
-	case *event.Event_Container:
+	case *api.Event_Container:
 		cev := e.GetContainer()
 
 		for _, cef := range ef.ef.ContainerEvents {
@@ -121,14 +121,14 @@ func (ef *eventFilter) filterEvent(i interface{}) bool {
 			return true
 		}
 
-	case *event.Event_Chargen:
+	case *api.Event_Chargen:
 		// These debugging events are only enabled when the subscription
 		// specifies a ChargenEventFilter, so we don't actually need to
 		// filter here.
 
 		return true
 
-	case *event.Event_Ticker:
+	case *api.Event_Ticker:
 		// These debugging events are only enabled when the subscription
 		// specifies a TickerEventFilter, so we don't actually need to
 		// filter here.
@@ -139,7 +139,7 @@ func (ef *eventFilter) filterEvent(i interface{}) bool {
 	return false
 }
 
-func NewEventFilter(ef *event.EventFilter) *eventFilter {
+func NewEventFilter(ef *api.EventFilter) *eventFilter {
 	return &eventFilter{
 		ef: ef,
 	}

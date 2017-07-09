@@ -1,38 +1,38 @@
 package sensor
 
 import (
-	"github.com/capsule8/reactive8/pkg/api/event"
+	api "github.com/capsule8/reactive8/pkg/api/v0"
 	"github.com/capsule8/reactive8/pkg/container"
 )
 
-func newContainerCreated(cID string, imageID string) *event.ContainerEvent {
-	ev := &event.ContainerEvent{
-		Type:    event.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED,
+func newContainerCreated(cID string, imageID string) *api.ContainerEvent {
+	ev := &api.ContainerEvent{
+		Type:    api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED,
 		ImageId: imageID,
 	}
 
 	return ev
 }
 
-func newContainerRunning(cID string) *event.ContainerEvent {
-	ev := &event.ContainerEvent{
-		Type: event.ContainerEventType_CONTAINER_EVENT_TYPE_RUNNING,
+func newContainerRunning(cID string) *api.ContainerEvent {
+	ev := &api.ContainerEvent{
+		Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_RUNNING,
 	}
 
 	return ev
 }
 
-func newContainerExited(cID string) *event.ContainerEvent {
-	ev := &event.ContainerEvent{
-		Type: event.ContainerEventType_CONTAINER_EVENT_TYPE_EXITED,
+func newContainerExited(cID string) *api.ContainerEvent {
+	ev := &api.ContainerEvent{
+		Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_EXITED,
 	}
 
 	return ev
 }
 
-func newContainerDestroyed(cID string) *event.ContainerEvent {
-	ev := &event.ContainerEvent{
-		Type: event.ContainerEventType_CONTAINER_EVENT_TYPE_DESTROYED,
+func newContainerDestroyed(cID string) *api.ContainerEvent {
+	ev := &api.ContainerEvent{
+		Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_DESTROYED,
 	}
 
 	return ev
@@ -40,7 +40,7 @@ func newContainerDestroyed(cID string) *event.ContainerEvent {
 
 func translateContainerEvents(e interface{}) interface{} {
 	ce := e.(*container.Event)
-	var ece *event.ContainerEvent
+	var ece *api.ContainerEvent
 
 	switch ce.State {
 	case container.ContainerCreated:
@@ -60,7 +60,7 @@ func translateContainerEvents(e interface{}) interface{} {
 	}
 
 	ev := newEventFromContainer(ce.ID)
-	ev.Event = &event.Event_Container{
+	ev.Event = &api.Event_Container{
 		Container: ece,
 	}
 

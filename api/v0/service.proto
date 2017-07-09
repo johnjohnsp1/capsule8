@@ -2,8 +2,8 @@
 
 syntax = "proto3";
 
-package capsule8.pubsub.v0;
-option go_package = "github.com/capsule8/reactive8/pkg/api/pubsub";
+package capsule8.v0;
+option go_package = "v0";
 
 import "google/api/annotations.proto";
 

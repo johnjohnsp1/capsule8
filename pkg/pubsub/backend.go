@@ -3,7 +3,7 @@
 package pubsub
 
 import (
-	"github.com/capsule8/reactive8/pkg/api/pubsub"
+	api "github.com/capsule8/reactive8/pkg/api/v0"
 )
 
 // Backend interface to the internal pubsub service.
@@ -23,10 +23,10 @@ type Backend interface {
 	//      topic (string)
 	// RETURN:
 	//      subscription (Subscription)
-	//      messages (<-chan *pubsub.ReceivedMessage)
+	//      messages (<-chan *ReceivedMessage)
 	//      message acknowledgements (chan<- []byte)
 	//      error
-	Pull(string) (Subscription, <-chan *pubsub.ReceivedMessage, error)
+	Pull(string) (Subscription, <-chan *api.ReceivedMessage, error)
 	// Acknowledge one or more acks
 	// ARGS:
 	//      acks ([][]byte)

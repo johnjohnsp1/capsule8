@@ -9,7 +9,7 @@ import (
 
 	"os"
 
-	"github.com/capsule8/reactive8/pkg/api/event"
+	api "github.com/capsule8/reactive8/pkg/api/v0"
 	backend "github.com/capsule8/reactive8/pkg/pubsub"
 	pbmock "github.com/capsule8/reactive8/pkg/pubsub/mock"
 	pbstan "github.com/capsule8/reactive8/pkg/pubsub/stan"
@@ -76,7 +76,7 @@ type sensorConfig struct {
 
 type subscriptionMetadata struct {
 	lastSeen     int64 // Unix timestamp w/ second level precision of when sub was last seen
-	subscription *event.Subscription
+	subscription *api.Subscription
 	stopChan     chan interface{}
 }
 
@@ -107,7 +107,7 @@ func (s *sensor) Start() (chan interface{}, error) {
 					fmt.Fprint(os.Stderr, "Failed receiving events\n")
 					break sendLoop
 				}
-				ss := &event.SignedSubscription{}
+				ss := &api.SignedSubscription{}
 				if err = proto.Unmarshal(msg.Payload, ss); err != nil {
 					fmt.Fprintf(os.Stderr, "No selector specified in subscription.%s\n", err.Error())
 					return
@@ -162,13 +162,13 @@ func (s *sensor) RemoveStaleSubscriptions() {
 	}
 }
 
-func (s *sensor) newSensor(sub *event.Subscription, subscriptionID string) chan interface{} {
+func (s *sensor) newSensor(sub *api.Subscription, subscriptionID string) chan interface{} {
 	stopChan := make(chan interface{})
 
 	// Handle optional subscription arguments
 	modifier := sub.Modifier
 	if modifier == nil {
-		modifier = &event.Modifier{}
+		modifier = &api.Modifier{}
 	}
 	stream, err := pbsensor.NewSensor(sub)
 	if err != nil {
@@ -187,18 +187,18 @@ func (s *sensor) newSensor(sub *event.Subscription, subscriptionID string) chan 
 				break sendLoop
 			case ev, ok := <-stream.Data:
 				if !ok {
-					fmt.Fprint(os.Stderr, "Failed to get next event.\n")
+					fmt.Fprint(os.Stderr, "Failed to get next api.\n")
 					break sendLoop
 				}
 				//log.Println("Sending event:", ev)
 
-				data, err := proto.Marshal(ev.(*event.Event))
+				data, err := proto.Marshal(ev.(*api.Event))
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Failed to marshal event data: %v\n", err)
 				}
 				// TODO: We should have some retry logic in place
 				s.pubsub.Publish(
-					fmt.Sprintf("event.%s", subscriptionID),
+					fmt.Sprintf("api.%s", subscriptionID),
 					data,
 				)
 			}
