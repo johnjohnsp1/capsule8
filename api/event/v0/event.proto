@@ -122,7 +122,8 @@ message ProcessEvent {
         sint32 child_pid = 10;
 
         // Optional
-        string exec_filename = 20;
+        string exec_filename              = 20;
+        repeated string exec_command_line = 21;
 
         // Optional
         sint32 exit_code = 30;

@@ -182,13 +182,17 @@ func decodeSchedProcessExec(rawData []byte) (interface{}, error) {
 		return nil, err
 	}
 
-	ev := newEventFromTraceEvent(&tpEv.TraceEvent)
-	ev.Event = &event.Event_Process{
-		Process: &event.ProcessEvent{
+	processEvent := &event.ProcessEvent{
 			Type:         event.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
 			Pid:          tpEv.Pid,
 			ExecFilename: tpEv.Filename,
-		},
+	}
+
+	processEvent.ExecCommandLine, err = pidMapGetCommandLine(tpEv.Pid)
+
+	ev := newEventFromTraceEvent(&tpEv.TraceEvent)
+	ev.Event = &event.Event_Process{
+		Process: processEvent,
 	}
 
 	return ev, nil

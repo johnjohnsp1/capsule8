@@ -2,6 +2,7 @@ package sensor
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"os"
 	"strings"
@@ -69,4 +70,42 @@ func pidMapGetContainerID(hostPid int32) (string, error) {
 	}
 
 	return cID, nil
+}
+
+func pidMapGetCommandLine(hostPid int32) ([]string, error) {
+	//
+	// This misses the command-line arguments for short-lived processes,
+	// which is clearly not ideal.
+	//
+	filename := fmt.Sprintf("%s/%d/cmdline", procfs, hostPid)
+	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
+	defer file.Close()
+
+	if err != nil {
+		return nil, err
+	}
+
+	var cmdline [4096]byte
+	_, err = file.Read(cmdline[:])
+	if err != nil {
+		return nil, err
+	}
+
+	var commandLine []string
+
+	reader := bufio.NewReader(bytes.NewReader(cmdline[:]))
+	for {
+		s, err := reader.ReadString(0)
+		if err != nil {
+			break
+		}
+
+		if len(s) > 1 {
+			commandLine = append(commandLine, s[:len(s)-1])
+		} else {
+			break
+		}
+	}
+
+	return commandLine, nil
 }
