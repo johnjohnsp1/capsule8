@@ -155,7 +155,14 @@ func init() {
 			// Don't register decoder
 			return
 		}
+
+		doSysOpenID, err = perf.GetTraceEventID(eventName)
+		if err != nil {
+			log.Printf("Couldn't get trace event ID for kprobe fs/do_sys_open")
+		}
 	}
 
-	sensor.registerDecoder(doSysOpenID, decodeDoSysOpen)
+	if doSysOpenID > 0 {
+		sensor.registerDecoder(doSysOpenID, decodeDoSysOpen)
+	}
 }
