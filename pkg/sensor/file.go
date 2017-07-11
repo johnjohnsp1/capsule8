@@ -146,6 +146,8 @@ func init() {
 	eventName := "fs/do_sys_open"
 	doSysOpenID, err := perf.GetTraceEventID(eventName)
 	if err != nil {
+		log.Printf("Tracepoint fs/do_sys_open not found, adding a kprobe to emulate")
+
 		err := addKprobe()
 		if err != nil {
 			log.Printf("Couldn't add do_sys_open kprobe: %s", err)
