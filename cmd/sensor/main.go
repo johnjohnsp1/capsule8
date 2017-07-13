@@ -10,11 +10,11 @@ func main() {
 	log.Println("starting up")
 	s, err := CreateSensor("sensor")
 	if err != nil {
-		log.Fatal("Error creating sensor:", err)
+		log.Fatalf("error creating sensor: %s\n", err.Error())
 	}
 	stopSignal, err := s.Start()
 	if err != nil {
-		log.Fatal("Error starting sensor:", err)
+		log.Fatalf("error starting sensor: %s\n", err.Error())
 	}
 	log.Println("started")
 	// Blocking call to remove stale subscriptions on a 5 second interval
