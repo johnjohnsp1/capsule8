@@ -68,6 +68,9 @@ message ReceivedMessage {
     bytes ack = 1; // Optional
 
     bytes payload = 2;
+    // Optional, timestamp that the pubsub backend received the message
+    // NOTE: some pubsub backends do not support timestamps in the messaging protocol (ie. NATS)
+    int64 publish_time = 3;
 }
 
 message AcknowledgeRequest {

@@ -4,8 +4,10 @@ package mock
 
 import (
 	"fmt"
+	"log"
 	"reflect"
 	"regexp"
+	"sync"
 	"time"
 
 	api "github.com/capsule8/reactive8/pkg/api/v0"
@@ -14,10 +16,12 @@ import (
 )
 
 var (
+	maybeConfig       = regexp.MustCompile(`config\..*`)
 	maybeSubscription = regexp.MustCompile(`subscription\..*`)
 	maybeEvent        = regexp.MustCompile(`event\..*`)
 	mockTopics        = make(map[string]interface{})
-	outboundMessages  = []*OutboundMessage{}
+	outboundMessages  = map[string][]*OutboundMessage{}
+	mu                = &sync.RWMutex{}
 )
 
 // Backend is a mock backend
@@ -41,6 +45,8 @@ func (sb *Backend) Publish(topic string, message interface{}) error {
 		// do nothing
 	case *api.Config:
 		// do nothing
+	case *api.Discover:
+		// do nothing
 	case []byte:
 		// do nothing
 	default:
@@ -48,7 +54,7 @@ func (sb *Backend) Publish(topic string, message interface{}) error {
 		return fmt.Errorf("Message is of unknown type %s", reflect.TypeOf(message))
 	}
 	// Append the message to outbound messages
-	outboundMessages = append(outboundMessages, &OutboundMessage{
+	outboundMessages[topic] = append(outboundMessages[topic], &OutboundMessage{
 		Topic: topic,
 		Value: message,
 	})
@@ -72,12 +78,14 @@ func (sb *Backend) Pull(topic string) (backend.Subscription, <-chan *api.Receive
 		for {
 			select {
 			case <-closeSignal:
+				log.Println("Close signal received")
 				break sendLoop
 			default:
 				msg := &api.ReceivedMessage{
 					Ack: []byte("mock ack"),
 				}
 				// Check to see if the topic is configured to emit a mock event
+				mu.RLock()
 				if ev, ok := mockTopics[topic]; ok {
 					switch {
 					case maybeSubscription.MatchString(topic):
@@ -88,9 +96,18 @@ func (sb *Backend) Pull(topic string) (backend.Subscription, <-chan *api.Receive
 						payload := ev.(*api.Event)
 						b, _ := proto.Marshal(payload)
 						msg.Payload = b
+					case maybeConfig.MatchString(topic):
+						payload := ev.(*api.Config)
+						b, _ := proto.Marshal(payload)
+						msg.Payload = b
 					}
+				} else {
+					// By default, goto next iteration if no mock return values specified
+					goto nextIter
 				}
 				messages <- msg
+			nextIter:
+				mu.RUnlock()
 				time.Sleep(1 * time.Millisecond)
 			}
 		}
@@ -118,19 +135,29 @@ func (s *subscription) Close() error {
 }
 
 // GetOutboundMessages grabs all outgoing messages
-func GetOutboundMessages() []*OutboundMessage {
+func GetOutboundMessages(topic string) []OutboundMessage {
+	var msgs []OutboundMessage
+	mu.RLock()
+	defer mu.RUnlock()
+	for _, msg := range outboundMessages[topic] {
+		msgs = append(msgs, *msg)
+	}
 	// TODO: If we want to concurrently remove and add to `outboundMessages`,
 	// we will need a lock at some point
-	return outboundMessages
+	return msgs
 }
 
 // SetMockReturn is an extra method for setting mock return values
 func SetMockReturn(topic string, value interface{}) {
+	mu.Lock()
+	defer mu.Unlock()
 	mockTopics[topic] = value
 }
 
 // ClearMockValues clears mock values
 func ClearMockValues() {
+	mu.Lock()
+	defer mu.Unlock()
 	mockTopics = make(map[string]interface{})
-	outboundMessages = []*OutboundMessage{}
+	outboundMessages = map[string][]*OutboundMessage{}
 }

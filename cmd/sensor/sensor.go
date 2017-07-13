@@ -14,6 +14,7 @@ import (
 	pbmock "github.com/capsule8/reactive8/pkg/pubsub/mock"
 	pbstan "github.com/capsule8/reactive8/pkg/pubsub/stan"
 	pbsensor "github.com/capsule8/reactive8/pkg/sensor"
+	"github.com/capsule8/reactive8/pkg/sysinfo"
 	"github.com/golang/protobuf/proto"
 	"github.com/kelseyhightower/envconfig"
 	uuid "github.com/satori/go.uuid"
@@ -38,7 +39,7 @@ var (
 // CreateSensor creates a new node sensor
 func CreateSensor(name string) (Sensor, error) {
 	s := &sensor{
-		uuid:          uuid.NewV4().String(),
+		id:            uuid.NewV4().String(),
 		config:        &sensorConfig{},
 		subscriptions: make(map[string]*subscriptionMetadata),
 	}
@@ -62,7 +63,7 @@ func CreateSensor(name string) (Sensor, error) {
 
 type sensor struct {
 	sync.Mutex
-	uuid   string
+	id     string
 	pubsub backend.Backend
 	config *sensorConfig
 	// Map of subscription ID -> Subscription metadata
@@ -72,6 +73,7 @@ type sensor struct {
 type sensorConfig struct {
 	Pubsub              string `default:"stan"`
 	SubscriptionTimeout int64  `default:"5"` // Default to a subscription timeout of 5 seconds
+	Nodename            string `envconfig:"NODENAME"`
 }
 
 type subscriptionMetadata struct {
@@ -95,7 +97,7 @@ func (s *sensor) Start() (chan interface{}, error) {
 	}
 
 	closeSignal := make(chan interface{})
-	// Handle
+	// Handle subscriptions
 	go func() {
 	sendLoop:
 		for {
@@ -140,9 +142,40 @@ func (s *sensor) Start() (chan interface{}, error) {
 		sub.Close()
 	}()
 
-	if err != nil {
-		return nil, ErrListeningFor("new subscriptions")
-	}
+	// Broadcast over discovery topic
+	go func() {
+	discoveryLoop:
+		for {
+			select {
+			case <-closeSignal:
+				break discoveryLoop
+			default:
+				uname, err := sysinfo.Uname()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Failed to get uname info: %s\n", err.Error())
+					continue discoveryLoop
+				}
+				nodename := string(uname.Nodename[:])
+				// Override nodename w/ env var `NODENAME` if set
+				if len(s.config.Nodename) > 0 {
+					nodename = s.config.Nodename
+				}
+				s.pubsub.Publish("discover.sensor", &api.Discover{
+					Info: &api.Discover_Sensor{
+						Sensor: &api.Sensor{
+							Id:       s.id,
+							Sysname:  string(uname.Sysname[:]),
+							Nodename: nodename,
+							Release:  string(uname.Release[:]),
+							Version:  string(uname.Version[:]),
+						},
+					},
+				})
+				time.Sleep(10 * time.Second)
+
+			}
+		}
+	}()
 	return closeSignal, nil
 }
 
@@ -198,7 +231,7 @@ func (s *sensor) newSensor(sub *api.Subscription, subscriptionID string) chan in
 				}
 				// TODO: We should have some retry logic in place
 				s.pubsub.Publish(
-					fmt.Sprintf("api.%s", subscriptionID),
+					fmt.Sprintf("event.%s", subscriptionID),
 					data,
 				)
 			}

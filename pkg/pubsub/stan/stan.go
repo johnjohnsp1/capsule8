@@ -62,6 +62,15 @@ func (sb *Backend) Connect() error {
 // Publish a known message type to a topic
 func (sb *Backend) Publish(topic string, message interface{}) error {
 	switch message.(type) {
+	case *api.Discover:
+		payload := message.(*api.Discover)
+		bytes, err := proto.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		if err = sb.natsConn.Publish(topic, bytes); err != nil {
+			return err
+		}
 	case *api.SignedSubscription:
 		payload := message.(*api.SignedSubscription)
 		bytes, err := proto.Marshal(payload)
@@ -102,6 +111,7 @@ func (sb *Backend) Pull(topic string) (backend.Subscription, <-chan *api.Receive
 	sub := &subscription{}
 
 	// Check for topics that need special treatment
+	maybeDiscover := regexp.MustCompile(`discover\..*`)
 	maybeConfig := regexp.MustCompile(`config\..*`)
 	maybeSubscription := regexp.MustCompile(`subscription\..*`)
 	//maybeEvents := regexp.MustCompile(`events\..*`)
@@ -114,7 +124,8 @@ func (sb *Backend) Pull(topic string) (backend.Subscription, <-chan *api.Receive
 			return sub, messages, err
 		}
 		sub.stanSub = stanSub
-	case maybeSubscription.MatchString(topic):
+	case (maybeSubscription.MatchString(topic) ||
+		maybeDiscover.MatchString(topic)):
 		natsSub, err := sb.natsSubscribe(topic, messages)
 		if err != nil {
 			return sub, messages, err
@@ -194,8 +205,9 @@ func (sb *Backend) stanSubscribe(topic string, messages chan *api.ReceivedMessag
 
 		// Pass the messages along
 		messages <- &api.ReceivedMessage{
-			Payload: m.Data,
-			Ack:     ackBytes,
+			Payload:     m.Data,
+			Ack:         ackBytes,
+			PublishTime: m.Timestamp,
 		}
 
 	}, options...)

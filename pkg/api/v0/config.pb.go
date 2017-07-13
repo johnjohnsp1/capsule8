@@ -22,7 +22,7 @@ type Config struct {
 func (m *Config) Reset()                    { *m = Config{} }
 func (m *Config) String() string            { return proto.CompactTextString(m) }
 func (*Config) ProtoMessage()               {}
-func (*Config) Descriptor() ([]byte, []int) { return fileDescriptor2, []int{0} }
+func (*Config) Descriptor() ([]byte, []int) { return fileDescriptor3, []int{0} }
 
 func (m *Config) GetPackageName() string {
 	if m != nil {
@@ -49,9 +49,9 @@ func init() {
 	proto.RegisterType((*Config)(nil), "capsule8.v0.Config")
 }
 
-func init() { proto.RegisterFile("config.proto", fileDescriptor2) }
+func init() { proto.RegisterFile("config.proto", fileDescriptor3) }
 
-var fileDescriptor2 = []byte{
+var fileDescriptor3 = []byte{
 	// 139 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0xe2, 0x49, 0xce, 0xcf, 0x4b,
 	0xcb, 0x4c, 0xd7, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0xe2, 0x4e, 0x4e, 0x2c, 0x28, 0x2e, 0xcd,
