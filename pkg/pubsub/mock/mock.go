@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	api "github.com/capsule8/reactive8/pkg/api/v0"
+	api "github.com/capsule8/api/v0"
 	backend "github.com/capsule8/reactive8/pkg/pubsub"
 	"github.com/golang/protobuf/proto"
 )

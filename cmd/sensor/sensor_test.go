@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/capsule8/reactive8/pkg/api/v0"
+	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/config"
 	"github.com/capsule8/reactive8/pkg/pubsub/mock"
 )

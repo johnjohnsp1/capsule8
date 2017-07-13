@@ -1,7 +1,7 @@
 package sensor
 
 import (
-	api "github.com/capsule8/reactive8/pkg/api/v0"
+	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/container"
 )
 
