@@ -5,7 +5,8 @@ GRPC_GATEWAY_OUT=$(GRPC_OUT)
 VENDOR=../../vendor
 
 INC=-I. -I$(VENDOR) \
-	-I$(VENDOR)/github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis/
+	-I$(VENDOR)/github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis/ \
+	-I$$GOPATH/src
 
 # Directories containing one or more .proto files
 PROTODIRS=$(shell find . -name "*.proto" | sed 's/\(.*\)\/.*/\1/' | uniq)
