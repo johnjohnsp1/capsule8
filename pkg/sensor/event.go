@@ -76,7 +76,7 @@ func NewEvent() *api.Event {
 	binary.Write(buf, binary.LittleEndian, sequenceNumber)
 	binary.Write(buf, binary.LittleEndian, monotime)
 
-	h := sha256.Sum256(b)
+	h := sha256.Sum256(buf.Bytes())
 	eventID := hex.EncodeToString(h[:])
 
 	return &api.Event{

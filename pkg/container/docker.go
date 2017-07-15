@@ -9,15 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"time"
-
-	"golang.org/x/sys/unix"
-
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/capsule8/reactive8/pkg/inotify"
 	"github.com/capsule8/reactive8/pkg/stream"
 	"github.com/kelseyhightower/envconfig"
+	"golang.org/x/sys/unix"
 )
 
 //
@@ -140,7 +139,7 @@ func newDockerEventFromConfigData(configV2Json []byte) (*dockerEvent, error) {
 
 	name := config.Name
 	imageID := config.Image
-	imageName := config.Config.Image
+	imageName := strings.TrimPrefix(config.Config.Image, "sha:")
 	pid := config.State.Pid
 
 	return &dockerEvent{
