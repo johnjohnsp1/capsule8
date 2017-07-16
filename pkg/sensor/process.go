@@ -93,9 +93,8 @@ func decodeSchedProcessFork(rawData []byte) (interface{}, error) {
 	ev := newEventFromTraceEvent(&tpEv.TraceEvent)
 	ev.Event = &api.Event_Process{
 		Process: &api.ProcessEvent{
-			Type:     api.ProcessEventType_PROCESS_EVENT_TYPE_FORK,
-			Pid:      tpEv.Pid,
-			ChildPid: tpEv.ChildPid,
+			Type:         api.ProcessEventType_PROCESS_EVENT_TYPE_FORK,
+			ForkChildPid: tpEv.ChildPid,
 		},
 	}
 
@@ -183,9 +182,8 @@ func decodeSchedProcessExec(rawData []byte) (interface{}, error) {
 	}
 
 	processEvent := &api.ProcessEvent{
-			Type:         api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
-			Pid:          tpEv.Pid,
-			ExecFilename: tpEv.Filename,
+		Type:         api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
+		ExecFilename: tpEv.Filename,
 	}
 
 	processEvent.ExecCommandLine, err = pidMapGetCommandLine(tpEv.Pid)
@@ -244,7 +242,6 @@ func decodeSysEnterExitGroup(rawData []byte) (interface{}, error) {
 	ev.Event = &api.Event_Process{
 		Process: &api.ProcessEvent{
 			Type:     api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT,
-			Pid:      tpEv.Pid,
 			ExitCode: int32(tpEv.ErrorCode),
 		},
 	}

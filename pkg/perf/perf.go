@@ -132,6 +132,8 @@ func newSession(eventAttrs []*EventAttr, filters []string, initFlags uintptr, ar
 			if filters != nil && len(filters[j]) > 0 {
 				err := setFilter(fd, filters[j])
 				if err != nil {
+					log.Printf("Couldn't set filter %s: %v",
+						filters[j], err)
 					return nil, err
 				}
 			}
@@ -211,7 +213,7 @@ func (p *Perf) SetFilter(filter string) error {
 	for i := range p.fds {
 		err := setFilter(p.fds[i], filter)
 		if err != nil {
-			log.Printf("Couldn't set filter on event: %v", err)
+			log.Printf("Couldn't set filter %s on event: %v", filter, err)
 			return err
 		}
 	}

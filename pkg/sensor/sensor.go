@@ -44,6 +44,8 @@ func (s *Sensor) onSampleEvent(perfEv *perf.Sample, err error) {
 
 		event := e.(*api.Event)
 
+		event.ProcessPid = int32(sample.Pid)
+
 		// Use monotime based on perf event vs. Event construction
 		event.SensorMonotimeNanos =
 			HostMonotimeNanosToSensor(int64(sample.Time))

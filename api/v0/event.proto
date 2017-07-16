@@ -9,11 +9,18 @@ message Event {
         // Unique identifier for the event
         string id = 1;
 
+        // Unique process identifier associated with the event to differentiate
+        // reused values of the pid below.
+        string process_id = 2;
+
+        // Unix pid of the process associated with the event
+        sint32 process_pid = 3;
+
         // Container identifier associated with the event
-        string container_id = 2;
+        string container_id = 4;
 
         // Sensor identifier of the sensor instance that observed the event
-        string sensor_id = 3;
+        string sensor_id = 5;
 
         // Sequence number from some unspecified starting point unique
         // to the Sensor. Provides a strict linear ordering of events with
@@ -21,12 +28,12 @@ message Event {
         // number. If it is present, it must be greater than zero. A zero
         // value indicates that there is no sequence number associated with
         // the event.
-        uint64 sensor_sequence_number = 4;
+        uint64 sensor_sequence_number = 6;
 
         // Monotonic nanosecond timestamp from some unspecified starting
         // point unique to the Sensor. Can only be used to calculate time
         // intervals between events with the same sensor_id.
-        int64 sensor_monotime_nanos = 5;
+        int64 sensor_monotime_nanos = 7;
 
         oneof event {
                 //
@@ -115,11 +122,8 @@ enum ProcessEventType {
 message ProcessEvent {
         ProcessEventType type = 1;
 
-        // Process identifier
-        sint32 pid = 2;
-
         // Optional
-        sint32 child_pid = 10;
+        sint32 fork_child_pid = 10;
 
         // Optional
         string exec_filename              = 20;
