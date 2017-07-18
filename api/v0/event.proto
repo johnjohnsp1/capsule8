@@ -105,8 +105,8 @@ message ContainerEvent {
         //
         string image_name = 11;
 
-        // Process identifier of the container's init process.
-        sint32 pid = 20;
+        // Host process identifier of the container's init process.
+        sint32 host_pid = 20;
 
         // The exit code of the container if it has exited
         sint32 exit_code = 30;

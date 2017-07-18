@@ -698,6 +698,15 @@ func applyModifiers(strm *stream.Stream, modifier api.Modifier) *stream.Stream {
 	return strm
 }
 
+func filterNils(e interface{}) bool {
+	if e != nil {
+		ev := e.(*api.Event)
+		return ev != nil
+	}
+
+	return e != nil
+}
+
 // Add returns a stream
 func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 	s.mu.Lock()
@@ -733,6 +742,7 @@ func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 
 		// Translate container events to protobuf versions
 		ces = stream.Map(ces, translateContainerEvents)
+		ces = stream.Filter(ces, filterNils)
 
 		joiner.Add(ces)
 	}

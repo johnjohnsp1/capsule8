@@ -5,10 +5,9 @@ import (
 	"github.com/capsule8/reactive8/pkg/container"
 )
 
-func newContainerCreated(cID string, imageID string) *api.ContainerEvent {
+func newContainerCreated(cID string) *api.ContainerEvent {
 	ev := &api.ContainerEvent{
-		Type:    api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED,
-		ImageId: imageID,
+		Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED,
 	}
 
 	return ev
@@ -44,13 +43,25 @@ func translateContainerEvents(e interface{}) interface{} {
 
 	switch ce.State {
 	case container.ContainerCreated:
-		ece = newContainerCreated(ce.ID, ce.ImageID)
+		ece = newContainerCreated(ce.ID)
+		ece.Name = ce.Name
+		ece.ImageId = ce.ImageID
+		ece.ImageName = ce.Image
 
 	case container.ContainerStarted:
+		if ce.Pid == 0 {
+			// We currently get this event in the stream twice,
+			// one with the Cgroup and without Pid, and vice-versa.
+			// Only translate the event with the Pid for now.
+			return nil
+		}
+
 		ece = newContainerRunning(ce.ID)
+		ece.HostPid = int32(ce.Pid)
 
 	case container.ContainerStopped:
 		ece = newContainerExited(ce.ID)
+		// TODO: ece.ExitCode = ???
 
 	case container.ContainerRemoved:
 		ece = newContainerDestroyed(ce.ID)
