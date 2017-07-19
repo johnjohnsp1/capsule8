@@ -37,27 +37,80 @@ func newContainerDestroyed(cID string) *api.ContainerEvent {
 	return ev
 }
 
+//
+// We get two ContainerCreated events, use this to uniq them
+//
+var containerCreated map[string]*api.ContainerEvent
+
+//
+// We get two ContainerStarted events from the container EventStream:
+// one from Docker and one from OCI. We use this map to merge them.
+//
+var containerStarted map[string]*api.ContainerEvent
+
 func translateContainerEvents(e interface{}) interface{} {
 	ce := e.(*container.Event)
 	var ece *api.ContainerEvent
 
 	switch ce.State {
 	case container.ContainerCreated:
-		ece = newContainerCreated(ce.ID)
-		ece.Name = ce.Name
-		ece.ImageId = ce.ImageID
-		ece.ImageName = ce.Image
-
-	case container.ContainerStarted:
-		if ce.Pid == 0 {
-			// We currently get this event in the stream twice,
-			// one with the Cgroup and without Pid, and vice-versa.
-			// Only translate the event with the Pid for now.
-			return nil
+		if containerCreated == nil {
+			containerCreated = make(map[string]*api.ContainerEvent)
 		}
 
-		ece = newContainerRunning(ce.ID)
-		ece.HostPid = int32(ce.Pid)
+		if containerCreated[ce.ID] != nil {
+			ece = containerCreated[ce.ID]
+		} else {
+			ece = newContainerCreated(ce.ID)
+			ece.Name = ce.Name
+			ece.ImageId = ce.ImageID
+			ece.ImageName = ce.Image
+		}
+
+		if len(ce.DockerConfig) > len(ece.DockerConfigJson) {
+			ece.DockerConfigJson = ce.DockerConfig
+		}
+
+		if containerCreated[ce.ID] == nil {
+			containerCreated[ce.ID] = ece
+			ece = nil
+		} else {
+			delete(containerCreated, ce.ID)
+		}
+
+	case container.ContainerStarted:
+		if containerStarted == nil {
+			containerStarted = make(map[string]*api.ContainerEvent)
+		}
+
+		if containerStarted[ce.ID] != nil {
+			//
+			// If we have already received one container
+			// started event, merge the 2nd one into it
+			//
+			ece = containerStarted[ce.ID]
+		} else {
+			ece = newContainerRunning(ce.ID)
+		}
+
+		if ce.Pid != 0 {
+			ece.HostPid = int32(ce.Pid)
+		}
+
+		if len(ce.DockerConfig) > 0 {
+			ece.DockerConfigJson = ce.DockerConfig
+		}
+
+		if len(ce.OciConfig) > 0 {
+			ece.OciConfigJson = ce.OciConfig
+		}
+
+		if containerStarted[ce.ID] == nil {
+			containerStarted[ce.ID] = ece
+			ece = nil
+		} else {
+			delete(containerStarted, ce.ID)
+		}
 
 	case container.ContainerStopped:
 		ece = newContainerExited(ce.ID)
@@ -70,10 +123,22 @@ func translateContainerEvents(e interface{}) interface{} {
 		panic("Invalid value for ContainerState")
 	}
 
-	ev := newEventFromContainer(ce.ID)
-	ev.Event = &api.Event_Container{
-		Container: ece,
+	if ece != nil {
+		if len(ce.DockerConfig) > 0 {
+			ece.DockerConfigJson = ce.DockerConfig
+		}
+
+		if len(ce.OciConfig) > 0 {
+			ece.OciConfigJson = ce.OciConfig
+		}
+
+		ev := newEventFromContainer(ce.ID)
+		ev.Event = &api.Event_Container{
+			Container: ece,
+		}
+
+		return ev
 	}
 
-	return ev
+	return nil
 }

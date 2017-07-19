@@ -110,6 +110,12 @@ message ContainerEvent {
 
         // The exit code of the container if it has exited
         sint32 exit_code = 30;
+
+        // Docker container configuration file
+        string docker_config_json = 100;
+
+        // OCI container configuration file
+        string oci_config_json = 101;
 }
 
 enum ProcessEventType {

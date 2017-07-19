@@ -25,6 +25,9 @@ type Event struct {
 	Image   string
 	Pid     uint32
 	Cgroup  string
+
+	DockerConfig string
+	OciConfig    string
 }
 
 func processEvents(e interface{}) interface{} {
@@ -39,8 +42,9 @@ func processEvents(e interface{}) interface{} {
 				Name:  e.Name,
 				State: ContainerCreated,
 
-				ImageID: e.ImageID,
-				Image:   e.Image,
+				ImageID:      e.ImageID,
+				Image:        e.Image,
+				DockerConfig: e.ConfigJSON,
 			}
 
 		} else if e.State == dockerContainerRunning {
@@ -56,9 +60,10 @@ func processEvents(e interface{}) interface{} {
 				Name:  e.Name,
 				State: ContainerStarted,
 
-				ImageID: e.ImageID,
-				Image:   e.Image,
-				Pid:     uint32(e.Pid),
+				ImageID:      e.ImageID,
+				Image:        e.Image,
+				Pid:          uint32(e.Pid),
+				DockerConfig: e.ConfigJSON,
 			}
 
 		} else if e.State == dockerContainerDead {
@@ -67,8 +72,9 @@ func processEvents(e interface{}) interface{} {
 				Name:  e.Name,
 				State: ContainerRemoved,
 
-				ImageID: e.ImageID,
-				Image:   e.Image,
+				ImageID:      e.ImageID,
+				Image:        e.Image,
+				DockerConfig: e.ConfigJSON,
 			}
 		}
 
@@ -76,16 +82,18 @@ func processEvents(e interface{}) interface{} {
 		e := e.(*ociEvent)
 		if e.State == ociRunning {
 			ev = &Event{
-				ID:     e.ID,
-				State:  ContainerStarted,
-				Image:  e.Image,
-				Cgroup: e.CgroupsPath,
+				ID:        e.ID,
+				State:     ContainerStarted,
+				Image:     e.Image,
+				Cgroup:    e.CgroupsPath,
+				OciConfig: e.ConfigJSON,
 			}
 
 		} else if e.State == ociStopped {
 			ev = &Event{
-				ID:    e.ID,
-				State: ContainerStopped,
+				ID:        e.ID,
+				State:     ContainerStopped,
+				OciConfig: e.ConfigJSON,
 			}
 		}
 	}

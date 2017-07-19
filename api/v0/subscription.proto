@@ -145,9 +145,20 @@ message FileEventFilter {
         google.protobuf.Int32Value create_mode_mask = 13;
 }
 
+enum ContainerEventView {
+        // Default view of a ContainerEvent includes just basic information
+        BASIC = 0;
+
+        // Full view of a ContainerEvent includes raw Docker and OCI config JSON
+        FULL = 1;
+}
+
 message ContainerEventFilter {
-        // Required.
+        // Required, specify the particular type of event type to match
         ContainerEventType type = 1;
+
+        // Optional, specifies how much detail to include in container events
+        ContainerEventView view = 2;
 
         // StringValue image_id
         // StringValue image_name

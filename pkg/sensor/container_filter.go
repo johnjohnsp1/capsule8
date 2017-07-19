@@ -162,7 +162,6 @@ func (cf *containerFilter) filterEvent(i interface{}) bool {
 	return false
 }
 
-// NewSensor creates a new ContainerEvent sensor
 func NewContainerFilter(ecf *api.ContainerFilter) (*containerFilter, error) {
 	cf := &containerFilter{}
 
