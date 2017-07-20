@@ -7,12 +7,14 @@ import (
 	"time"
 
 	api "github.com/capsule8/reactive8/pkg/api/v0"
+	"github.com/capsule8/reactive8/pkg/config"
 	"github.com/capsule8/reactive8/pkg/pubsub/mock"
 )
 
 func TestMain(m *testing.M) {
 	// Set test env variables
-	os.Setenv("TESTSENSOR_PUBSUB", "mock") // Specify mock pubsub backend
+	os.Setenv("C8_SENSOR_PUBSUB", "mock") // Specify mock pubsub backend
+	config.Reload()
 	os.Exit(m.Run())
 }
 
@@ -39,7 +41,7 @@ func TestCreateSubscription(t *testing.T) {
 		SubscriptionId: "SOMEID",
 	})
 
-	s, err := CreateSensor("testsensor")
+	s, err := CreateSensor()
 	if err != nil {
 		log.Fatal("Error creating sensor:", err)
 	}
@@ -81,7 +83,7 @@ func TestCreateSubscription(t *testing.T) {
 
 // TestDiscover tests the discovery broadcast functionality in the sensor
 func TestDiscover(t *testing.T) {
-	s, err := CreateSensor("testsensor")
+	s, err := CreateSensor()
 	if err != nil {
 		log.Fatal("Error creating sensor:", err)
 	}

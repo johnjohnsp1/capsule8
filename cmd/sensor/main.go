@@ -8,7 +8,7 @@ import (
 
 func main() {
 	log.Println("starting up")
-	s, err := CreateSensor("sensor")
+	s, err := CreateSensor()
 	if err != nil {
 		log.Fatalf("error creating sensor: %s\n", err.Error())
 	}

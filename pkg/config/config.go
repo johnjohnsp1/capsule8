@@ -45,6 +45,10 @@ var Backplane struct {
 }
 
 func init() {
+	Reload()
+}
+
+func Reload() {
 	err := envconfig.Process("C8_APISERVER", &ApiServer)
 	if err != nil {
 		log.Fatal(err)
@@ -99,5 +103,4 @@ func init() {
 		log.Printf("C8_SENSOR_OCI_CONTAINER_DIR %s not a directory\n",
 			Sensor.OciContainerDir)
 	}
-
 }

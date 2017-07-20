@@ -37,7 +37,7 @@ var (
 )
 
 // CreateSensor creates a new node sensor
-func CreateSensor(name string) (Sensor, error) {
+func CreateSensor() (Sensor, error) {
 	s := &sensor{
 		id:            uuid.NewV4().String(),
 		subscriptions: make(map[string]*subscriptionMetadata),

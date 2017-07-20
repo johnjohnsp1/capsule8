@@ -7,6 +7,7 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -21,13 +22,13 @@ var dockerSock = "docker.sock"
 //encapsulate the responses
 type FakeDockerServer struct{}
 
-func (f *FakeDockerServer) listenAndServe(t *testing.T, expected chan []byte, dockerSockPath string) (err error) {
+func (f *FakeDockerServer) listenAndServe(t *testing.T, expected chan []byte, dockerSockPath string) {
 	var buf [1024]byte
 
+	log.Println("Listening on:", dockerSockPath)
 	l, err := net.Listen("unix", dockerSockPath)
 	if err != nil {
-		t.Log(err)
-		return err
+		log.Fatal(err)
 	}
 	defer os.Remove(dockerSockPath)
 
@@ -43,15 +44,13 @@ func (f *FakeDockerServer) listenAndServe(t *testing.T, expected chan []byte, do
 	sock, err := l.Accept()
 
 	if err != nil {
-		t.Log(err)
-		return err
+		log.Fatal(err)
 	}
 
 	sock.Read(buf[:])
 	w := bytes.NewBuffer(nil)
 	resp.Write(w)
 	sock.Write(w.Bytes())
-	return nil
 }
 
 func DockerTestSetup(t *testing.T, filename string) (cli *Client) {
@@ -65,12 +64,13 @@ func DockerTestSetup(t *testing.T, filename string) (cli *Client) {
 
 	msg, err := ioutil.ReadFile(filename)
 	if err != nil {
-		t.Fatal(err)
+		log.Fatal(err)
 	}
 
 	cli = &Client{SocketPath: dockerSockPath}
 
 	//important do not move the order of this channel send as we're using
+
 	//it as an ad hoc means of coordinating the server
 	expectedMsg <- msg
 	return cli
