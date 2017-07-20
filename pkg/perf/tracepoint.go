@@ -10,12 +10,16 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/capsule8/reactive8/pkg/config"
 )
 
-const tracefs = "/sys/kernel/debug/tracing"
+func getTraceFs() string {
+	return config.Sensor.TraceFs
+}
 
 func AddKprobe(definition string) error {
-	keFilename := filepath.Join(tracefs, "kprobe_events")
+	keFilename := filepath.Join(getTraceFs(), "kprobe_events")
 	keFile, err := os.OpenFile(keFilename, os.O_WRONLY, 0)
 	if err != nil {
 		return err
@@ -32,7 +36,7 @@ func AddKprobe(definition string) error {
 }
 
 func RemoveKprobe(name string) error {
-	keFilename := filepath.Join(tracefs, "kprobe_events")
+	keFilename := filepath.Join(getTraceFs(), "kprobe_events")
 	keFile, err := os.OpenFile(keFilename, os.O_APPEND, 0)
 	if err != nil {
 		return err
@@ -57,7 +61,7 @@ func RemoveKprobe(name string) error {
 func GetAvailableTraceEvents() ([]string, error) {
 	var events []string
 
-	filename := filepath.Join(tracefs, "available_events")
+	filename := filepath.Join(getTraceFs(), "available_events")
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
@@ -76,7 +80,7 @@ func GetAvailableTraceEvents() ([]string, error) {
 }
 
 func GetTraceEventID(name string) (uint16, error) {
-	filename := filepath.Join(tracefs, "events", name, "id")
+	filename := filepath.Join(getTraceFs(), "events", name, "id")
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	if err != nil {
 		log.Printf("Couldn't open trace event %s: %v",
@@ -107,7 +111,7 @@ func GetTraceEventID(name string) (uint16, error) {
 }
 
 func GetTraceEventFormat(name string) (string, error) {
-	filename := filepath.Join(tracefs, "events", name, "format")
+	filename := filepath.Join(getTraceFs(), "events", name, "format")
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	if err != nil {
 		return "", err

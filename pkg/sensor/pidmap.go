@@ -7,15 +7,19 @@ import (
 	"os"
 	"strings"
 	"sync"
-)
 
-const procfs = "/proc"
+	"github.com/capsule8/reactive8/pkg/config"
+)
 
 var mu sync.Mutex
 var pidMap map[int32]string
 
+func getProcFs() string {
+	return config.Sensor.ProcFs
+}
+
 func readCgroup(hostPid int32) (string, error) {
-	filename := fmt.Sprintf("%s/%d/cgroup", procfs, hostPid)
+	filename := fmt.Sprintf("%s/%d/cgroup", getProcFs(), hostPid)
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 
 	if err != nil {
@@ -77,7 +81,7 @@ func pidMapGetCommandLine(hostPid int32) ([]string, error) {
 	// This misses the command-line arguments for short-lived processes,
 	// which is clearly not ideal.
 	//
-	filename := fmt.Sprintf("%s/%d/cmdline", procfs, hostPid)
+	filename := fmt.Sprintf("%s/%d/cmdline", getProcFs(), hostPid)
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	defer file.Close()
 

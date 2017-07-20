@@ -10,22 +10,16 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/capsule8/reactive8/pkg/config"
+
 	"sync"
 
 	"golang.org/x/sys/unix"
 )
 
-// cgroup filesystem mount point
-// XXX: check mtab by default, allow env override
-const cgroupfs = "/sys/fs/cgroup"
-
-// TODO:
-//
-// ftrace filters using PERF_EVENT_IOC_SET_FILTER. Limits are string
-// must be <= 4096 bytes, no more than 16384 predicates.
-//
-// http://elixir.free-electrons.com/linux/latest/source/kernel/trace/trace_events_filter.c#L38
-//
+func getCgroupFs() string {
+	return config.Sensor.CgroupFs
+}
 
 type Perf struct {
 	rwlock      *sync.RWMutex
@@ -49,7 +43,7 @@ func newCgroupSession(eventAttrs []*EventAttr, filters []string, cgroup string) 
 	var path string
 
 	if cgroup[0] == '/' {
-		path = filepath.Join(cgroupfs, "perf_event", cgroup)
+		path = filepath.Join(getCgroupFs(), "perf_event", cgroup)
 	} else {
 		parts := strings.Split(cgroup, ":")
 		if parts[1] != "docker" {
@@ -59,7 +53,7 @@ func newCgroupSession(eventAttrs []*EventAttr, filters []string, cgroup string) 
 
 		dockerScope := []string{"docker-", parts[2], ".scope"}
 
-		path = filepath.Join(cgroupfs, "perf_event", parts[0],
+		path = filepath.Join(getCgroupFs(), "perf_event", parts[0],
 			strings.Join(dockerScope, ""))
 	}
 
