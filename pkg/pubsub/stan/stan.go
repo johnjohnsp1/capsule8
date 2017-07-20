@@ -13,11 +13,12 @@ import (
 	api "github.com/capsule8/reactive8/pkg/api/v0"
 	backend "github.com/capsule8/reactive8/pkg/pubsub"
 	"github.com/golang/protobuf/proto"
-	"github.com/kelseyhightower/envconfig"
 	nats "github.com/nats-io/go-nats"
 	stan "github.com/nats-io/go-nats-streaming"
 	npb "github.com/nats-io/go-nats-streaming/pb"
 	uuid "github.com/satori/go.uuid"
+
+	"github.com/capsule8/reactive8/pkg/config"
 )
 
 // Errors
@@ -25,12 +26,6 @@ var (
 	ErrInvalidMessageType  = func(err string) error { return fmt.Errorf("invalid message type %s", err) }
 	ErrNoSubscriptionFound = errors.New("no subscription found")
 )
-
-var config struct {
-	ClusterName string `default:"c8-backplane"`
-	NatsURL     string `default:"nats://localhost:4222"`
-	AckWait     int    `default:"1"`
-}
 
 // Backend is actually both STAN/NATS backends
 type Backend struct {
@@ -41,17 +36,13 @@ type Backend struct {
 // Connect backend to STAN/NATS cluster(s)
 func (sb *Backend) Connect() error {
 	var err error
-	if err = envconfig.Process("stan", &config); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to read in STAN env variables: %v\n", err)
-		return err
-	}
 
-	if sb.stanConn, err = stan.Connect(config.ClusterName, uuid.NewV4().String(), stan.NatsURL(config.NatsURL)); err != nil {
+	if sb.stanConn, err = stan.Connect(config.Backplane.ClusterName, uuid.NewV4().String(), stan.NatsURL(config.Backplane.NatsURL)); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect to STAN server: %v\n", err)
 		return err
 	}
 
-	if sb.natsConn, err = nats.Connect(config.NatsURL); err != nil {
+	if sb.natsConn, err = nats.Connect(config.Backplane.NatsURL); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect to NATS server: %v\n", err)
 		return err
 	}
@@ -188,7 +179,7 @@ func (sb *Backend) stanSubscribe(topic string, messages chan *api.ReceivedMessag
 
 	// By default, we deliver messages off of a stan channel
 	// from when the subscriber subscribes
-	options = append(options, stan.SetManualAckMode(), stan.AckWait(time.Duration(config.AckWait)*time.Second))
+	options = append(options, stan.SetManualAckMode(), stan.AckWait(time.Duration(config.Backplane.AckWait)*time.Second))
 	stanSub, err := sb.stanConn.Subscribe(topic, func(m *stan.Msg) {
 		if ackInbox == "" {
 			ackInbox = reflect.ValueOf(m.Sub).Elem().FieldByName("ackInbox").String()

@@ -10,13 +10,13 @@ import (
 	"os"
 
 	api "github.com/capsule8/reactive8/pkg/api/v0"
+	"github.com/capsule8/reactive8/pkg/config"
 	backend "github.com/capsule8/reactive8/pkg/pubsub"
 	pbmock "github.com/capsule8/reactive8/pkg/pubsub/mock"
 	pbstan "github.com/capsule8/reactive8/pkg/pubsub/stan"
 	pbsensor "github.com/capsule8/reactive8/pkg/sensor"
 	"github.com/capsule8/reactive8/pkg/sysinfo"
 	"github.com/golang/protobuf/proto"
-	"github.com/kelseyhightower/envconfig"
 	uuid "github.com/satori/go.uuid"
 )
 
@@ -40,20 +40,17 @@ var (
 func CreateSensor(name string) (Sensor, error) {
 	s := &sensor{
 		id:            uuid.NewV4().String(),
-		config:        &sensorConfig{},
 		subscriptions: make(map[string]*subscriptionMetadata),
 	}
-	if err := s.loadConfig(name); err != nil {
-		return nil, err
-	}
+
 	// Connect pubsub backend
-	switch s.config.Pubsub {
+	switch config.Sensor.Pubsub {
 	case "stan":
 		s.pubsub = &pbstan.Backend{}
 	case "mock":
 		s.pubsub = &pbmock.Backend{}
 	default:
-		return nil, ErrInvalidPubsub(s.config.Pubsub)
+		return nil, ErrInvalidPubsub(config.Sensor.Pubsub)
 	}
 	if err := s.pubsub.Connect(); err != nil {
 		return nil, err
@@ -65,28 +62,15 @@ type sensor struct {
 	sync.Mutex
 	id     string
 	pubsub backend.Backend
-	config *sensorConfig
+
 	// Map of subscription ID -> Subscription metadata
 	subscriptions map[string]*subscriptionMetadata
-}
-
-type sensorConfig struct {
-	Pubsub              string `default:"stan"`
-	SubscriptionTimeout int64  `default:"5"` // Default to a subscription timeout of 5 seconds
-	Nodename            string `envconfig:"NODENAME"`
 }
 
 type subscriptionMetadata struct {
 	lastSeen     int64 // Unix timestamp w/ second level precision of when sub was last seen
 	subscription *api.Subscription
 	stopChan     chan interface{}
-}
-
-func (s *sensor) loadConfig(name string) error {
-	if err := envconfig.Process(name, s.config); err != nil {
-		return err
-	}
-	return nil
 }
 
 // StartSensor starts the async subscription listener
@@ -127,7 +111,7 @@ func (s *sensor) Start() (chan interface{}, error) {
 				s.Lock()
 				if _, ok := s.subscriptions[ss.SubscriptionId]; !ok {
 					s.subscriptions[ss.SubscriptionId] = &subscriptionMetadata{
-						lastSeen:     time.Now().Add(time.Duration(s.config.SubscriptionTimeout) * time.Second).Unix(),
+						lastSeen:     time.Now().Add(time.Duration(config.Sensor.SubscriptionTimeout) * time.Second).Unix(),
 						subscription: ss.Subscription,
 					}
 					s.subscriptions[ss.SubscriptionId].stopChan = s.newSensor(ss.Subscription, ss.SubscriptionId)
@@ -156,9 +140,9 @@ func (s *sensor) Start() (chan interface{}, error) {
 					continue discoveryLoop
 				}
 				nodename := string(uname.Nodename[:])
-				// Override nodename w/ env var `NODENAME` if set
-				if len(s.config.Nodename) > 0 {
-					nodename = s.config.Nodename
+				// Override nodename if envconfig sets it
+				if len(config.Sensor.NodeName) > 0 {
+					nodename = config.Sensor.NodeName
 				}
 				s.pubsub.Publish("discover.sensor", &api.Discover{
 					Info: &api.Discover_Sensor{
@@ -184,14 +168,14 @@ func (s *sensor) RemoveStaleSubscriptions() {
 		s.Lock()
 		now := time.Now().Unix()
 		for subscriptionID, subscription := range s.subscriptions {
-			if now-subscription.lastSeen >= s.config.SubscriptionTimeout {
+			if now-subscription.lastSeen >= config.Sensor.SubscriptionTimeout {
 				close(s.subscriptions[subscriptionID].stopChan)
 				delete(s.subscriptions, subscriptionID)
 			}
 
 		}
 		s.Unlock()
-		time.Sleep(time.Duration(s.config.SubscriptionTimeout) * time.Second)
+		time.Sleep(time.Duration(config.Sensor.SubscriptionTimeout) * time.Second)
 	}
 }
 

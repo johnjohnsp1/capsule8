@@ -5,15 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"path/filepath"
 	"sync"
 
 	"golang.org/x/sys/unix"
 
+	"github.com/capsule8/reactive8/pkg/config"
 	"github.com/capsule8/reactive8/pkg/inotify"
 	"github.com/capsule8/reactive8/pkg/stream"
-	"github.com/kelseyhightower/envconfig"
 )
 
 //
@@ -44,18 +43,8 @@ type ociEvent struct {
 // OCI configuration file format
 // ----------------------------------------------------------------------------
 
-var ociConfig struct {
-	// OciContainerDir is the path to the directory used for the
-	// container runtime's container state directories
-	// (i.e. /var/run/docker/libcontainerd)
-	OciContainerDir string `split_words:"true" default:"/var/run/docker/libcontainerd"`
-}
-
-func init() {
-	err := envconfig.Process("OCI", &ociConfig)
-	if err != nil {
-		log.Fatal(err)
-	}
+func getOciContainerDir() string {
+	return config.Sensor.OciContainerDir
 }
 
 type ociConfigJson struct {
@@ -231,7 +220,7 @@ func initializeOciSensor() error {
 
 		o.repeater = stream.NewRepeater(o.eventStream)
 
-		addWatches(ociConfig.OciContainerDir, o.inotify)
+		addWatches(getOciContainerDir(), o.inotify)
 
 		for {
 			var ok bool

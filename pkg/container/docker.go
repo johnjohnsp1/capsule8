@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,9 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/capsule8/reactive8/pkg/config"
 	"github.com/capsule8/reactive8/pkg/inotify"
 	"github.com/capsule8/reactive8/pkg/stream"
-	"github.com/kelseyhightower/envconfig"
 	"golang.org/x/sys/unix"
 )
 
@@ -55,17 +54,8 @@ type dockerEvent struct {
 	ConfigJSON string
 }
 
-var dockerConfig struct {
-	// LocalStorageDir is the path to the directory used for docker
-	// container local storage areas (i.e. /var/lib/docker/containers)
-	LocalStorageDir string `split_words:"true" default:"/var/lib/docker/containers"`
-}
-
-func init() {
-	err := envconfig.Process("DOCKER", &dockerConfig)
-	if err != nil {
-		log.Fatal(err)
-	}
+func getDockerContainerDir() string {
+	return config.Sensor.DockerContainerDir
 }
 
 // ----------------------------------------------------------------------------
@@ -348,7 +338,7 @@ func initializeDockerSensor() error {
 
 		d.repeater = stream.NewRepeater(d.eventStream)
 
-		addWatches(dockerConfig.LocalStorageDir, d.inotify)
+		addWatches(getDockerContainerDir(), d.inotify)
 
 		for {
 			var ok bool
