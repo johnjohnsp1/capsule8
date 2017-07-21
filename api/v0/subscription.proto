@@ -42,18 +42,16 @@ message Subscription {
 
         // If not empty, then only return events that occurred after
         // the specified relative duration subtracted from the current
-        // time. If the resulting time is in the past, then the
+        // time (recorder time). If the resulting time is in the past, then the
         // subscription will search for historic events before streaming
         // live ones.
-        int64 since_duration = 10;
+        google.protobuf.Int64Value since_duration = 10;
 
         // If not empty, then only return events that occurred before
-        // the specified relative duration added to the current time. If
-        // the resulting time is in the past, then the subscription will
-        // search for historic events before streaming live ones. If the
-        // resulting time is in the future, then the subscription will be
-        // automatically closed at that time.
-        int64 until_duration = 11;
+        // the specified relative duration added to `since_duration`.
+        // If `since_duration` is not supplied, return events from now and until
+        // the specified relative duration is hit.
+        google.protobuf.Int64Value for_duration = 11;
 
         // If not empty, apply the specified modifier to the subscription.
         Modifier modifier = 20;

@@ -81,6 +81,10 @@ func (s *sensor) Start() (chan interface{}, error) {
 	}
 
 	closeSignal := make(chan interface{})
+
+	// Start local telemetry service
+	go startTelemetryService(s, closeSignal)
+
 	// Handle subscriptions
 	go func() {
 	sendLoop:
@@ -96,6 +100,10 @@ func (s *sensor) Start() (chan interface{}, error) {
 				ss := &api.SignedSubscription{}
 				if err = proto.Unmarshal(msg.Payload, ss); err != nil {
 					fmt.Fprintf(os.Stderr, "No selector specified in subscription.%s\n", err.Error())
+					return
+				}
+				// Ignore subscriptions that have specified a time range
+				if ss.Subscription.SinceDuration != nil || ss.Subscription.ForDuration != nil {
 					return
 				}
 
@@ -181,7 +189,6 @@ func (s *sensor) RemoveStaleSubscriptions() {
 
 func (s *sensor) newSensor(sub *api.Subscription, subscriptionID string) chan interface{} {
 	stopChan := make(chan interface{})
-
 	// Handle optional subscription arguments
 	modifier := sub.Modifier
 	if modifier == nil {
@@ -190,7 +197,6 @@ func (s *sensor) newSensor(sub *api.Subscription, subscriptionID string) chan in
 	stream, err := pbsensor.NewSensor(sub)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Couldn't start Sensor: %v\n", err)
-		os.Exit(1)
 	}
 
 	go func() {
@@ -204,14 +210,15 @@ func (s *sensor) newSensor(sub *api.Subscription, subscriptionID string) chan in
 				break sendLoop
 			case ev, ok := <-stream.Data:
 				if !ok {
-					fmt.Fprint(os.Stderr, "Failed to get next api.\n")
+					fmt.Fprint(os.Stderr, "Failed to get next event.\n")
 					break sendLoop
 				}
-				//log.Println("Sending event:", ev)
+				//log.Println("Sending event:", ev, "sub id", subscriptionID)
 
 				data, err := proto.Marshal(ev.(*api.Event))
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Failed to marshal event data: %v\n", err)
+					continue sendLoop
 				}
 				// TODO: We should have some retry logic in place
 				s.pubsub.Publish(

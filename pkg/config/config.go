@@ -30,6 +30,8 @@ var Sensor struct {
 
 	// Subscription timeout in seconds
 	SubscriptionTimeout int64 `default:"5"`
+
+	TelemetryServiceURL string `default:"127.0.0.1:5051"`
 }
 
 var ApiServer struct {
@@ -44,12 +46,24 @@ var Backplane struct {
 	AckWait     int    `default:"1"`
 }
 
+var Recorder struct {
+	TelemetryServiceURL string `default:"127.0.0.1:5051"`
+	DbPath              string `default:"/var/lib/capsule8/recorder"`
+	DbFileName          string `default:"recorder.db"`
+	DbSizeLimit         string `default:"100mb"`
+}
+
 func init() {
 	Reload()
 }
 
 func Reload() {
 	err := envconfig.Process("C8_APISERVER", &ApiServer)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = envconfig.Process("C8_RECORDER", &Recorder)
 	if err != nil {
 		log.Fatal(err)
 	}

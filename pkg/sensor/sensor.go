@@ -12,6 +12,7 @@ import (
 
 	api "github.com/capsule8/reactive8/pkg/api/v0"
 	"github.com/capsule8/reactive8/pkg/container"
+	"github.com/capsule8/reactive8/pkg/filter"
 	"github.com/capsule8/reactive8/pkg/perf"
 	"github.com/capsule8/reactive8/pkg/stream"
 )
@@ -770,21 +771,17 @@ func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 	//
 	// Filter event stream by event type first
 	//
-	ef := NewEventFilter(sub.EventFilter)
-	eventStream = stream.Filter(eventStream, ef.filterEvent)
+	ef := filter.NewEventFilter(sub.EventFilter)
+	eventStream = stream.Filter(eventStream, ef.FilterFunc)
 
 	if sub.ContainerFilter != nil {
 		//
 		// Attach a ContainerFilter to filter events
 		//
-		cef, err := NewContainerFilter(sub.ContainerFilter)
-		if err != nil {
-			joiner.Close()
-			return nil, err
-		}
-
+		cef := filter.NewContainerFilter(sub.ContainerFilter)
 		// Filter eventStream by container
-		eventStream = stream.Filter(eventStream, cef.filterEvent)
+		eventStream = stream.Filter(eventStream, cef.FilterFunc)
+		eventStream = stream.Do(eventStream, cef.DoFunc)
 	}
 
 	if sub.Modifier != nil {

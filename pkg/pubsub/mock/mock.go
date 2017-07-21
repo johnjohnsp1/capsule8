@@ -108,7 +108,7 @@ func (sb *Backend) Pull(topic string) (backend.Subscription, <-chan *api.Receive
 				messages <- msg
 			nextIter:
 				mu.RUnlock()
-				time.Sleep(1 * time.Millisecond)
+				time.Sleep(100 * time.Millisecond)
 			}
 		}
 	}()

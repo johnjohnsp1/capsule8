@@ -1,0 +1,27 @@
+// Copyright 2017 Capsule8 Inc. All rights reserved.
+
+syntax = "proto3";
+
+package capsule8.telemetry;
+
+import "subscription.proto";
+import "event.proto";
+
+//
+// Capsule8 Local Telemetry API
+//
+// The telemetry API is used by agents living on the same node as the sensor to pull events
+// directly from the sensor over the local loopback interface.
+//
+service TelemetryService {
+    // Publishes messages to a topic
+    rpc GetEvents(capsule8.v0.Subscription) returns (stream GetEventsResponse) {}
+}
+
+message GetEventsRequest {
+    capsule8.v0.Subscription sub = 1;
+}
+
+message GetEventsResponse {
+    repeated capsule8.v0.Event events = 1;
+}
