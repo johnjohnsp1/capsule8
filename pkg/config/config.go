@@ -31,7 +31,7 @@ var Sensor struct {
 	// Subscription timeout in seconds
 	SubscriptionTimeout int64 `default:"5"`
 
-	TelemetryServiceURL string `default:"127.0.0.1:5051"`
+	TelemetryServiceBindAddress string `default:"127.0.0.1:5051"`
 }
 
 var ApiServer struct {

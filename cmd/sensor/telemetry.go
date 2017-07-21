@@ -19,7 +19,7 @@ func startTelemetryService(s *sensor, closeSignal chan interface{}) {
 		s: s,
 	}
 	telemetry.RegisterTelemetryServiceServer(g, t)
-	lis, err := net.Listen("tcp", config.Sensor.TelemetryServiceURL)
+	lis, err := net.Listen("tcp", config.Sensor.TelemetryServiceBindAddress)
 	if err != nil {
 		// We should probably give up if we can't start this.
 		log.Fatal("Failed to start local telemetry service:", err)

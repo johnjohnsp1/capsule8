@@ -336,14 +336,16 @@ func (sfs *syscallFilterSet) getPerfEventAttrs() []*perf.EventAttr {
 	var eventAttrs []*perf.EventAttr
 
 	if len(sfs.enter) > 0 {
-		ea := newTraceEventAttr("raw_syscalls/sys_enter")
-		eventAttrs = append(eventAttrs, ea)
+		if ea := newTraceEventAttr("raw_syscalls/sys_enter"); ea != nil {
+			eventAttrs = append(eventAttrs, ea)
+		}
 
 	}
 
 	if len(sfs.exit) > 0 {
-		ea := newTraceEventAttr("raw_syscalls/sys_exit")
-		eventAttrs = append(eventAttrs, ea)
+		if ea := newTraceEventAttr("raw_syscalls/sys_exit"); ea != nil {
+			eventAttrs = append(eventAttrs, ea)
+		}
 
 	}
 
@@ -410,20 +412,23 @@ func (pfs *processFilterSet) getPerfEventAttrs() []*perf.EventAttr {
 
 	_, ok := pfs.events[api.ProcessEventType_PROCESS_EVENT_TYPE_FORK]
 	if ok {
-		ea := newTraceEventAttr("sched/sched_process_fork")
-		eventAttrs = append(eventAttrs, ea)
+		if ea := newTraceEventAttr("sched/sched_process_fork"); ea != nil {
+			eventAttrs = append(eventAttrs, ea)
+		}
 	}
 
 	_, ok = pfs.events[api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC]
 	if ok {
-		ea := newTraceEventAttr("sched/sched_process_exec")
-		eventAttrs = append(eventAttrs, ea)
+		if ea := newTraceEventAttr("sched/sched_process_exec"); ea != nil {
+			eventAttrs = append(eventAttrs, ea)
+		}
 	}
 
 	_, ok = pfs.events[api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT]
 	if ok {
-		ea := newTraceEventAttr("syscalls/sys_enter_exit_group")
-		eventAttrs = append(eventAttrs, ea)
+		if ea := newTraceEventAttr("syscalls/sys_enter_exit_group"); ea != nil {
+			eventAttrs = append(eventAttrs, ea)
+		}
 	}
 
 	return eventAttrs
@@ -455,11 +460,10 @@ func (pfs *processFilterSet) getPerfFilters(filters map[uint16]string) {
 
 func (ffs *fileFilterSet) getPerfEventAttrs() []*perf.EventAttr {
 	if ffs.filters != nil {
-		ea := newTraceEventAttr("fs/do_sys_open")
-		if ea == nil {
-			return []*perf.EventAttr{}
-		} else {
+		if ea := newTraceEventAttr("fs/do_sys_open"); ea != nil {
 			return []*perf.EventAttr{ea}
+		} else {
+			return []*perf.EventAttr{}
 		}
 	}
 

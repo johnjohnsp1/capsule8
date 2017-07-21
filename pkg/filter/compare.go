@@ -77,8 +77,8 @@ func compare(lhs, rhs reflect.Value, op ComparisonOperation) (bool, error) {
 		}
 		lhs = lhs.Elem().FieldByName("Value")
 	}
-	// Pass if no filter value specified
-	if lhs.Interface() == nil {
+	// Pass if no filter value specified or if rhs is invalid (not found)
+	if lhs.Interface() == nil || !rhs.IsValid() {
 		return true, nil
 	}
 	switch op {
