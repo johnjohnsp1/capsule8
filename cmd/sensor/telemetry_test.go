@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc"
 
 	api "github.com/capsule8/reactive8/pkg/api/v0"
+	"github.com/capsule8/reactive8/pkg/config"
 	telemetry "github.com/capsule8/reactive8/pkg/sensor/telemetry"
 )
 
@@ -23,7 +24,7 @@ func TestGetEvents(t *testing.T) {
 		log.Fatal("Error starting sensor:", err)
 	}
 
-	conn, _ := grpc.Dial("localhost:5051", grpc.WithInsecure())
+	conn, _ := grpc.Dial(config.Sensor.TelemetryServiceBindAddress, grpc.WithInsecure())
 	c := telemetry.NewTelemetryServiceClient(conn)
 
 	var stream telemetry.TelemetryService_GetEventsClient
