@@ -2,7 +2,6 @@ package config
 
 import (
 	"log"
-	"os"
 
 	"github.com/kelseyhightower/envconfig"
 )
@@ -54,11 +53,12 @@ var Recorder struct {
 }
 
 func init() {
-	Reload()
-}
-
-func Reload() {
 	err := envconfig.Process("C8_APISERVER", &ApiServer)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = envconfig.Process("C8_BACKPLANE", &Backplane)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -71,50 +71,5 @@ func Reload() {
 	err = envconfig.Process("C8_SENSOR", &Sensor)
 	if err != nil {
 		log.Fatal(err)
-	}
-
-	err = envconfig.Process("C8_BACKPLANE", &Backplane)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fi, err := os.Stat(Sensor.ProcFs)
-	if err != nil {
-		log.Print(err)
-	} else if !fi.IsDir() {
-		log.Printf("C8_SENSOR_PROC_FS %s not a directory\n",
-			Sensor.ProcFs)
-	}
-
-	fi, err = os.Stat(Sensor.CgroupFs)
-	if err != nil {
-		log.Print(err)
-	} else if !fi.IsDir() {
-		log.Printf("C8_SENSOR_CGROUP_FS %s not a directory\n",
-			Sensor.CgroupFs)
-	}
-
-	fi, err = os.Stat(Sensor.TraceFs)
-	if err != nil {
-		log.Print(err)
-	} else if !fi.IsDir() {
-		log.Printf("C8_SENSOR_TRACE_FS %s not a directory\n",
-			Sensor.TraceFs)
-	}
-
-	fi, err = os.Stat(Sensor.DockerContainerDir)
-	if err != nil {
-		log.Print(err)
-	} else if !fi.IsDir() {
-		log.Printf("C8_SENSOR_DOCKER_CONTAINER_DIR %s not a directory\n",
-			Sensor.DockerContainerDir)
-	}
-
-	fi, err = os.Stat(Sensor.OciContainerDir)
-	if err != nil {
-		log.Print(err)
-	} else if !fi.IsDir() {
-		log.Printf("C8_SENSOR_OCI_CONTAINER_DIR %s not a directory\n",
-			Sensor.OciContainerDir)
 	}
 }

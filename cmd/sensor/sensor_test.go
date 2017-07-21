@@ -12,9 +12,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	// Set test env variables
-	os.Setenv("C8_SENSOR_PUBSUB", "mock") // Specify mock pubsub backend
-	config.Reload()
+	config.Sensor.Pubsub = "mock"
+
 	os.Exit(m.Run())
 }
 
