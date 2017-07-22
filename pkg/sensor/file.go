@@ -49,15 +49,12 @@ type doSysOpenFormat struct {
 }
 
 type kpDoSysOpenFormat struct {
-	CommonType         uint16
-	CommonFlags        uint8
-	CommonPreemptCount uint8
-	CommonPid          int32
-	_                  uint64
-	FilenameOffset     int16
-	FilenameLength     int16
-	Flags              int32
-	Mode               int32
+	perf.TraceEvent
+	_              uint64
+	FilenameOffset int16
+	FilenameLength int16
+	Flags          int32
+	Mode           int32
 }
 
 func decodeKpDoSysOpen(rawData []byte) (interface{}, error) {
@@ -77,20 +74,17 @@ func decodeKpDoSysOpen(rawData []byte) (interface{}, error) {
 		fileName = fileName[:len(fileName)-1]
 	}
 
-	containerID, err := pidMapGetContainerID(format.CommonPid)
-
-	return &api.Event{
-		ContainerId: containerID,
-
-		Event: &api.Event_File{
-			File: &api.FileEvent{
-				Type:      api.FileEventType_FILE_EVENT_TYPE_OPEN,
-				Filename:  string(fileName),
-				OpenFlags: format.Flags,
-				OpenMode:  format.Mode,
-			},
+	ev := newEventFromTraceEvent(&format.TraceEvent)
+	ev.Event = &api.Event_File{
+		File: &api.FileEvent{
+			Type:      api.FileEventType_FILE_EVENT_TYPE_OPEN,
+			Filename:  string(fileName),
+			OpenFlags: format.Flags,
+			OpenMode:  format.Mode,
 		},
-	}, nil
+	}
+
+	return ev, nil
 
 }
 
