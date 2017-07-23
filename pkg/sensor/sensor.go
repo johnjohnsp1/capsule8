@@ -718,6 +718,7 @@ func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 	defer s.mu.Unlock()
 
 	eventStream, joiner := stream.NewJoiner()
+	joiner.Off()
 
 	if len(sub.EventFilter.SyscallEvents) > 0 ||
 		len(sub.EventFilter.ProcessEvents) > 0 ||
@@ -792,6 +793,7 @@ func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 		eventStream = applyModifiers(eventStream, *sub.Modifier)
 	}
 
+	joiner.On()
 	return eventStream, nil
 }
 

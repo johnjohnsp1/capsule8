@@ -1,15 +1,19 @@
 package stream
 
-import "reflect"
+import (
+	"log"
+	"reflect"
+)
 
 type Joiner struct {
 	ctrl chan<- interface{}
 }
 
 type joiner struct {
-	ctrl chan interface{}
-	data chan interface{}
-	in   []*Stream
+	ctrl   chan interface{}
+	data   chan interface{}
+	enable bool
+	in     []*Stream
 }
 
 type joinerAddStream struct {
@@ -62,6 +66,13 @@ func (j *joiner) controlHandler(m interface{}) {
 		m := m.(*joinerRemoveStream)
 		s := j.remove(m.stream)
 		m.reply <- s
+
+	case bool:
+		m := m.(bool)
+		j.enable = m
+
+	default:
+		log.Fatalf("Unknown control message: %V", m)
 	}
 
 }
@@ -85,12 +96,14 @@ func (j *joiner) loop() {
 			selectCases = append(selectCases, sc)
 		}
 
-		for _, e := range j.in {
-			sc := reflect.SelectCase{
-				Dir:  reflect.SelectRecv,
-				Chan: reflect.ValueOf(e.Data),
+		if j.enable {
+			for _, e := range j.in {
+				sc := reflect.SelectCase{
+					Dir:  reflect.SelectRecv,
+					Chan: reflect.ValueOf(e.Data),
+				}
+				selectCases = append(selectCases, sc)
 			}
-			selectCases = append(selectCases, sc)
 		}
 
 		if len(selectCases) == 0 {
@@ -137,7 +150,7 @@ func NewJoiner() (*Stream, *Joiner) {
 	data := make(chan interface{})
 
 	go func() {
-		r := &joiner{ctrl: ctrl, data: data}
+		r := &joiner{ctrl: ctrl, data: data, enable: true}
 
 		go r.loop()
 	}()

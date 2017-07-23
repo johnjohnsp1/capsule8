@@ -1,6 +1,10 @@
 package stream
 
-import "testing"
+import (
+	"fmt"
+	"os"
+	"testing"
+)
 
 func TestJoinNewClose(t *testing.T) {
 	_, j := NewJoiner()
@@ -96,6 +100,46 @@ func TestJoinOne(t *testing.T) {
 }
 
 func TestJoinTwo(t *testing.T) {
+	iota1 := Iota(1)
+
+	s, joiner := NewJoiner()
+	defer joiner.Close()
+	joiner.Off()
+
+	if !joiner.Add(iota1) {
+		t.Error("Adding Stream to Joiner failed")
+	}
+
+	iota2 := Iota(1, 100)
+
+	if !joiner.Add(iota2) {
+		t.Error("Adding Stream to Joiner failed")
+	}
+
+	//
+	// Make sure that we get an element from each Iota
+	//
+	joiner.On()
+
+	e1, ok := <-s.Data
+	i1 := e1.(uint64)
+	if !ok {
+		t.Error("Expected element from Joiner")
+	}
+
+	e2, ok := <-s.Data
+	i2 := e2.(uint64)
+	if !ok {
+		t.Error("Expected element from Joiner")
+	}
+
+	sum := i1 + i2
+	if sum != 100 {
+		t.Errorf("Expected sum = 100, got %d", sum)
+	}
+}
+
+func TestJoinTwoValved(t *testing.T) {
 	iota1 := Iota(1)
 
 	iota1v, iota1Valve := OnOffValve(iota1)
