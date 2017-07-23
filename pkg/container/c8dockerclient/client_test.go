@@ -5,12 +5,12 @@ package c8dockerclient
 import (
 	"bytes"
 	"crypto/sha1"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -59,7 +59,8 @@ func DockerTestSetup(t *testing.T, filename string) (cli *Client) {
 	// Hash the filename to a prefix for the docker sock
 	h := sha1.New()
 	h.Write([]byte(filename))
-	dockerSockPath := fmt.Sprintf("/tmp/%x-%s", h.Sum(nil), dockerSock)
+	tempDir, _ := ioutil.TempDir("/tmp", filename)
+	dockerSockPath := filepath.Join(tempDir, dockerSock)
 	go f.listenAndServe(t, expectedMsg, dockerSockPath)
 
 	msg, err := ioutil.ReadFile(filename)

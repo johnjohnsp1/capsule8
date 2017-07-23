@@ -1,8 +1,6 @@
 package stream
 
 import (
-	"fmt"
-	"os"
 	"testing"
 )
 
