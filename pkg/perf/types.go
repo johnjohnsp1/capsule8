@@ -553,6 +553,20 @@ func (er *ExitRecord) read(reader *bytes.Reader) error {
 	return nil
 }
 
+type LostRecord struct {
+	Id   uint64
+	Lost uint64
+}
+
+func (lr *LostRecord) read(reader *bytes.Reader) error {
+	err := binary.Read(reader, binary.LittleEndian, lr)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 type ForkRecord struct {
 	Pid  uint32
 	Ppid uint32
@@ -1016,6 +1030,17 @@ func (sample *Sample) read(reader *bytes.Reader, sampleType, readFormat uint64) 
 
 		// NB: PERF_RECORD_SAMPLE does not include a trailing
 		// SampleID, even if SampleIDAll is true.
+
+	case PERF_RECORD_LOST:
+		record := new(LostRecord)
+		err = record.read(reader)
+		if err != nil {
+			break
+		}
+
+		log.Println("Lost", record.Lost, "events")
+		sample.Record = record
+		sample.SampleID.read(reader, sampleType)
 
 	default:
 		//
