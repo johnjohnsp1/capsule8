@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -15,6 +17,8 @@ import (
 )
 
 func TestGetEvents(t *testing.T) {
+	config.Sensor.TelemetryServiceBindAddress = fmt.Sprintf("127.0.0.1:%d", 49152 + rand.Intn(16384))
+
 	s, err := CreateSensor()
 	if err != nil {
 		log.Fatal("Error creating sensor:", err)
