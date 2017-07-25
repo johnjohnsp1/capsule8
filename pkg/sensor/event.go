@@ -19,8 +19,8 @@ import (
 const sensorIDLengthBytes = 32
 
 // Sensor ID that is unique to the running instance of the Sensor. A restart
-// of the Sensor generates a new sensorID.
-var sensorID string
+// of the Sensor generates a new SensorID.
+var SensorID string
 
 // Sensor-unique event sequence number. Each event sent from the Sensor to any
 // Subscription has a unique sequence number for the indicated Sensor ID.
@@ -34,7 +34,7 @@ func init() {
 	randomBytes := make([]byte, sensorIDLengthBytes)
 	rand.Read(randomBytes)
 
-	sensorID = hex.EncodeToString(randomBytes[:])
+	SensorID = hex.EncodeToString(randomBytes[:])
 	sequenceNumber = 0
 
 	ts := unix.Timespec{}
@@ -72,7 +72,7 @@ func NewEvent() *api.Event {
 	var b []byte
 	buf := bytes.NewBuffer(b)
 
-	binary.Write(buf, binary.LittleEndian, sensorID)
+	binary.Write(buf, binary.LittleEndian, SensorID)
 	binary.Write(buf, binary.LittleEndian, sequenceNumber)
 	binary.Write(buf, binary.LittleEndian, monotime)
 
@@ -81,7 +81,7 @@ func NewEvent() *api.Event {
 
 	return &api.Event{
 		Id:                   eventID,
-		SensorId:             sensorID,
+		SensorId:             SensorID,
 		SensorMonotimeNanos:  monotime,
 		SensorSequenceNumber: sequenceNumber,
 	}

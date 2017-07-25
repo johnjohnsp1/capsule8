@@ -17,7 +17,6 @@ import (
 	pbsensor "github.com/capsule8/reactive8/pkg/sensor"
 	"github.com/capsule8/reactive8/pkg/sysinfo"
 	"github.com/golang/protobuf/proto"
-	uuid "github.com/satori/go.uuid"
 )
 
 // Sensor represents a node sensor which manages various sensors subsensors and subscriptions.
@@ -39,7 +38,7 @@ var (
 // CreateSensor creates a new node sensor
 func CreateSensor() (Sensor, error) {
 	s := &sensor{
-		id:            uuid.NewV4().String(),
+		id:            pbsensor.SensorID,
 		subscriptions: make(map[string]*subscriptionMetadata),
 	}
 
