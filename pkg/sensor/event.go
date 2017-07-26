@@ -89,7 +89,14 @@ func NewEvent() *api.Event {
 
 func newEventFromTraceEvent(traceEvent *perf.TraceEvent) *api.Event {
 	e := NewEvent()
+
 	e.ContainerId, _ = pidMapGetContainerID(traceEvent.Pid)
+
+	// Even when the Sensor is running in a container and the event
+	// occurs within a different container, the traceEvent.Pid field
+	// is present and contains the host pid.
+	e.ProcessPid = traceEvent.Pid
+
 	return e
 }
 
