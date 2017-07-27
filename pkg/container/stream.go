@@ -28,6 +28,8 @@ type Event struct {
 
 	DockerConfig string
 	OciConfig    string
+
+	ExitCode int32
 }
 
 func processEvents(e interface{}) interface{} {
@@ -50,7 +52,7 @@ func processEvents(e interface{}) interface{} {
 		} else if e.State == dockerContainerRunning {
 			//
 			// Even though we can also trigger the STARTED
-			// state on ociContainerRunning, this event
+			// state on ociRunning, this event
 			// happens first, so we use it. If the subscriber
 			// needs data that's in the OCI config, then we'll
 			// need to delay the event for it.
@@ -66,15 +68,23 @@ func processEvents(e interface{}) interface{} {
 				DockerConfig: e.ConfigJSON,
 			}
 
+		} else if e.State == dockerContainerExited {
+			ev = &Event{
+				ID:    e.ID,
+				Name:  e.Name,
+				State: ContainerStopped,
+
+				ImageID:      e.ImageID,
+				Image:        e.Image,
+				DockerConfig: e.ConfigJSON,
+				ExitCode:     int32(e.ExitCode),
+			}
+
 		} else if e.State == dockerContainerDead {
 			ev = &Event{
 				ID:    e.ID,
 				Name:  e.Name,
 				State: ContainerRemoved,
-
-				ImageID:      e.ImageID,
-				Image:        e.Image,
-				DockerConfig: e.ConfigJSON,
 			}
 		}
 
@@ -89,12 +99,6 @@ func processEvents(e interface{}) interface{} {
 				OciConfig: e.ConfigJSON,
 			}
 
-		} else if e.State == ociStopped {
-			ev = &Event{
-				ID:        e.ID,
-				State:     ContainerStopped,
-				OciConfig: e.ConfigJSON,
-			}
 		}
 	}
 

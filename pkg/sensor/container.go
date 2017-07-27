@@ -114,7 +114,19 @@ func translateContainerEvents(e interface{}) interface{} {
 
 	case container.ContainerStopped:
 		ece = newContainerExited(ce.ID)
-		// TODO: ece.ExitCode = ???
+
+		if ce.Pid != 0 {
+			ece.HostPid = int32(ce.Pid)
+		}
+
+		if len(ce.DockerConfig) > 0 {
+			ece.DockerConfigJson = ce.DockerConfig
+		}
+
+		ece.Name = ce.Name
+		ece.ImageId = ce.ImageID
+		ece.ImageName = ce.Image
+		ece.ExitCode = ce.ExitCode
 
 	case container.ContainerRemoved:
 		ece = newContainerDestroyed(ce.ID)

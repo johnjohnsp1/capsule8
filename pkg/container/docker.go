@@ -52,6 +52,7 @@ type dockerEvent struct {
 	State      dockerContainerState
 	Pid        int
 	ConfigJSON string
+	ExitCode   int
 }
 
 func getDockerContainerDir() string {
@@ -73,6 +74,7 @@ type dockerConfigState struct {
 	StartedAt         time.Time `json:"StartedAt"`
 	FinishedAt        time.Time `json:"FinishedAt"`
 	Health            string    `json:"Health"`
+	ExitCode          int       `json:"ExitCode"`
 }
 
 type dockerConfigConfig struct {
@@ -140,6 +142,7 @@ func newDockerEventFromConfigData(configV2Json []byte) (*dockerEvent, error) {
 		State:      state,
 		Pid:        pid,
 		ConfigJSON: string(configV2Json),
+		ExitCode:   config.State.ExitCode,
 	}, nil
 }
 
