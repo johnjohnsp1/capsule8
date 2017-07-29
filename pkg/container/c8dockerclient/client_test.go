@@ -59,7 +59,11 @@ func DockerTestSetup(t *testing.T, filename string) (cli *Client) {
 	// Hash the filename to a prefix for the docker sock
 	h := sha1.New()
 	h.Write([]byte(filename))
-	tempDir, _ := ioutil.TempDir("/tmp", filename)
+	tempDir, err := ioutil.TempDir("/tmp", "c8dockerclient_client_test")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	dockerSockPath := filepath.Join(tempDir, dockerSock)
 	go f.listenAndServe(t, expectedMsg, dockerSockPath)
 
