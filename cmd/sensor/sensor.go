@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -99,11 +100,11 @@ func (s *sensor) Start() (chan interface{}, error) {
 				ss := &api.SignedSubscription{}
 				if err = proto.Unmarshal(msg.Payload, ss); err != nil {
 					fmt.Fprintf(os.Stderr, "No selector specified in subscription.%s\n", err.Error())
-					return
+					continue sendLoop
 				}
 				// Ignore subscriptions that have specified a time range
 				if ss.Subscription.SinceDuration != nil || ss.Subscription.ForDuration != nil {
-					return
+					continue sendLoop
 				}
 
 				// TODO: Filter subscriptions based on cluster/node information
@@ -111,7 +112,7 @@ func (s *sensor) Start() (chan interface{}, error) {
 				// Check if there is actually an EventFilter in the request. If not, ignore.
 				if ss.Subscription.EventFilter == nil {
 					fmt.Fprint(os.Stderr, "No EventFilter specified in subscription\n")
-					return
+					continue sendLoop
 				}
 
 				// New subscription?
@@ -176,6 +177,7 @@ func (s *sensor) RemoveStaleSubscriptions() {
 		now := time.Now().Unix()
 		for subscriptionID, subscription := range s.subscriptions {
 			if now-subscription.lastSeen >= config.Sensor.SubscriptionTimeout {
+				log.Println("SENSOR REMOVING STALE SUB:", subscriptionID)
 				close(s.subscriptions[subscriptionID].stopChan)
 				delete(s.subscriptions, subscriptionID)
 			}
@@ -198,6 +200,7 @@ func (s *sensor) newSensor(sub *api.Subscription, subscriptionID string) chan in
 		fmt.Fprintf(os.Stderr, "Couldn't start Sensor: %v\n", err)
 	}
 
+	log.Println("STARTING NEW LIVE SUBSCRIPTION:", subscriptionID)
 	go func() {
 	sendLoop:
 		for {
