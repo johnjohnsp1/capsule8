@@ -2,10 +2,10 @@
 
 syntax = "proto3";
 
-package capsule8.telemetry;
+package telemetry;
 
-import "subscription.proto";
-import "event.proto";
+import "capsule8/api/v0/subscription.proto";
+import "capsule8/api/v0/event.proto";
 
 //
 // Capsule8 Local Telemetry API
@@ -15,13 +15,13 @@ import "event.proto";
 //
 service TelemetryService {
     // Publishes messages to a topic
-    rpc GetEvents(capsule8.v0.Subscription) returns (stream GetEventsResponse) {}
+    rpc GetEvents(capsule8.api.v0.Subscription) returns (stream GetEventsResponse) {}
 }
 
 message GetEventsRequest {
-    capsule8.v0.Subscription sub = 1;
+    capsule8.api.v0.Subscription sub = 1;
 }
 
 message GetEventsResponse {
-    repeated capsule8.v0.Event events = 1;
+    repeated capsule8.api.v0.Event events = 1;
 }

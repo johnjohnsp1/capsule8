@@ -1,11 +1,10 @@
 PROTOC_GEN_GO=$$GOPATH/bin/protoc-gen-go
 GRPC_OUT=.
 VENDOR=../../../vendor
-API=../../../api/v0
+API=$(VENDOR)
 
 INC=-I. -I$(VENDOR)/github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis/ \
-	-I$$GOPATH/src \
-	-I$(API)
+	-I$(VENDOR)/github.com/
 
 .PHONY: telemetry
 telemetry: *.proto
