@@ -2,17 +2,25 @@ package perf
 
 import (
 	"bufio"
-	"crypto/sha256"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/capsule8/reactive8/pkg/config"
 )
+
+type TraceEventField struct {
+	FieldName string
+	TypeName  string
+	Offset    int
+	Size      int
+	IsSigned  bool
+}
 
 func getTraceFs() string {
 	return config.Sensor.TraceFs
@@ -111,30 +119,79 @@ func GetTraceEventID(name string) (uint16, error) {
 	return uint16(id), nil
 }
 
-func GetTraceEventFormat(name string) (string, error) {
+func parseTraceEventField(line string) (*TraceEventField, error) {
+	field := &TraceEventField{}
+	fields := strings.Split(strings.TrimSpace(line), ";")
+	for i := 0; i < len(fields); i++ {
+		parts := strings.Split(fields[i], ":")
+		if len(parts) != 2 {
+			return nil, errors.New("malformed format field")
+		}
+
+		var err error
+		switch parts[0] {
+		case "field":
+			x := strings.LastIndexFunc(parts[1], unicode.IsSpace)
+			if x < 0 {
+				err = errors.New("malformed format field")
+			} else {
+				field.FieldName = strings.TrimSpace(string(parts[1][x+1:]))
+				field.TypeName = strings.TrimSpace(string(parts[1][:x]))
+			}
+		case "offset":
+			field.Offset, err = strconv.Atoi(parts[1])
+		case "size":
+			field.Size, err = strconv.Atoi(parts[1])
+		case "signed":
+			field.IsSigned, err = strconv.ParseBool(parts[1])
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return field, nil
+}
+
+func GetTraceEventFormat(name string) (map[string]TraceEventField, error) {
 	filename := filepath.Join(getTraceFs(), "events", name, "format")
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	if err != nil {
-		return "", err
+		log.Printf("Couldn't open trace event %s: %v",
+			filename, err)
+		return nil, err
 	}
 	defer file.Close()
 
-	var buf [4096]byte
-	n, err := file.Read(buf[:])
+	inFormat := false
+	fields := make(map[string]TraceEventField)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		rawLine := scanner.Text()
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+
+		if inFormat {
+			if !unicode.IsSpace(rune(rawLine[0])) {
+				inFormat = false
+				continue
+			}
+			field, err := parseTraceEventField(line)
+			if err != nil {
+				log.Printf("Couldn't parse trace event format: %v", err)
+				return nil, err
+			}
+			fields[field.FieldName] = *field
+		} else if strings.HasPrefix(line, "format:") {
+			inFormat = true
+		}
+	}
+	err = scanner.Err()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return string(buf[:n]), nil
-
-}
-
-func GetTraceEventFormatSHA256(name string) (string, error) {
-	format, err := GetTraceEventFormat(name)
-	if err != nil {
-		return "", err
-	}
-
-	sha := sha256.Sum256([]byte(format))
-	return hex.EncodeToString(sha[:]), nil
+	return fields, err
 }
