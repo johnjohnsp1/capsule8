@@ -66,6 +66,7 @@ func GetAvailableTraceEvents() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -87,6 +88,7 @@ func GetTraceEventID(name string) (uint16, error) {
 			filename, err)
 		return 0, err
 	}
+	defer file.Close()
 
 	//
 	// The tracepoint id is a uint16, so we can assume it'll be
@@ -116,6 +118,7 @@ func GetTraceEventFormat(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer file.Close()
 
 	var buf [4096]byte
 	n, err := file.Read(buf[:])
