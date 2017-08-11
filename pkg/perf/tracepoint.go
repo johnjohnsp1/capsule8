@@ -18,16 +18,21 @@ func getTraceFs() string {
 	return config.Sensor.TraceFs
 }
 
-func AddKprobe(definition string) error {
-	keFilename := filepath.Join(getTraceFs(), "kprobe_events")
-	keFile, err := os.OpenFile(keFilename, os.O_WRONLY, 0)
+func AddKprobe(name string, address string, onReturn bool, output string) error {
+	filename := filepath.Join(getTraceFs(), "kprobe_events")
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		return err
 	}
+	defer file.Close()
 
-	defer keFile.Close()
-
-	_, err = keFile.Write([]byte(definition))
+	var cmd string
+	if onReturn {
+		cmd = fmt.Sprintf("r:%s %s %s", name, address, output)
+	} else {
+		cmd = fmt.Sprintf("p:%s %s %s", name, address, output)
+	}
+	_, err = file.Write([]byte(cmd))
 	if err != nil {
 		return err
 	}
@@ -36,21 +41,15 @@ func AddKprobe(definition string) error {
 }
 
 func RemoveKprobe(name string) error {
-	keFilename := filepath.Join(getTraceFs(), "kprobe_events")
-	keFile, err := os.OpenFile(keFilename, os.O_APPEND, 0)
+	filename := filepath.Join(getTraceFs(), "kprobe_events")
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		return err
 	}
-
-	defer keFile.Close()
-
-	_, err = keFile.Seek(0, os.SEEK_END)
-	if err != nil {
-		return err
-	}
+	defer file.Close()
 
 	cmd := fmt.Sprintf("-:%s", name)
-	_, err = keFile.Write([]byte(cmd))
+	_, err = file.Write([]byte(cmd))
 	if err != nil {
 		return err
 	}

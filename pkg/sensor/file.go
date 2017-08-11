@@ -131,7 +131,7 @@ func decodeDoSysOpen(rawData []byte) (interface{}, error) {
 // -----------------------------------------------------------------------------
 
 func addKprobe() error {
-	return perf.AddKprobe("p:fs/do_sys_open do_sys_open filename=+0(%si):string flags=%dx:s32 mode=%cx:s32")
+	return perf.AddKprobe("fs/do_sys_open", "do_sys_open", false, "filename=+0(%si):string flags=%dx:s32 mode=%cx:s32")
 }
 
 func init() {
