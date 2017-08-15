@@ -161,37 +161,40 @@ func parseTypeName(s string) (int, int, int, error) {
 		return dataType, dataTypeSize, arraySize, err
 	}
 	switch s {
-	case "s8":
+	case "s8", "char":
 		return dtS8, 1, -1, nil
-	case "s16":
+	case "s16", "short":
 		return dtS16, 2, -1, nil
 	case "s32", "int":
 		return dtS32, 4, -1, nil
-	case "s64":
+	case "s64", "long":
 		return dtS64, 8, -1, nil
-	case "u8":
+	case "u8", "unsigned char":
 		return dtU8, 1, -1, nil
-	case "u16":
+	case "u16", "unsigned short":
 		return dtU16, 2, -1, nil
-	case "u32":
+	case "u32", "unsigned int":
 		return dtU32, 4, -1, nil
 	case "u64", "unsigned long":
 		return dtU64, 8, -1, nil
 	}
-	return 0, 0, 0, errors.New("unrecognized type name")
+	return 0, 0, 0, errors.New(fmt.Sprintf("unrecognized type name \"%s\"", s))
 }
 
 func parseTraceEventField(line string) (*TraceEventField, error) {
 	field := &TraceEventField{}
 	fields := strings.Split(strings.TrimSpace(line), ";")
 	for i := 0; i < len(fields); i++ {
+		if fields[i] == "" {
+			continue
+		}
 		parts := strings.Split(fields[i], ":")
 		if len(parts) != 2 {
 			return nil, errors.New("malformed format field")
 		}
 
 		var err error
-		switch parts[0] {
+		switch strings.TrimSpace(parts[0]) {
 		case "field":
 			x := strings.LastIndexFunc(parts[1], unicode.IsSpace)
 			if x < 0 {
@@ -291,7 +294,7 @@ func DecodeTraceEvent(rawData []byte, fields map[string]TraceEventField) (map[st
 		if field.dataType == dtString {
 			dataOffset := binary.LittleEndian.Uint16(rawData[field.Offset:])
 			dataLength := binary.LittleEndian.Uint16(rawData[field.Offset+2:])
-			data[field.FieldName] = []byte(rawData[dataOffset : dataOffset+dataLength-1])
+			data[field.FieldName] = string([]byte(rawData[dataOffset : dataOffset+dataLength-1]))
 			continue
 		}
 
