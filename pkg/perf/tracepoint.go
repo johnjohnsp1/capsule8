@@ -2,6 +2,7 @@ package perf
 
 import (
 	"bufio"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
@@ -14,12 +15,28 @@ import (
 	"github.com/capsule8/reactive8/pkg/config"
 )
 
+const (
+	dtString int = iota
+	dtS8
+	dtS16
+	dtS32
+	dtS64
+	dtU8
+	dtU16
+	dtU32
+	dtU64
+)
+
 type TraceEventField struct {
 	FieldName string
 	TypeName  string
 	Offset    int
 	Size      int
 	IsSigned  bool
+
+	dataType     int // data type constant from above
+	dataTypeSize int
+	arraySize    int // -1 == not an array, 0 == [] array, >0 == # elements
 }
 
 func getTraceFs() string {
@@ -119,6 +136,51 @@ func GetTraceEventID(name string) (uint16, error) {
 	return uint16(id), nil
 }
 
+func parseTypeName(s string) (int, int, int, error) {
+	if strings.HasPrefix(s, "__data_loc") {
+		s = s[11:]
+		if s == "char[]" {
+			return dtString, 1, 0, nil
+		}
+	}
+
+	if strings.HasSuffix(s, "[]") {
+		dataType, dataTypeSize, _, err := parseTypeName(s[:len(s)-2])
+		return dataType, dataTypeSize, 0, err
+	}
+	if strings.HasSuffix(s, "]") {
+		x := strings.Index(s, "[")
+		if x < 0 {
+			return 0, 0, 0, errors.New("malformed type name")
+		}
+		dataType, dataTypeSize, _, err := parseTypeName(s[:x])
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		arraySize, err := strconv.Atoi(s[x+1 : len(s)-1])
+		return dataType, dataTypeSize, arraySize, err
+	}
+	switch s {
+	case "s8":
+		return dtS8, 1, -1, nil
+	case "s16":
+		return dtS16, 2, -1, nil
+	case "s32", "int":
+		return dtS32, 4, -1, nil
+	case "s64":
+		return dtS64, 8, -1, nil
+	case "u8":
+		return dtU8, 1, -1, nil
+	case "u16":
+		return dtU16, 2, -1, nil
+	case "u32":
+		return dtU32, 4, -1, nil
+	case "u64", "unsigned long":
+		return dtU64, 8, -1, nil
+	}
+	return 0, 0, 0, errors.New("unrecognized type name")
+}
+
 func parseTraceEventField(line string) (*TraceEventField, error) {
 	field := &TraceEventField{}
 	fields := strings.Split(strings.TrimSpace(line), ";")
@@ -137,6 +199,7 @@ func parseTraceEventField(line string) (*TraceEventField, error) {
 			} else {
 				field.FieldName = strings.TrimSpace(string(parts[1][x+1:]))
 				field.TypeName = strings.TrimSpace(string(parts[1][:x]))
+				field.dataType, field.dataTypeSize, field.arraySize, err = parseTypeName(field.TypeName)
 			}
 		case "offset":
 			field.Offset, err = strconv.Atoi(parts[1])
@@ -194,4 +257,72 @@ func GetTraceEventFormat(name string) (map[string]TraceEventField, error) {
 	}
 
 	return fields, err
+}
+
+func decodeDataType(dataType int, rawData []byte) (interface{}, error) {
+	switch dataType {
+	case dtString:
+		return nil, errors.New("internal error; got unexpected dtString")
+	case dtS8:
+		return int8(rawData[0]), nil
+	case dtS16:
+		return int16(binary.LittleEndian.Uint16(rawData)), nil
+	case dtS32:
+		return int32(binary.LittleEndian.Uint32(rawData)), nil
+	case dtS64:
+		return int64(binary.LittleEndian.Uint64(rawData)), nil
+	case dtU8:
+		return uint8(rawData[0]), nil
+	case dtU16:
+		return binary.LittleEndian.Uint16(rawData), nil
+	case dtU32:
+		return binary.LittleEndian.Uint32(rawData), nil
+	case dtU64:
+		return binary.LittleEndian.Uint64(rawData), nil
+	}
+	return nil, errors.New("internal error; undefined dataType")
+}
+
+func DecodeTraceEvent(rawData []byte, fields map[string]TraceEventField) (map[string]interface{}, error) {
+	data := make(map[string]interface{})
+	for _, field := range fields {
+		var err error
+
+		if field.dataType == dtString {
+			dataOffset := binary.LittleEndian.Uint16(rawData[field.Offset:])
+			dataLength := binary.LittleEndian.Uint16(rawData[field.Offset+2:])
+			data[field.FieldName] = []byte(rawData[dataOffset : dataOffset+dataLength-1])
+			continue
+		}
+
+		if field.arraySize == -1 {
+			data[field.FieldName], err = decodeDataType(field.dataType, rawData[field.Offset:])
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
+
+		var arraySize, dataOffset int
+		if field.arraySize == 0 {
+			dataOffset = int(binary.LittleEndian.Uint16(rawData[field.Offset:]))
+			dataLength := int(binary.LittleEndian.Uint16(rawData[field.Offset+2:]))
+			arraySize = dataLength / field.dataTypeSize
+		} else {
+			dataOffset = field.Offset
+			arraySize = field.arraySize
+		}
+
+		var array []interface{} = make([]interface{}, arraySize)
+		for i := 0; i < arraySize; i++ {
+			array[i], err = decodeDataType(field.dataType, rawData[dataOffset:])
+			if err != nil {
+				return nil, err
+			}
+			dataOffset += field.dataTypeSize
+		}
+		data[field.FieldName] = array
+	}
+
+	return data, nil
 }
