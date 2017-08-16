@@ -136,7 +136,7 @@ func GetTraceEventID(name string) (uint16, error) {
 	return uint16(id), nil
 }
 
-func parseTypeName(s string) (int, int, int, error) {
+func parseTypeName(s string, size int, isSigned bool) (int, int, int, error) {
 	if strings.HasPrefix(s, "__data_loc") {
 		s = s[11:]
 		if s == "char[]" {
@@ -145,7 +145,7 @@ func parseTypeName(s string) (int, int, int, error) {
 	}
 
 	if strings.HasSuffix(s, "[]") {
-		dataType, dataTypeSize, _, err := parseTypeName(s[:len(s)-2])
+		dataType, dataTypeSize, _, err := parseTypeName(s[:len(s)-2], size, isSigned)
 		return dataType, dataTypeSize, 0, err
 	}
 	if strings.HasSuffix(s, "]") {
@@ -153,35 +153,47 @@ func parseTypeName(s string) (int, int, int, error) {
 		if x < 0 {
 			return 0, 0, 0, errors.New("malformed type name")
 		}
-		dataType, dataTypeSize, _, err := parseTypeName(s[:x])
+		dataType, dataTypeSize, _, err := parseTypeName(s[:x], size, isSigned)
 		if err != nil {
 			return 0, 0, 0, err
 		}
 		arraySize, err := strconv.Atoi(s[x+1 : len(s)-1])
 		return dataType, dataTypeSize, arraySize, err
 	}
-	switch s {
-	case "s8", "char":
-		return dtS8, 1, -1, nil
-	case "s16", "short":
-		return dtS16, 2, -1, nil
-	case "s32", "int":
-		return dtS32, 4, -1, nil
-	case "s64", "long":
-		return dtS64, 8, -1, nil
-	case "u8", "unsigned char":
+
+	// Except for prefix and suffix information, ignore the type name.
+	// For kprobes and uprobes, the type names will be standard, but for
+	// tracepoints the type names will be whatever is used in the kernel
+	// source. Handling all possibilities is not feasible, so consider only
+	// the size and signed flag
+	switch size {
+	case 1:
+		if isSigned {
+			return dtS8, 1, -1, nil
+		}
 		return dtU8, 1, -1, nil
-	case "u16", "unsigned short":
+	case 2:
+		if isSigned {
+			return dtS16, 2, -1, nil
+		}
 		return dtU16, 2, -1, nil
-	case "u32", "unsigned int":
+	case 4:
+		if isSigned {
+			return dtS32, 4, -1, nil
+		}
 		return dtU32, 4, -1, nil
-	case "u64", "unsigned long":
+	case 8:
+		if isSigned {
+			return dtS64, 8, -1, nil
+		}
 		return dtU64, 8, -1, nil
 	}
 	return 0, 0, 0, errors.New(fmt.Sprintf("unrecognized type name \"%s\"", s))
 }
 
 func parseTraceEventField(line string) (*TraceEventField, error) {
+	var err error
+
 	field := &TraceEventField{}
 	fields := strings.Split(strings.TrimSpace(line), ";")
 	for i := 0; i < len(fields); i++ {
@@ -193,7 +205,6 @@ func parseTraceEventField(line string) (*TraceEventField, error) {
 			return nil, errors.New("malformed format field")
 		}
 
-		var err error
 		switch strings.TrimSpace(parts[0]) {
 		case "field":
 			x := strings.LastIndexFunc(parts[1], unicode.IsSpace)
@@ -202,7 +213,6 @@ func parseTraceEventField(line string) (*TraceEventField, error) {
 			} else {
 				field.FieldName = strings.TrimSpace(string(parts[1][x+1:]))
 				field.TypeName = strings.TrimSpace(string(parts[1][:x]))
-				field.dataType, field.dataTypeSize, field.arraySize, err = parseTypeName(field.TypeName)
 			}
 		case "offset":
 			field.Offset, err = strconv.Atoi(parts[1])
@@ -216,6 +226,7 @@ func parseTraceEventField(line string) (*TraceEventField, error) {
 		}
 	}
 
+	field.dataType, field.dataTypeSize, field.arraySize, err = parseTypeName(field.TypeName, field.Size, field.IsSigned)
 	return field, nil
 }
 
