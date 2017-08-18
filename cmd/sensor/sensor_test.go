@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"os"
 	"testing"
 	"time"
@@ -9,6 +8,7 @@ import (
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/config"
 	"github.com/capsule8/reactive8/pkg/pubsub/mock"
+	"github.com/golang/glog"
 )
 
 func TestMain(m *testing.M) {
@@ -42,11 +42,11 @@ func TestCreateSubscription(t *testing.T) {
 
 	s, err := CreateSensor()
 	if err != nil {
-		log.Fatal("Error creating sensor:", err)
+		glog.Fatal("Error creating sensor:", err)
 	}
 	stopSignal, err := s.Start()
 	if err != nil {
-		log.Fatal("Error starting sensor:", err)
+		glog.Fatal("Error starting sensor:", err)
 	}
 
 	msgs := make(chan *mock.OutboundMessage)
@@ -84,11 +84,11 @@ func TestCreateSubscription(t *testing.T) {
 func TestDiscover(t *testing.T) {
 	s, err := CreateSensor()
 	if err != nil {
-		log.Fatal("Error creating sensor:", err)
+		glog.Fatal("Error creating sensor:", err)
 	}
 	stopSignal, err := s.Start()
 	if err != nil {
-		log.Fatal("Error starting sensor:", err)
+		glog.Fatal("Error starting sensor:", err)
 	}
 
 	msgs := make(chan *mock.OutboundMessage)

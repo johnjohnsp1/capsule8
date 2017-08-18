@@ -1,8 +1,7 @@
 package config
 
 import (
-	"log"
-
+	"github.com/golang/glog"
 	"github.com/kelseyhightower/envconfig"
 )
 
@@ -55,21 +54,21 @@ var Recorder struct {
 func init() {
 	err := envconfig.Process("C8_APISERVER", &ApiServer)
 	if err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
 
 	err = envconfig.Process("C8_BACKPLANE", &Backplane)
 	if err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
 
 	err = envconfig.Process("C8_RECORDER", &Recorder)
 	if err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
 
 	err = envconfig.Process("C8_SENSOR", &Sensor)
 	if err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
 }

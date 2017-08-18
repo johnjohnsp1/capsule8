@@ -5,10 +5,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"log"
 	"os"
 	"sync"
 	"sync/atomic"
+
+	"github.com/golang/glog"
 )
 
 //
@@ -1038,7 +1039,7 @@ func (sample *Sample) read(reader *bytes.Reader, sampleType, readFormat uint64) 
 			break
 		}
 
-		log.Println("Lost", record.Lost, "events")
+		glog.Infoln("Lost", record.Lost, "events")
 		sample.Record = record
 		sample.SampleID.read(reader, sampleType)
 
@@ -1059,7 +1060,7 @@ func (sample *Sample) read(reader *bytes.Reader, sampleType, readFormat uint64) 
 		if err != nil {
 			break
 		} else if n < int(recordSize) {
-			log.Printf("Short read: %d < %d", n, int(recordSize))
+			glog.Infof("Short read: %d < %d", n, int(recordSize))
 			err = errors.New("Read error")
 			break
 		}

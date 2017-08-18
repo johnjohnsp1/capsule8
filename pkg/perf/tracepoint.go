@@ -5,13 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/capsule8/reactive8/pkg/config"
+	"github.com/golang/glog"
 )
 
 func getTraceFs() string {
@@ -83,7 +83,7 @@ func GetTraceEventID(name string) (uint16, error) {
 	filename := filepath.Join(getTraceFs(), "events", name, "id")
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	if err != nil {
-		log.Printf("Couldn't open trace event %s: %v",
+		glog.Infof("Couldn't open trace event %s: %v",
 			filename, err)
 		return 0, err
 	}
@@ -95,14 +95,14 @@ func GetTraceEventID(name string) (uint16, error) {
 	var buf [6]byte
 	_, err = file.Read(buf[:])
 	if err != nil {
-		log.Printf("Couldn't read trace event id: %v", err)
+		glog.Infof("Couldn't read trace event id: %v", err)
 		return 0, err
 	}
 
 	idStr := strings.TrimRight(string(buf[:]), "\n\x00")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		log.Printf("Couldn't parse trace event id %s: %v",
+		glog.Infof("Couldn't parse trace event id %s: %v",
 			string(buf[:]), err)
 		return 0, err
 	}

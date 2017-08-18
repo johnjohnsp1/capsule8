@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"log"
 	"reflect"
 	"strings"
 	"sync"
@@ -15,6 +14,7 @@ import (
 	"github.com/capsule8/reactive8/pkg/filter"
 	"github.com/capsule8/reactive8/pkg/perf"
 	"github.com/capsule8/reactive8/pkg/stream"
+	"github.com/golang/glog"
 )
 
 func (s *Sensor) decodeSample(sr *perf.SampleRecord) (interface{}, error) {
@@ -39,7 +39,7 @@ func (s *Sensor) onSampleEvent(perfEv *perf.Sample, err error) {
 		sample := perfEv.Record.(*perf.SampleRecord)
 		e, err := s.decodeSample(sample)
 		if err != nil {
-			log.Printf("Decoder error: %v", err)
+			glog.Infof("Decoder error: %v", err)
 			return
 		}
 
@@ -54,7 +54,7 @@ func (s *Sensor) onSampleEvent(perfEv *perf.Sample, err error) {
 		}
 
 	default:
-		log.Printf("Unknown record type %T", perfEv.Record)
+		glog.Infof("Unknown record type %T", perfEv.Record)
 
 	}
 }

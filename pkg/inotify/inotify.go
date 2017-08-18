@@ -14,13 +14,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sync"
 
 	"github.com/capsule8/reactive8/pkg/stream"
+	"github.com/golang/glog"
 
 	"golang.org/x/sys/unix"
 )
@@ -451,12 +451,12 @@ func NewInstance() (*Instance, error) {
 	go func() {
 		err := is.pollLoop()
 		if err != nil {
-			log.Printf("Poll loop exited with error: %v", err)
+			glog.Infof("Poll loop exited with error: %v", err)
 		}
 
 		err = unix.Close(is.fd)
 		if err != nil {
-			log.Printf("Error closing inotify fd: %v", err)
+			glog.Infof("Error closing inotify fd: %v", err)
 		}
 
 		close(is.errc)

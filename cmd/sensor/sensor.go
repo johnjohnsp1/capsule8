@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 	pbstan "github.com/capsule8/reactive8/pkg/pubsub/stan"
 	pbsensor "github.com/capsule8/reactive8/pkg/sensor"
 	"github.com/capsule8/reactive8/pkg/sysinfo"
+	"github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 )
 
@@ -177,7 +177,7 @@ func (s *sensor) RemoveStaleSubscriptions() {
 		now := time.Now().Unix()
 		for subscriptionID, subscription := range s.subscriptions {
 			if now-subscription.lastSeen >= config.Sensor.SubscriptionTimeout {
-				log.Println("SENSOR REMOVING STALE SUB:", subscriptionID)
+				glog.Infoln("SENSOR REMOVING STALE SUB:", subscriptionID)
 				close(s.subscriptions[subscriptionID].stopChan)
 				delete(s.subscriptions, subscriptionID)
 			}
@@ -200,7 +200,7 @@ func (s *sensor) newSensor(sub *api.Subscription, subscriptionID string) chan in
 		fmt.Fprintf(os.Stderr, "Couldn't start Sensor: %v\n", err)
 	}
 
-	log.Println("STARTING NEW LIVE SUBSCRIPTION:", subscriptionID)
+	glog.Infoln("STARTING NEW LIVE SUBSCRIPTION:", subscriptionID)
 	go func() {
 	sendLoop:
 		for {
@@ -215,7 +215,7 @@ func (s *sensor) newSensor(sub *api.Subscription, subscriptionID string) chan in
 					fmt.Fprint(os.Stderr, "Failed to get next event.\n")
 					break sendLoop
 				}
-				//log.Println("Sending event:", ev, "sub id", subscriptionID)
+				//glog.Infoln("Sending event:", ev, "sub id", subscriptionID)
 
 				data, err := proto.Marshal(ev.(*api.Event))
 				if err != nil {

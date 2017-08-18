@@ -3,10 +3,10 @@ package sensor
 import (
 	"bytes"
 	"encoding/binary"
-	"log"
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/perf"
+	"github.com/golang/glog"
 )
 
 /*
@@ -108,7 +108,7 @@ func init() {
 	eventName := "raw_syscalls/sys_enter"
 	sysEnterID, err := perf.GetTraceEventID(eventName)
 	if err != nil {
-		log.Printf("Couldn't get %s event id: %v", eventName, err)
+		glog.Infof("Couldn't get %s event id: %v", eventName, err)
 	}
 
 	sensor.registerDecoder(sysEnterID, decodeSysEnter)
@@ -116,7 +116,7 @@ func init() {
 	eventName = "raw_syscalls/sys_exit"
 	sysExitID, err := perf.GetTraceEventID(eventName)
 	if err != nil {
-		log.Printf("Couldn't get %s event id: %v", eventName, err)
+		glog.Infof("Couldn't get %s event id: %v", eventName, err)
 	}
 
 	sensor.registerDecoder(sysExitID, decodeSysExit)

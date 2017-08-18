@@ -3,20 +3,20 @@
 package main
 
 import (
-	"log"
+	"github.com/golang/glog"
 )
 
 func main() {
-	log.Println("starting up")
+	glog.Infoln("starting up")
 	s, err := CreateSensor()
 	if err != nil {
-		log.Fatalf("error creating sensor: %s\n", err.Error())
+		glog.Fatalf("error creating sensor: %s\n", err.Error())
 	}
 	stopSignal, err := s.Start()
 	if err != nil {
-		log.Fatalf("error starting sensor: %s\n", err.Error())
+		glog.Fatalf("error starting sensor: %s\n", err.Error())
 	}
-	log.Println("started")
+	glog.Infoln("started")
 	// Blocking call to remove stale subscriptions on a 5 second interval
 	s.RemoveStaleSubscriptions()
 	close(stopSignal)

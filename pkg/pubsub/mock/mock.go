@@ -4,7 +4,6 @@ package mock
 
 import (
 	"fmt"
-	"log"
 	"reflect"
 	"regexp"
 	"sync"
@@ -12,6 +11,7 @@ import (
 
 	api "github.com/capsule8/api/v0"
 	backend "github.com/capsule8/reactive8/pkg/pubsub"
+	"github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 )
 
@@ -78,7 +78,7 @@ func (sb *Backend) Pull(topic string) (backend.Subscription, <-chan *api.Receive
 		for {
 			select {
 			case <-closeSignal:
-				log.Println("Close signal received")
+				glog.Infoln("Close signal received")
 				break sendLoop
 			default:
 				msg := &api.ReceivedMessage{

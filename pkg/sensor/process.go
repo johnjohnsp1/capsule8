@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"log"
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/perf"
+	"github.com/golang/glog"
 )
 
 /*
@@ -257,7 +257,7 @@ func init() {
 	eventName := "sched/sched_process_fork"
 	schedProcessForkID, err := perf.GetTraceEventID(eventName)
 	if err != nil {
-		log.Printf("Couldn't get %s event id: %v", eventName, err)
+		glog.Infof("Couldn't get %s event id: %v", eventName, err)
 	}
 
 	sensor.registerDecoder(schedProcessForkID, decodeSchedProcessFork)
@@ -265,7 +265,7 @@ func init() {
 	eventName = "sched/sched_process_exec"
 	schedProcessExecID, err := perf.GetTraceEventID(eventName)
 	if err != nil {
-		log.Printf("Couldn't get %s event id: %v", eventName, err)
+		glog.Infof("Couldn't get %s event id: %v", eventName, err)
 	}
 
 	sensor.registerDecoder(schedProcessExecID, decodeSchedProcessExec)
@@ -274,7 +274,7 @@ func init() {
 	sysEnterExitGroupID, err := perf.GetTraceEventID(eventName)
 
 	if err != nil {
-		log.Printf("Couldn't get %s event id: %v", eventName, err)
+		glog.Infof("Couldn't get %s event id: %v", eventName, err)
 	}
 
 	sensor.registerDecoder(sysEnterExitGroupID, decodeSysEnterExitGroup)
