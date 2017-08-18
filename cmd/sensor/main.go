@@ -3,10 +3,13 @@
 package main
 
 import (
+	"flag"
+
 	"github.com/golang/glog"
 )
 
 func main() {
+	flag.Parse()
 	glog.Infoln("starting up")
 	s, err := CreateSensor()
 	if err != nil {

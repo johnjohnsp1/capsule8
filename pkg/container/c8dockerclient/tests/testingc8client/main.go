@@ -7,6 +7,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 
 	"github.com/capsule8/reactive8/pkg/container/c8dockerclient"
@@ -54,6 +55,7 @@ func inspectContainer(client *c8dockerclient.Client, id string) {
 }
 
 func main() {
+	flag.Parse()
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	client := c8dockerclient.NewClient()
 	dockerInfo, err := client.DockerInfo()

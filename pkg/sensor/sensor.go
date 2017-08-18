@@ -627,12 +627,16 @@ func (s *Sensor) update() error {
 		filters[i] = filterMap[uint16(eventAttrs[i].Config)]
 	}
 
+	glog.Infof("Creating new perf session with:\n eventAttrs = %v\nfilters = %v", eventAttrs, filters)
+
 	// Stop old perf session
 	if s.perf != nil {
+		glog.Info("Disabling existing perf session")
 		s.perf.Disable()
 		s.perf.Close()
 		s.perf = nil
 	}
+
 	// Create a new perf session only if we have perf event config info
 	if len(eventAttrs) > 0 {
 		//
@@ -642,11 +646,16 @@ func (s *Sensor) update() error {
 		if err != nil {
 			return err
 		}
+
 		go func() {
 			p.Run(s.onSampleEvent)
+			glog.Infof("perf.Run() returned, exiting goroutine")
 		}()
+
+		glog.Info("Enabling new perf session")
 		p.Enable()
 		s.perf = p
+		glog.Info("Enabled new perf session")
 	}
 
 	return nil
@@ -712,6 +721,9 @@ func filterNils(e interface{}) bool {
 
 // Add returns a stream
 func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
+	glog.Infof("Enter Add(%v)", sub)
+	defer glog.Infof("Exit Add(%v)", sub)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -731,7 +743,9 @@ func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 			return nil, err
 		}
 
+		glog.Info("Adding perf EventStream to joiner")
 		joiner.Add(pes)
+		glog.Info("Added perf EventStream to joiner")
 	}
 
 	if len(sub.EventFilter.ContainerEvents) > 0 {
@@ -748,7 +762,9 @@ func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 		ces = stream.Map(ces, translateContainerEvents)
 		ces = stream.Filter(ces, filterNils)
 
+		glog.Info("Adding container EventStream to joiner")
 		joiner.Add(ces)
+		glog.Info("Added container EventStream to joiner")
 	}
 
 	for _, cf := range sub.EventFilter.ChargenEvents {
@@ -758,7 +774,9 @@ func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 			return nil, err
 		}
 
+		glog.Info("Adding chargen EventStream to joiner")
 		joiner.Add(cs)
+		glog.Info("Added chargen EventStream to joiner")
 	}
 
 	for _, tf := range sub.EventFilter.TickerEvents {
@@ -768,7 +786,9 @@ func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 			return nil, err
 		}
 
+		glog.Info("Adding ticker EventStream to joiner")
 		joiner.Add(ts)
+		glog.Info("Added ticker EventStream to joiner")
 	}
 
 	//
@@ -796,6 +816,9 @@ func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 }
 
 func Remove(subscription *api.Subscription) bool {
+	glog.Infof("Removing subscription %v", subscription)
+	defer glog.Infof("Removed subscription %v", subscription)
+
 	s := getSensor()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -816,8 +839,10 @@ func Remove(subscription *api.Subscription) bool {
 
 func NewSensor(sub *api.Subscription) (*stream.Stream, error) {
 	s := getSensor()
+
 	eventStream, err := s.Add(sub)
 	if err != nil {
+		glog.Errorf("Couldn't add subscription %v: %v", sub, err)
 		return nil, err
 	}
 
