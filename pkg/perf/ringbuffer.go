@@ -16,15 +16,16 @@ import (
 const numRingBufferPages = 1 + (1 << 0)
 
 type ringBuffer struct {
-	fd         int
-	sampleType uint64
-	readFormat uint64
-	memory     []byte
-	metadata   *metadata
-	data       []byte
+	fd          int
+	sampleType  uint64
+	readFormat  uint64
+	sampleIDAll bool
+	memory      []byte
+	metadata    *metadata
+	data        []byte
 }
 
-func newRingBuffer(fd int, sampleType uint64, readFormat uint64) (*ringBuffer, error) {
+func newRingBuffer(fd int, attr *EventAttr) (*ringBuffer, error) {
 	pageSize := os.Getpagesize()
 
 	memory, err := unix.Mmap(fd, 0, numRingBufferPages*pageSize, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
@@ -34,8 +35,9 @@ func newRingBuffer(fd int, sampleType uint64, readFormat uint64) (*ringBuffer, e
 
 	rb := new(ringBuffer)
 	rb.fd = fd
-	rb.sampleType = sampleType
-	rb.readFormat = readFormat
+	rb.sampleType = attr.SampleType
+	rb.readFormat = attr.ReadFormat
+	rb.sampleIDAll = attr.SampleIDAll
 	rb.memory = memory
 	rb.metadata = (*metadata)(unsafe.Pointer(&memory[0]))
 	rb.data = memory[os.Getpagesize():]
@@ -89,7 +91,7 @@ func (rb *ringBuffer) read(f func(*Sample, error)) {
 		// Read all events in the buffer
 		for reader.Len() > 0 {
 			sample := Sample{}
-			err := sample.read(reader, rb.sampleType, rb.readFormat)
+			err := sample.read(reader, rb.sampleType, rb.readFormat, rb.sampleIDAll)
 
 			// Pass err to callback to notify caller of it.
 			f(&sample, err)
