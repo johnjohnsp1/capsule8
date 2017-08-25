@@ -1,9 +1,7 @@
 package main
 
 import (
-	"fmt"
 	"net"
-	"os"
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/config"
@@ -40,7 +38,7 @@ type telemetryServiceServer struct {
 func (t *telemetryServiceServer) GetEvents(sub *api.Subscription, stream telemetry.TelemetryService_GetEventsServer) error {
 	eventStream, err := pbsensor.NewSensor(sub)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to get events: %s\n", err.Error())
+		glog.Errorf("failed to get events: %s\n", err.Error())
 		return err
 	}
 

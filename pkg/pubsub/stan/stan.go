@@ -5,13 +5,13 @@ package stan
 import (
 	"errors"
 	"fmt"
-	"os"
 	"reflect"
 	"regexp"
 	"time"
 
 	api "github.com/capsule8/api/v0"
 	backend "github.com/capsule8/reactive8/pkg/pubsub"
+	"github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 	nats "github.com/nats-io/go-nats"
 	stan "github.com/nats-io/go-nats-streaming"
@@ -38,12 +38,12 @@ func (sb *Backend) Connect() error {
 	var err error
 
 	if sb.stanConn, err = stan.Connect(config.Backplane.ClusterName, uuid.NewV4().String(), stan.NatsURL(config.Backplane.NatsURL)); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to connect to STAN server: %v\n", err)
+		glog.Errorf("Failed to connect to STAN server: %v\n", err.Error())
 		return err
 	}
 
 	if sb.natsConn, err = nats.Connect(config.Backplane.NatsURL); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to connect to NATS server: %v\n", err)
+		glog.Errorf("Failed to connect to NATS server: %v\n", err.Error())
 		return err
 	}
 
@@ -62,8 +62,8 @@ func (sb *Backend) Publish(topic string, message interface{}) error {
 		if err = sb.natsConn.Publish(topic, bytes); err != nil {
 			return err
 		}
-	case *api.SignedSubscription:
-		payload := message.(*api.SignedSubscription)
+	case *api.Subscription:
+		payload := message.(*api.Subscription)
 		bytes, err := proto.Marshal(payload)
 		if err != nil {
 			return err
@@ -142,7 +142,7 @@ ackLoop:
 	for _, ackBytes := range acks {
 		ack := &api.Ack{}
 		if err := proto.Unmarshal(ackBytes, ack); err != nil {
-			fmt.Fprintf(os.Stderr, "Unable to marshal ack: %s\n", err.Error())
+			glog.Errorf("Unable to marshal ack: %s\n", err.Error())
 			failedAcks = append(failedAcks, ackBytes)
 			// We don't want to give up here if we get an error
 			continue ackLoop
@@ -150,11 +150,11 @@ ackLoop:
 		pback := &npb.Ack{Subject: ack.Subject, Sequence: ack.Sequence}
 		b, err := pback.Marshal()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Unable to marshal ack: %s\n", err.Error())
+			glog.Errorf("Unable to marshal ack: %s\n", err.Error())
 			continue ackLoop
 		}
 		if err = sb.natsConn.Publish(ack.Inbox, b); err != nil {
-			fmt.Fprintf(os.Stderr, "Unable to publish ack: %s\n", err.Error())
+			glog.Errorf("Unable to publish ack: %s\n", err.Error())
 			failedAcks = append(failedAcks, ackBytes)
 		}
 	}
@@ -191,14 +191,14 @@ func (sb *Backend) stanSubscribe(topic string, messages chan *api.ReceivedMessag
 		}
 		ackBytes, err := proto.Marshal(ack)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to convert ack bytes: %v\n", err)
+			glog.Errorf("Failed to convert ack bytes: %s\n", err.Error())
 		}
 
 		// Pass the messages along
 		messages <- &api.ReceivedMessage{
-			Payload:     m.Data,
-			Ack:         ackBytes,
-			PublishTime: m.Timestamp,
+			Payload:           m.Data,
+			Ack:               ackBytes,
+			PublishTimeMicros: m.Timestamp,
 		}
 
 	}, options...)
