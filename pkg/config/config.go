@@ -39,9 +39,10 @@ var ApiServer struct {
 }
 
 var Backplane struct {
-	ClusterName string `default:"c8-backplane"`
-	NatsURL     string `default:"nats://localhost:4222"`
-	AckWait     int    `default:"1"`
+	ClusterName       string `default:"c8-backplane"`
+	NatsURL           string `default:"nats://localhost:4222"`
+	NatsMonitoringURL string `default:"nats://localhost:8222"`
+	AckWait           int    `default:"1"`
 }
 
 var Recorder struct {
