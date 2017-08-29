@@ -17,6 +17,11 @@ var healthChecker health.Checker
 
 func main() {
 	flag.Parse()
+
+	configureHealthChecks()
+	http.HandleFunc("/healthz", healthChecker.ServeHTTP)
+	go http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", config.Sensor.MonitoringPort), nil)
+
 	glog.Infoln("starting up")
 	s, err := CreateSensor()
 	if err != nil {
@@ -30,9 +35,6 @@ func main() {
 	// Blocking call to remove stale subscriptions on a 5 second interval
 	s.RemoveStaleSubscriptions()
 	close(stopSignal)
-
-	configureHealthChecks()
-	http.HandleFunc("/healthz", healthChecker.ServeHTTP)
 }
 
 // configure and initialize all Checkable variables required by the health checker

@@ -30,18 +30,20 @@ var Sensor struct {
 	SubscriptionTimeout int64 `default:"5"`
 
 	TelemetryServiceBindAddress string `default:"127.0.0.1:5051"`
+	MonitoringPort              int    `default:"8083"`
 }
 
 var ApiServer struct {
-	Pubsub    string `default:"stan"`
-	Port      int    `default:"8080"`
-	ProxyPort int    `default:"8081"`
+	Pubsub         string `default:"stan"`
+	Port           int    `default:"8080"`
+	ProxyPort      int    `default:"8081"`
+	MonitoringPort int    `default:"8082"`
 }
 
 var Backplane struct {
 	ClusterName       string `default:"c8-backplane"`
 	NatsURL           string `default:"nats://localhost:4222"`
-	NatsMonitoringURL string `default:"nats://localhost:8222"`
+	NatsMonitoringURL string `default:"http://localhost:8222"`
 	AckWait           int    `default:"1"`
 }
 
@@ -50,6 +52,7 @@ var Recorder struct {
 	DbPath              string `default:"/var/lib/capsule8/recorder"`
 	DbFileName          string `default:"recorder.db"`
 	DbSizeLimit         string `default:"100mb"`
+	MonitoringPort      int    `default:"8084"`
 }
 
 func init() {
