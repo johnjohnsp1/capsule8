@@ -1,14 +1,11 @@
 package sensor
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"log"
 	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/container"
@@ -17,27 +14,11 @@ import (
 	"github.com/capsule8/reactive8/pkg/stream"
 )
 
-func (s *Sensor) decodeSample(sr *perf.SampleRecord) (interface{}, error) {
-	var tracepointEventType uint16
-
-	reader := bytes.NewReader(sr.RawData)
-	binary.Read(reader, binary.LittleEndian, &tracepointEventType)
-
-	val := s.decoders.Load()
-	decoders := val.(map[uint16]traceEventDecoderFn)
-	decoder := decoders[tracepointEventType]
-	if decoder != nil {
-		return decoder(sr.RawData)
-	}
-
-	return nil, nil
-}
-
 func (s *Sensor) onSampleEvent(perfEv *perf.Sample, err error) {
 	switch perfEv.Record.(type) {
 	case *perf.SampleRecord:
 		sample := perfEv.Record.(*perf.SampleRecord)
-		e, err := s.decodeSample(sample)
+		e, err := s.decoders.DecodeSample(sample)
 		if err != nil {
 			log.Printf("Decoder error: %v", err)
 			return
@@ -553,10 +534,10 @@ func (fs *filterSet) getPerfFilters() map[uint16]string {
 
 type Sensor struct {
 	mu           sync.Mutex
-	decoders     atomic.Value // map[uint16]traceEventDecoderFn
 	events       []*perf.EventAttr
 	filters      []string
 	perf         *perf.Perf
+	decoders     *perf.TraceEventDecoderList
 	eventStreams map[*api.Subscription]chan interface{}
 }
 
@@ -577,22 +558,9 @@ func getSensor() *Sensor {
 	return sensor
 }
 
-type traceEventDecoderFn func([]byte) (interface{}, error)
-
-func (s *Sensor) registerDecoder(ID uint16, decoder traceEventDecoderFn) {
-	var decoders map[uint16]traceEventDecoderFn
-
-	d := s.decoders.Load()
-
-	if d == nil {
-		decoders = make(map[uint16]traceEventDecoderFn)
-	} else {
-		decoders = d.(map[uint16]traceEventDecoderFn)
-	}
-
-	decoders[ID] = decoder
-
-	s.decoders.Store(decoders)
+func (s *Sensor) registerDecoder(eventName string, decoder perf.TraceEventDecoderFn) error {
+	_, err := s.decoders.AddDecoder(eventName, decoder)
+	return err
 }
 
 func (s *Sensor) update() error {
