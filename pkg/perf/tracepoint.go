@@ -230,15 +230,17 @@ func parseTraceEventField(line string) (*TraceEventField, error) {
 	return field, nil
 }
 
-func GetTraceEventFormat(name string) (map[string]TraceEventField, error) {
+func GetTraceEventFormat(name string) (uint16, map[string]TraceEventField, error) {
 	filename := filepath.Join(getTraceFs(), "events", name, "format")
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	if err != nil {
 		log.Printf("Couldn't open trace event %s: %v",
 			filename, err)
-		return nil, err
+		return 0, nil, err
 	}
 	defer file.Close()
+
+	var eventID uint16
 
 	inFormat := false
 	fields := make(map[string]TraceEventField)
@@ -258,19 +260,27 @@ func GetTraceEventFormat(name string) (map[string]TraceEventField, error) {
 			field, err := parseTraceEventField(line)
 			if err != nil {
 				log.Printf("Couldn't parse trace event format: %v", err)
-				return nil, err
+				return 0, nil, err
 			}
 			fields[field.FieldName] = *field
 		} else if strings.HasPrefix(line, "format:") {
 			inFormat = true
+		} else if strings.HasPrefix(line, "ID:") {
+			value := strings.TrimSpace(line[3:])
+			parsedValue, err := strconv.Atoi(value)
+			if err != nil {
+				log.Printf("Couldn't parse trace event ID: %v", err)
+				return 0, nil, err
+			}
+			eventID = uint16(parsedValue)
 		}
 	}
 	err = scanner.Err()
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 
-	return fields, err
+	return eventID, fields, err
 }
 
 func decodeDataType(dataType int, rawData []byte) (interface{}, error) {

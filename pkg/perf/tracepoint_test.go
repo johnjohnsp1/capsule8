@@ -68,7 +68,7 @@ func TestGetTraceEventFormat(t *testing.T) {
 
 	for i := 0; i < len(formatFiles); i++ {
 		fmt.Printf("%s\n", formatFiles[i])
-		_, err := GetTraceEventFormat(formatFiles[i])
+		_, _, err := GetTraceEventFormat(formatFiles[i])
 		if err != nil {
 			t.Error(err)
 			return
