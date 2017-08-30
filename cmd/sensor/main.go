@@ -6,6 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/capsule8/reactive8/pkg/config"
 	checks "github.com/capsule8/reactive8/pkg/health"
@@ -27,14 +30,22 @@ func main() {
 	if err != nil {
 		glog.Fatalf("error creating sensor: %s\n", err.Error())
 	}
-	stopSignal, err := s.Start()
+	err = s.Start()
 	if err != nil {
 		glog.Fatalf("error starting sensor: %s\n", err.Error())
 	}
 	glog.Infoln("started")
+
+	sigChan := make(chan os.Signal)
+	signal.Notify(sigChan, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		s.Shutdown()
+	}()
+
 	// Blocking call to remove stale subscriptions on a 5 second interval
 	s.RemoveStaleSubscriptions()
-	close(stopSignal)
+	s.Wait()
 }
 
 // configure and initialize all Checkable variables required by the health checker

@@ -23,10 +23,15 @@ func TestGetEvents(t *testing.T) {
 	if err != nil {
 		glog.Fatal("Error creating sensor:", err)
 	}
-	stopSignal, err := s.Start()
+	err = s.Start()
 	if err != nil {
 		glog.Fatal("Error starting sensor:", err)
 	}
+	defer func() {
+		s.Shutdown()
+		s.Wait()
+	}()
+	stopSignal := make(chan interface{})
 
 	conn, _ := grpc.Dial(config.Sensor.TelemetryServiceBindAddress, grpc.WithInsecure())
 	c := telemetry.NewTelemetryServiceClient(conn)

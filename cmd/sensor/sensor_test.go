@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"flag"
 	"fmt"
 	"os"
 	"testing"
@@ -16,6 +17,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	flag.Parse()
 	config.Sensor.Pubsub = "mock"
 
 	os.Exit(m.Run())
@@ -51,24 +53,26 @@ func TestCreateSubscription(t *testing.T) {
 	if err != nil {
 		glog.Fatal("Error creating sensor:", err)
 	}
-	stopSignal, err := s.Start()
+	err = s.Start()
 	if err != nil {
 		glog.Fatal("Error starting sensor:", err)
 	}
+	stopSignal := make(chan interface{})
 
 	msgs := make(chan *mock.OutboundMessage)
 	go func() {
+		timer := time.NewTimer(0)
 	getMessageLoop:
 		for {
 			select {
 			case <-stopSignal:
 				break getMessageLoop
-			default:
+			case <-timer.C:
 				if len(mock.GetOutboundMessages(fmt.Sprintf("event.%s", subID))) > 0 {
 					// We only care about getting a single event here
 					msgs <- &mock.GetOutboundMessages(fmt.Sprintf("event.%s", subID))[0]
 				}
-				time.Sleep(10 * time.Millisecond)
+				timer.Reset(10 * time.Millisecond)
 			}
 		}
 
@@ -79,12 +83,14 @@ func TestCreateSubscription(t *testing.T) {
 		t.Error("Receive msg timeout")
 	case ev := <-msgs:
 		t.Log(ev.Topic)
-		t.Log("Recevied message:", ev)
+		t.Log("Received message:", ev)
 	}
 
 	close(stopSignal)
+	s.Shutdown()
 	// Clear mock values after we're done
 	mock.ClearMockValues()
+	s.Wait()
 }
 
 // TestDiscover tests the discovery broadcast functionality in the sensor
@@ -93,24 +99,27 @@ func TestDiscover(t *testing.T) {
 	if err != nil {
 		glog.Fatal("Error creating sensor:", err)
 	}
-	stopSignal, err := s.Start()
+	err = s.Start()
 	if err != nil {
 		glog.Fatal("Error starting sensor:", err)
 	}
 
 	msgs := make(chan *mock.OutboundMessage)
+	stopSignal := make(chan interface{})
 	go func() {
+		timer := time.NewTimer(0)
+		defer timer.Stop()
 	getMessageLoop:
 		for {
 			select {
 			case <-stopSignal:
 				break getMessageLoop
-			default:
+			case <-timer.C:
 				if len(mock.GetOutboundMessages("discover.sensor")) > 0 {
 					// We only care about getting a single event here
 					msgs <- &mock.GetOutboundMessages("discover.sensor")[0]
 				}
-				time.Sleep(10 * time.Millisecond)
+				timer.Reset(10 * time.Millisecond)
 			}
 		}
 
@@ -120,10 +129,12 @@ func TestDiscover(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Error("Receive msg timeout")
 	case ev := <-msgs:
-		t.Log("Recevied message:", ev)
+		t.Log("Received message:", ev)
 	}
 
 	close(stopSignal)
+	s.Shutdown()
 	// Clear mock values after we're done
 	mock.ClearMockValues()
+	s.Wait()
 }

@@ -50,6 +50,12 @@ func (sb *Backend) Connect() error {
 	return nil
 }
 
+// Close backend to STAN/NATS cluster(s)
+func (sb *Backend) Close() error {
+	sb.natsConn.Close()
+	return sb.stanConn.Close()
+}
+
 // Publish a known message type to a topic
 func (sb *Backend) Publish(topic string, message interface{}) error {
 	switch message.(type) {

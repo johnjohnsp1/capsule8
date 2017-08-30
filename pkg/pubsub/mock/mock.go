@@ -38,6 +38,11 @@ func (sb *Backend) Connect() error {
 	return nil
 }
 
+// Close backend (Nothing to do)
+func (sb *Backend) Close() error {
+	return nil
+}
+
 // Publish a known message type to a topic
 func (sb *Backend) Publish(topic string, message interface{}) error {
 	switch message.(type) {
@@ -54,6 +59,8 @@ func (sb *Backend) Publish(topic string, message interface{}) error {
 		return fmt.Errorf("Message is of unknown type %s", reflect.TypeOf(message))
 	}
 	// Append the message to outbound messages
+	mu.Lock()
+	defer mu.Unlock()
 	outboundMessages[topic] = append(outboundMessages[topic], &OutboundMessage{
 		Topic: topic,
 		Value: message,

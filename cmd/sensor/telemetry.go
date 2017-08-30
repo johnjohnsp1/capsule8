@@ -11,12 +11,13 @@ import (
 	"google.golang.org/grpc"
 )
 
-func startTelemetryService(s *sensor, closeSignal chan interface{}) {
+func startTelemetryService(s *sensor) {
 	g := grpc.NewServer()
 	t := &telemetryServiceServer{
 		s: s,
 	}
 	telemetry.RegisterTelemetryServiceServer(g, t)
+	var err error
 	lis, err := net.Listen("tcp", config.Sensor.TelemetryServiceBindAddress)
 	if err != nil {
 		// We should probably give up if we can't start this.
@@ -24,11 +25,16 @@ func startTelemetryService(s *sensor, closeSignal chan interface{}) {
 	}
 
 	go func() {
-		// Stop telemetry service server when sensor stops
-		<-closeSignal
-		g.Stop()
+		<-s.stopChan
+		g.GracefulStop()
 	}()
-	g.Serve(lis) // This call blocks
+	// Serve requests until the server is stopped.
+	go func() {
+		s.wg.Add(1)
+		defer s.wg.Done()
+
+		g.Serve(lis)
+	}()
 }
 
 type telemetryServiceServer struct {

@@ -11,6 +11,8 @@ type Backend interface {
 	// Connect to the pubsub service
 	// NOTE: Each pubsub backend will expect different env variable(s)
 	Connect() error
+	// Close the pubsub service
+	Close() error
 	// Publish to topic
 	// ARGS:
 	//      topic (string)

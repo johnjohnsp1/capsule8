@@ -22,7 +22,11 @@ import (
 // Sensor represents a node sensor which manages various sensors subsensors and subscriptions.
 type Sensor interface {
 	// Start listening for subscriptions
-	Start() (chan interface{}, error)
+	Start() error
+	// Shut down the sensor
+	Shutdown()
+	// Wait until shutdown completes
+	Wait()
 	// RemoveStaleSubscriptions is a blocking call that removes
 	// stale subscriptions @ `SubscriptionTimeout` interval
 	RemoveStaleSubscriptions()
@@ -64,6 +68,10 @@ type sensor struct {
 
 	// Map of subscription ID -> Subscription metadata
 	subscriptions map[string]*subscriptionMetadata
+	// Wait Group for the sensor goroutines
+	wg sync.WaitGroup
+	// Channel that signals stopping the sensor
+	stopChan chan interface{}
 }
 
 type subscriptionMetadata struct {
@@ -73,23 +81,25 @@ type subscriptionMetadata struct {
 }
 
 // StartSensor starts the async subscription listener
-func (s *sensor) Start() (chan interface{}, error) {
+func (s *sensor) Start() error {
 	sub, messages, err := s.pubsub.Pull("subscription.*")
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	closeSignal := make(chan interface{})
+	s.stopChan = make(chan interface{})
 
 	// Start local telemetry service
-	go startTelemetryService(s, closeSignal)
+	startTelemetryService(s)
 
 	// Handle subscriptions
 	go func() {
+		s.wg.Add(1)
+		defer s.wg.Done()
 	sendLoop:
 		for {
 			select {
-			case <-closeSignal:
+			case <-s.stopChan:
 				break sendLoop
 			case msg, ok := <-messages:
 				if !ok {
@@ -139,12 +149,17 @@ func (s *sensor) Start() (chan interface{}, error) {
 
 	// Broadcast over discovery topic
 	go func() {
+		s.wg.Add(1)
+		defer s.wg.Done()
+
+		discoveryTimer := time.NewTimer(0)
+		defer discoveryTimer.Stop()
 	discoveryLoop:
 		for {
 			select {
-			case <-closeSignal:
+			case <-s.stopChan:
 				break discoveryLoop
-			default:
+			case <-discoveryTimer.C:
 				uname, err := sysinfo.Uname()
 				if err != nil {
 					glog.Errorf("failed to get uname info: %s\n", err.Error())
@@ -166,15 +181,33 @@ func (s *sensor) Start() (chan interface{}, error) {
 						},
 					},
 				})
-				time.Sleep(10 * time.Second)
-
+				discoveryTimer.Reset(10 * time.Second)
 			}
 		}
 	}()
-	return closeSignal, nil
+	return nil
+}
+
+// sensor.Shutdown gracefully stops the sensor's telemetry server
+func (s *sensor) Shutdown() {
+	close(s.stopChan)
+}
+
+// sensor.Shutdown gracefully stops the sensor's telemetry server
+func (s *sensor) Wait() {
+	s.wg.Wait()
+	s.pubsub.Close()
 }
 
 func (s *sensor) RemoveStaleSubscriptions() {
+	timeout := time.Duration(config.Sensor.SubscriptionTimeout) * time.Second
+	timeoutTimer := time.NewTimer(timeout)
+	defer timeoutTimer.Stop()
+
+	s.wg.Add(1)
+	defer s.wg.Done()
+
+staleRemovalLoop:
 	for {
 		s.Lock()
 		now := time.Now().Unix()
@@ -187,7 +220,13 @@ func (s *sensor) RemoveStaleSubscriptions() {
 
 		}
 		s.Unlock()
-		time.Sleep(time.Duration(config.Sensor.SubscriptionTimeout) * time.Second)
+
+		select {
+		case <-s.stopChan:
+			break staleRemovalLoop
+		case <-timeoutTimer.C:
+			timeoutTimer.Reset(timeout)
+		}
 	}
 }
 
