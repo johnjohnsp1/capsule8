@@ -553,6 +553,7 @@ var (
 func getSensor() *Sensor {
 	sensorOnce.Do(func() {
 		sensor = new(Sensor)
+		sensor.decoders = perf.NewTraceEventDecoderList()
 	})
 
 	return sensor
