@@ -229,7 +229,7 @@ func newPidStream(args ...int) (*stream.Stream, error) {
 		pid = args[0]
 	}
 
-	decoders := &perf.TraceEventDecoderList{}
+	decoders := perf.NewTraceEventDecoderList()
 	eventAttrs := createEventAttrs(decoders)
 	if eventAttrs == nil {
 		err := errors.New("Couldn't create perf.EventAttrs")
@@ -247,7 +247,7 @@ func newPidStream(args ...int) (*stream.Stream, error) {
 }
 
 func newCgroupStream(cgroup string) (*stream.Stream, error) {
-	decoders := &perf.TraceEventDecoderList{}
+	decoders := perf.NewTraceEventDecoderList()
 	eventAttrs := createEventAttrs(decoders)
 	if eventAttrs == nil {
 		err := errors.New("Couldn't create perf.EventAttrs")

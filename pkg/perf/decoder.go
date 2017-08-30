@@ -97,6 +97,12 @@ type TraceEventDecoderList struct {
 	decoders   map[uint16]*traceEventDecoder
 }
 
+func NewTraceEventDecoderList() *TraceEventDecoderList {
+	return &TraceEventDecoderList{
+		decoders: make(map[uint16]*traceEventDecoder),
+	}
+}
+
 func (l *TraceEventDecoderList) AddDecoder(name string, fn TraceEventDecoderFn) (uint16, error) {
 	id, fields, err := GetTraceEventFormat(name)
 	if err != nil {
