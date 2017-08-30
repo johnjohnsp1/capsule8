@@ -8,6 +8,12 @@ import (
 )
 
 func TestGetTraceEventID(t *testing.T) {
+	// Root is required to access the tracing fs
+	if os.Geteuid() != 0 {
+		t.Skip("root privileges are required")
+		return
+	}
+
 	_, err := GetTraceEventID("fs/do_sys_open")
 	if err != nil {
 		t.Error(err)
@@ -47,6 +53,12 @@ func collectFormatFiles(path string) ([]string, error) {
 }
 
 func TestGetTraceEventFormat(t *testing.T) {
+	// Root is required to access the tracing fs
+	if os.Geteuid() != 0 {
+		t.Skip("root privileges are required")
+		return
+	}
+
 	// Parse every "format" file found under /sys/kernel/debug/tracing/events
 	formatFiles, err := collectFormatFiles("")
 	if err != nil {
