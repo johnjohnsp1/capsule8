@@ -35,7 +35,8 @@ type TraceEventField struct {
 
 	dataType     int // data type constant from above
 	dataTypeSize int
-	arraySize    int // -1 == not an array, 0 == [] array, >0 == # elements
+	dataLocSize  int
+	arraySize    int // 0 == [] array, >0 == # elements
 }
 
 func getTraceFs() string {
@@ -135,63 +136,256 @@ func GetTraceEventID(name string) (uint16, error) {
 	return uint16(id), nil
 }
 
-func parseTypeName(s string, size int, isSigned bool) (int, int, int, error) {
+func (field *TraceEventField) setTypeFromSizeAndSign(isArray bool, arraySize int) (bool, error) {
+	if isArray  {
+		if arraySize == -1 {
+			// If this is an array of unknown size, we have to
+			// skip it, because the field size is ambiguous
+			return true, nil
+		}
+		field.dataTypeSize = field.Size / arraySize
+	} else {
+		field.dataTypeSize = field.Size
+	}
+
+	switch field.dataTypeSize {
+	case 1:
+		if field.IsSigned {
+			field.dataType = dtS8
+		} else {
+			field.dataType = dtU8
+		}
+	case 2:
+		if field.IsSigned {
+			field.dataType = dtS16
+		} else {
+			field.dataType = dtU16
+		}
+	case 4:
+		if field.IsSigned {
+			field.dataType = dtS32
+		} else {
+			field.dataType = dtU32
+		}
+	case 8:
+		if field.IsSigned {
+			field.dataType = dtS64
+		} else {
+			field.dataType = dtU64
+		}
+	default:
+		return true, fmt.Errorf("cannot determine type from size %d and sign %v", field.dataTypeSize, field.IsSigned)
+	}
+	return false, nil
+}
+
+func (field *TraceEventField) parseTypeName(s string, isArray bool, arraySize int) (bool, error) {
+	if strings.HasPrefix(s, "const ") {
+		s = s[6:]
+	}
+
+	switch s {
+	// Standard C types
+	case "bool", "size_t", "ssize_t":
+		return field.setTypeFromSizeAndSign(isArray, arraySize)
+	case "int", "signed int", "signed", "unsigned int", "unsigned", "uint":
+		return field.setTypeFromSizeAndSign(isArray, arraySize)
+	case "char", "signed char", "unsigned char":
+		return field.setTypeFromSizeAndSign(isArray, arraySize)
+	case "short", "signed short", "unsigned short":
+		return field.setTypeFromSizeAndSign(isArray, arraySize)
+	case "long", "signed long", "unsigned long":
+		return field.setTypeFromSizeAndSign(isArray, arraySize)
+	case "long long", "signed long long", "unsigned long long":
+		return field.setTypeFromSizeAndSign(isArray, arraySize)
+
+	// Fixed-size types
+	case "s8", "__s8", "int8_t", "__int8_t":
+		field.dataType = dtS8
+		field.dataTypeSize = 1
+		return false, nil
+	case "u8", "__u8", "uint8_t", "__uint8_t":
+		field.dataType = dtS16
+		field.dataTypeSize = 1
+		return false, nil
+	case "s16", "__s16", "int16_t", "__int16_t":
+		field.dataType = dtS16
+		field.dataTypeSize = 2
+		return false, nil
+	case "u16", "__u16", "uint16_t", "__uint16_t":
+		field.dataType = dtU16
+		field.dataTypeSize = 2
+		return false, nil
+	case "s32", "__s32", "int32_t", "__int32_t":
+		field.dataType = dtS32
+		field.dataTypeSize = 4
+		return false, nil
+	case "u32", "__u32", "uint32_t", "__uint32_t":
+		field.dataType = dtU32
+		field.dataTypeSize = 4
+		return false, nil
+	case "s64", "__s64", "int64_t", "__int64_t":
+		field.dataType = dtS64
+		field.dataTypeSize = 8
+		return false, nil
+	case "u64", "__u64", "uint64_t", "__uint64_t":
+		field.dataType = dtU64
+		field.dataTypeSize = 8
+		return false, nil
+
+/*
+	// Known kernel typedefs in 4.10
+	case "clockid_t", "pid_t", "xfs_extnum_t":
+		field.dataType = dtS32
+		field.dataTypeSize = 4
+	case "dev_t", "gfp_t", "gid_t", "isolate_mode_t", "tid_t", "uid_t",
+		"ext4_lblk_t",
+		"xfs_agblock_t", "xfs_agino_t", "xfs_agnumber_t", "xfs_btnum_t",
+		"xfs_dahash_t", "xfs_exntst_t", "xfs_extlen_t", "xfs_lookup_t",
+		"xfs_nlink_t", "xlog_tid_t":
+		field.dataType = dtU32
+		field.dataTypeSize = 4
+	case "loff_t", "xfs_daddr_t", "xfs_fsize_t", "xfs_lsn_t", "xfs_off_t":
+		field.dataType = dtS64
+		field.dataTypeSize = 8
+	case "aio_context_t", "blkcnt_t", "cap_user_data_t",
+		"cap_user_header_t", "cputime_t", "dma_addr_t", "fl_owner_t",
+		"gfn_t", "gpa_t", "gva_t", "ino_t", "key_serial_t", "key_t",
+		"mqd_t", "off_t", "pgdval_t", "phys_addr_t", "pmdval_t",
+		"pteval_t", "pudval_t", "qid_t", "resource_size_t", "sector_t",
+		"timer_t", "umode_t",
+		"ext4_fsblk_t",
+		"xfs_ino_t", "xfs_fileoff_t", "xfs_fsblock_t", "xfs_filblks_t":
+		field.dataType = dtU64
+		field.dataTypeSize = 8
+
+	case "xen_mc_callback_fn_t":
+		// This is presumably a pointer type
+		return true, nil
+*/
+
+	case "uuid_be", "uuid_le":
+		field.dataType = dtU8
+		field.dataTypeSize = 1
+		field.arraySize = 16
+		return false, nil
+
+	default:
+		// Judging by Linux kernel conventions, it would appear that
+		// any type name ending in _t is an integer type. Try to figure
+		// it out from other information the kernel has given us. Note
+		// that pointer types also fall into this category; however, we
+		// have no way to know whether the value is to be treated as an
+		// integer or a pointer unless we try to parse the printf fmt
+		// string that's also included in the format description (no!)
+		if strings.HasSuffix(s, "_t") {
+			return field.setTypeFromSizeAndSign(isArray, arraySize)
+		}
+		if len(s) > 0 && s[len(s)-1] == '*' {
+			// Skip pointers since they're meaningless outside of
+			// kernel space
+			return true, nil
+		}
+		if strings.HasPrefix(s, "struct ") {
+			// Skip structs
+			return true, nil
+		}
+		if strings.HasPrefix(s, "union ") {
+			// Skip unions
+			return true, nil
+		}
+		if strings.HasPrefix(s, "enum ") {
+			return field.setTypeFromSizeAndSign(isArray, arraySize)
+		}
+		return true, fmt.Errorf("Unrecognized type \"%s\"", s)
+	}
+}
+
+func (field *TraceEventField) parseTypeAndName(s string) (bool, error) {
+	if field.Size == 0 {
+		// Yep, this can happen.
+		// For example, xen/xen_mmu_Alush_tlb_all has:
+		//	field: char x[0]; offset:8; size:0; signed:1;
+		return true, nil
+	}
 	if strings.HasPrefix(s, "__data_loc") {
 		s = s[11:]
-		if s == "char[]" {
-			return dtString, 1, 0, nil
+		field.dataLocSize = field.Size
+
+		// We have to use the type name here. The size information will
+		// always indicate how big the data_loc information is, which
+		// is normally 4 bytes (offset uint16, length uint16)
+
+		x := strings.LastIndexFunc(s, unicode.IsSpace)
+		field.FieldName = string(strings.TrimSpace(s[x+1:]))
+
+		s = s[:x]
+		if !strings.HasSuffix(s, "[]") {
+			return true, errors.New("Expected [] suffix on __data_loc type")
+		}
+		s = s[:len(s)-2]
+		field.TypeName = string(s)
+
+		if s == "char" {
+			field.dataType = dtString
+			field.dataTypeSize = 1
+		} else {
+			skip, err := field.parseTypeName(s, true, -1)
+			if err != nil {
+				return true, err
+			}
+			if skip {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+
+	arraySize := -1
+	isArray := false
+	x := strings.IndexRune(s, '[')
+	if x != -1 {
+		if s[x+1] == ']' {
+			return true, errors.New("Unexpected __data_loc without __data_loc prefix")
+		}
+
+		// Try to parse out the array size. Most of the time this will
+		// be possible, but there are some cases where macros or consts
+		// are used, so it's not possible.
+		value, err := strconv.Atoi(s[x+1 : len(s)-1])
+		if err == nil {
+			arraySize = value
+		}
+
+		s = s[:x]
+		isArray = true
+	}
+
+	x = strings.LastIndexFunc(s, unicode.IsSpace)
+	field.TypeName = string(s[:x])
+	field.FieldName = string(strings.TrimSpace(s[x+1:]))
+
+	skip, err := field.parseTypeName(field.TypeName, isArray, arraySize)
+	if err != nil {
+		return true, err
+	}
+	if skip {
+		return true, nil
+	}
+	if isArray {
+		if arraySize >= 0 {
+			field.arraySize = arraySize
+		} else {
+			field.arraySize = field.Size / field.dataTypeSize
 		}
 	}
 
-	if strings.HasSuffix(s, "[]") {
-		dataType, dataTypeSize, _, err := parseTypeName(s[:len(s)-2], size, isSigned)
-		return dataType, dataTypeSize, 0, err
-	}
-	if strings.HasSuffix(s, "]") {
-		x := strings.Index(s, "[")
-		if x < 0 {
-			return 0, 0, 0, errors.New("malformed type name")
-		}
-		dataType, dataTypeSize, _, err := parseTypeName(s[:x], size, isSigned)
-		if err != nil {
-			return 0, 0, 0, err
-		}
-		arraySize, err := strconv.Atoi(s[x+1 : len(s)-1])
-		return dataType, dataTypeSize, arraySize, err
-	}
-
-	// Except for prefix and suffix information, ignore the type name.
-	// For kprobes and uprobes, the type names will be standard, but for
-	// tracepoints the type names will be whatever is used in the kernel
-	// source. Handling all possibilities is not feasible, so consider only
-	// the size and signed flag
-	switch size {
-	case 1:
-		if isSigned {
-			return dtS8, 1, -1, nil
-		}
-		return dtU8, 1, -1, nil
-	case 2:
-		if isSigned {
-			return dtS16, 2, -1, nil
-		}
-		return dtU16, 2, -1, nil
-	case 4:
-		if isSigned {
-			return dtS32, 4, -1, nil
-		}
-		return dtU32, 4, -1, nil
-	case 8:
-		if isSigned {
-			return dtS64, 8, -1, nil
-		}
-		return dtU64, 8, -1, nil
-	}
-	return 0, 0, 0, errors.New(fmt.Sprintf("unrecognized type name \"%s\"", s))
+	return false, nil
 }
 
 func parseTraceEventField(line string) (*TraceEventField, error) {
 	var err error
+	var fieldString string
 
 	field := &TraceEventField{}
 	fields := strings.Split(strings.TrimSpace(line), ";")
@@ -206,13 +400,7 @@ func parseTraceEventField(line string) (*TraceEventField, error) {
 
 		switch strings.TrimSpace(parts[0]) {
 		case "field":
-			x := strings.LastIndexFunc(parts[1], unicode.IsSpace)
-			if x < 0 {
-				err = errors.New("malformed format field")
-			} else {
-				field.FieldName = strings.TrimSpace(string(parts[1][x+1:]))
-				field.TypeName = strings.TrimSpace(string(parts[1][:x]))
-			}
+			fieldString = parts[1]
 		case "offset":
 			field.Offset, err = strconv.Atoi(parts[1])
 		case "size":
@@ -225,7 +413,13 @@ func parseTraceEventField(line string) (*TraceEventField, error) {
 		}
 	}
 
-	field.dataType, field.dataTypeSize, field.arraySize, err = parseTypeName(field.TypeName, field.Size, field.IsSigned)
+	skip, err := field.parseTypeAndName(fieldString)
+	if err != nil {
+		return nil, err
+	}
+	if skip {
+		return nil, nil
+	}
 	return field, nil
 }
 
@@ -261,7 +455,9 @@ func GetTraceEventFormat(name string) (uint16, map[string]TraceEventField, error
 				log.Printf("Couldn't parse trace event format: %v", err)
 				return 0, nil, err
 			}
-			fields[field.FieldName] = *field
+			if field != nil {
+				fields[field.FieldName] = *field
+			}
 		} else if strings.HasPrefix(line, "format:") {
 			inFormat = true
 		} else if strings.HasPrefix(line, "ID:") {

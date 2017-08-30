@@ -3,6 +3,7 @@ package perf
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"sync"
 )
 
@@ -40,33 +41,41 @@ func decodeDataType(dataType int, rawData []byte) (interface{}, error) {
 }
 
 func (d *traceEventDecoder) decodeRawData(rawData []byte) (TraceEventSampleData, error) {
-	data := make(map[string]interface{})
+	data := make(TraceEventSampleData)
 	for _, field := range d.fields {
+		var arraySize, dataLength, dataOffset int
 		var err error
 
-		if field.dataType == dtString {
-			dataOffset := binary.LittleEndian.Uint16(rawData[field.Offset:])
-			dataLength := binary.LittleEndian.Uint16(rawData[field.Offset+2:])
-			data[field.FieldName] = string([]byte(rawData[dataOffset : dataOffset+dataLength-1]))
-			continue
-		}
+		if field.dataLocSize > 0 {
+			switch field.dataLocSize {
+			case 4:
+				dataOffset = int(binary.LittleEndian.Uint16(rawData[field.Offset:]))
+				dataLength = int(binary.LittleEndian.Uint16(rawData[field.Offset+2:]))
+			case 8:
+				dataOffset = int(binary.LittleEndian.Uint32(rawData[field.Offset:]))
+				dataLength = int(binary.LittleEndian.Uint32(rawData[field.Offset+4:]))
+			default:
+				return nil, fmt.Errorf("__data_loc size is neither 4 nor 8 (got %d)", field.dataLocSize)
+			}
 
-		if field.arraySize == -1 {
+			if field.dataType == dtString {
+				if dataLength > 0 && rawData[dataOffset+dataLength-1] == 0 {
+					dataLength--
+				}
+				data[field.FieldName] = string(rawData[dataOffset : dataOffset+dataLength])
+				continue
+			}
+			arraySize = dataLength / field.dataTypeSize
+		} else if field.arraySize == 0 {
 			data[field.FieldName], err = decodeDataType(field.dataType, rawData[field.Offset:])
 			if err != nil {
 				return nil, err
 			}
 			continue
-		}
-
-		var arraySize, dataOffset int
-		if field.arraySize == 0 {
-			dataOffset = int(binary.LittleEndian.Uint16(rawData[field.Offset:]))
-			dataLength := int(binary.LittleEndian.Uint16(rawData[field.Offset+2:]))
-			arraySize = dataLength / field.dataTypeSize
 		} else {
-			dataOffset = field.Offset
 			arraySize = field.arraySize
+			dataOffset = field.Offset
+			dataLength = arraySize * field.dataTypeSize
 		}
 
 		var array []interface{} = make([]interface{}, arraySize)
