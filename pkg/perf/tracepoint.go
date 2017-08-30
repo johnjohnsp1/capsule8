@@ -2,7 +2,6 @@ package perf
 
 import (
 	"bufio"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
@@ -281,72 +280,4 @@ func GetTraceEventFormat(name string) (uint16, map[string]TraceEventField, error
 	}
 
 	return eventID, fields, err
-}
-
-func decodeDataType(dataType int, rawData []byte) (interface{}, error) {
-	switch dataType {
-	case dtString:
-		return nil, errors.New("internal error; got unexpected dtString")
-	case dtS8:
-		return int8(rawData[0]), nil
-	case dtS16:
-		return int16(binary.LittleEndian.Uint16(rawData)), nil
-	case dtS32:
-		return int32(binary.LittleEndian.Uint32(rawData)), nil
-	case dtS64:
-		return int64(binary.LittleEndian.Uint64(rawData)), nil
-	case dtU8:
-		return uint8(rawData[0]), nil
-	case dtU16:
-		return binary.LittleEndian.Uint16(rawData), nil
-	case dtU32:
-		return binary.LittleEndian.Uint32(rawData), nil
-	case dtU64:
-		return binary.LittleEndian.Uint64(rawData), nil
-	}
-	return nil, errors.New("internal error; undefined dataType")
-}
-
-func DecodeTraceEvent(rawData []byte, fields map[string]TraceEventField) (map[string]interface{}, error) {
-	data := make(map[string]interface{})
-	for _, field := range fields {
-		var err error
-
-		if field.dataType == dtString {
-			dataOffset := binary.LittleEndian.Uint16(rawData[field.Offset:])
-			dataLength := binary.LittleEndian.Uint16(rawData[field.Offset+2:])
-			data[field.FieldName] = string([]byte(rawData[dataOffset : dataOffset+dataLength-1]))
-			continue
-		}
-
-		if field.arraySize == -1 {
-			data[field.FieldName], err = decodeDataType(field.dataType, rawData[field.Offset:])
-			if err != nil {
-				return nil, err
-			}
-			continue
-		}
-
-		var arraySize, dataOffset int
-		if field.arraySize == 0 {
-			dataOffset = int(binary.LittleEndian.Uint16(rawData[field.Offset:]))
-			dataLength := int(binary.LittleEndian.Uint16(rawData[field.Offset+2:]))
-			arraySize = dataLength / field.dataTypeSize
-		} else {
-			dataOffset = field.Offset
-			arraySize = field.arraySize
-		}
-
-		var array []interface{} = make([]interface{}, arraySize)
-		for i := 0; i < arraySize; i++ {
-			array[i], err = decodeDataType(field.dataType, rawData[dataOffset:])
-			if err != nil {
-				return nil, err
-			}
-			dataOffset += field.dataTypeSize
-		}
-		data[field.FieldName] = array
-	}
-
-	return data, nil
 }
