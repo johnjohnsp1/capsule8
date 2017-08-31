@@ -473,7 +473,7 @@ func GetTraceEventFormat(name string) (uint16, map[string]TraceEventField, error
 	filename := filepath.Join(getTraceFs(), "events", name, "format")
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	if err != nil {
-		log.Printf("Couldn't open trace event %s: %v",
+		glog.Infof("Couldn't open trace event %s: %v",
 			filename, err)
 		return 0, nil, err
 	}
@@ -498,7 +498,7 @@ func GetTraceEventFormat(name string) (uint16, map[string]TraceEventField, error
 			}
 			field, err := parseTraceEventField(line)
 			if err != nil {
-				log.Printf("Couldn't parse trace event format: %v", err)
+				glog.Infof("Couldn't parse trace event format: %v", err)
 				return 0, nil, err
 			}
 			if field != nil {
@@ -510,7 +510,7 @@ func GetTraceEventFormat(name string) (uint16, map[string]TraceEventField, error
 			value := strings.TrimSpace(line[3:])
 			parsedValue, err := strconv.Atoi(value)
 			if err != nil {
-				log.Printf("Couldn't parse trace event ID: %v", err)
+				glog.Infof("Couldn't parse trace event ID: %v", err)
 				return 0, nil, err
 			}
 			eventID = uint16(parsedValue)
