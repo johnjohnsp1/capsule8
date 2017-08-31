@@ -92,18 +92,18 @@ func (d *traceEventDecoder) decodeRawData(rawData []byte) (TraceEventSampleData,
 	return data, nil
 }
 
-type TraceEventDecoderList struct {
+type TraceEventDecoderMap struct {
 	sync.Mutex
 	decoders   map[uint16]*traceEventDecoder
 }
 
-func NewTraceEventDecoderList() *TraceEventDecoderList {
-	return &TraceEventDecoderList{
+func NewTraceEventDecoderMap() *TraceEventDecoderMap {
+	return &TraceEventDecoderMap{
 		decoders: make(map[uint16]*traceEventDecoder),
 	}
 }
 
-func (l *TraceEventDecoderList) AddDecoder(name string, fn TraceEventDecoderFn) (uint16, error) {
+func (l *TraceEventDecoderMap) AddDecoder(name string, fn TraceEventDecoderFn) (uint16, error) {
 	id, fields, err := GetTraceEventFormat(name)
 	if err != nil {
 		return 0, err
@@ -123,7 +123,7 @@ func (l *TraceEventDecoderList) AddDecoder(name string, fn TraceEventDecoderFn) 
 	return id, nil
 }
 
-func (l *TraceEventDecoderList) getDecoder(eventType uint16) *traceEventDecoder {
+func (l *TraceEventDecoderMap) getDecoder(eventType uint16) *traceEventDecoder {
 	l.Lock()
 	defer l.Unlock()
 
@@ -133,7 +133,7 @@ func (l *TraceEventDecoderList) getDecoder(eventType uint16) *traceEventDecoder 
 	return l.decoders[eventType]
 }
 
-func (l *TraceEventDecoderList) DecodeSample(sample *SampleRecord) (interface{}, error) {
+func (l *TraceEventDecoderMap) DecodeSample(sample *SampleRecord) (interface{}, error) {
 	eventType := uint16(binary.LittleEndian.Uint64(sample.RawData))
 	decoder := l.getDecoder(eventType)
 	if decoder == nil {

@@ -537,7 +537,7 @@ type Sensor struct {
 	events       []*perf.EventAttr
 	filters      []string
 	perf         *perf.Perf
-	decoders     *perf.TraceEventDecoderList
+	decoders     *perf.TraceEventDecoderMap
 	eventStreams map[*api.Subscription]chan interface{}
 }
 
@@ -553,7 +553,7 @@ var (
 func getSensor() *Sensor {
 	sensorOnce.Do(func() {
 		sensor = new(Sensor)
-		sensor.decoders = perf.NewTraceEventDecoderList()
+		sensor.decoders = perf.NewTraceEventDecoderMap()
 	})
 
 	return sensor

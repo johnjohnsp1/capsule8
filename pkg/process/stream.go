@@ -36,7 +36,7 @@ type processStream struct {
 	data        chan interface{}
 	eventStream *stream.Stream
 	perf        *perf.Perf
-	decoders    *perf.TraceEventDecoderList
+	decoders    *perf.TraceEventDecoderMap
 }
 
 func decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
@@ -101,7 +101,7 @@ func (ps *processStream) onSample(perfEv *perf.Sample, err error) {
 	}
 }
 
-func createEventAttrs(decoders *perf.TraceEventDecoderList) []*perf.EventAttr {
+func createEventAttrs(decoders *perf.TraceEventDecoderMap) []*perf.EventAttr {
 	//
 	// TODO:
 	//
@@ -168,7 +168,7 @@ func createEventAttrs(decoders *perf.TraceEventDecoderList) []*perf.EventAttr {
 	return eventAttrs
 }
 
-func createStream(p *perf.Perf, decoders *perf.TraceEventDecoderList) (*stream.Stream, error) {
+func createStream(p *perf.Perf, decoders *perf.TraceEventDecoderMap) (*stream.Stream, error) {
 	controlChannel := make(chan interface{})
 	dataChannel := make(chan interface{})
 
@@ -229,7 +229,7 @@ func newPidStream(args ...int) (*stream.Stream, error) {
 		pid = args[0]
 	}
 
-	decoders := perf.NewTraceEventDecoderList()
+	decoders := perf.NewTraceEventDecoderMap()
 	eventAttrs := createEventAttrs(decoders)
 	if eventAttrs == nil {
 		err := errors.New("Couldn't create perf.EventAttrs")
@@ -247,7 +247,7 @@ func newPidStream(args ...int) (*stream.Stream, error) {
 }
 
 func newCgroupStream(cgroup string) (*stream.Stream, error) {
-	decoders := perf.NewTraceEventDecoderList()
+	decoders := perf.NewTraceEventDecoderMap()
 	eventAttrs := createEventAttrs(decoders)
 	if eventAttrs == nil {
 		err := errors.New("Couldn't create perf.EventAttrs")
