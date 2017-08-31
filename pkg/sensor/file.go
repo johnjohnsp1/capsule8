@@ -23,7 +23,9 @@ func decodeDoSysOpen(sample *perf.SampleRecord, data perf.TraceEventSampleData) 
 // -----------------------------------------------------------------------------
 
 func addKprobe() error {
-	return perf.AddKprobe("fs/do_sys_open", "do_sys_open", false, "filename=+0(%si):string flags=%dx:s32 mode=%cx:s32")
+	_, err := perf.AddKprobe("fs/do_sys_open", "do_sys_open", false, "filename=+0(%si):string flags=%dx:s32 mode=%cx:s32")
+
+	return err
 }
 
 func init() {
