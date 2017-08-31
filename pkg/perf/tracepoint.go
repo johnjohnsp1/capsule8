@@ -174,7 +174,10 @@ func (field *TraceEventField) setTypeFromSizeAndSign(isArray bool, arraySize int
 			field.dataType = dtU64
 		}
 	default:
-		return true, fmt.Errorf("cannot determine type from size %d and sign %v", field.dataTypeSize, field.IsSigned)
+		// We can't figure out the type from the information given to
+		// us. We're here likely because of a typedef name we didn't
+		// recognize that's an array of integers or something. Skip it.
+		return true, nil
 	}
 	return false, nil
 }
@@ -297,7 +300,11 @@ func (field *TraceEventField) parseTypeName(s string, isArray bool, arraySize in
 		if strings.HasPrefix(s, "enum ") {
 			return field.setTypeFromSizeAndSign(isArray, arraySize)
 		}
-		return true, fmt.Errorf("Unrecognized type \"%s\"", s)
+		// We don't recognize the type name. It's probably a typedef
+		// for an integer or array of integers or something. Try to
+		// figure it out from the size and sign information, but the
+		// odds are not in our favor if we're here.
+		return field.setTypeFromSizeAndSign(isArray, arraySize)
 	}
 }
 
