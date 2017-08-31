@@ -309,13 +309,13 @@ func (field *TraceEventField) parseTypeName(s string, isArray bool, arraySize in
 	case "xen_mc_callback_fn_t":
 		// This is presumably a pointer type
 		return true, nil
-*/
 
 	case "uuid_be", "uuid_le":
 		field.dataType = dtU8
 		field.dataTypeSize = 1
 		field.arraySize = 16
 		return false, nil
+*/
 
 	default:
 		// Judging by Linux kernel conventions, it would appear that
@@ -329,9 +329,7 @@ func (field *TraceEventField) parseTypeName(s string, isArray bool, arraySize in
 			return field.setTypeFromSizeAndSign(isArray, arraySize)
 		}
 		if len(s) > 0 && s[len(s)-1] == '*' {
-			// Skip pointers since they're meaningless outside of
-			// kernel space
-			return true, nil
+			return field.setTypeFromSizeAndSign(isArray, arraySize)
 		}
 		if strings.HasPrefix(s, "struct ") {
 			// Skip structs
@@ -353,12 +351,6 @@ func (field *TraceEventField) parseTypeName(s string, isArray bool, arraySize in
 }
 
 func (field *TraceEventField) parseTypeAndName(s string) (bool, error) {
-	if field.Size == 0 {
-		// Yep, this can happen.
-		// For example, xen/xen_mmu_Alush_tlb_all has:
-		//	field: char x[0]; offset:8; size:0; signed:1;
-		return true, nil
-	}
 	if strings.HasPrefix(s, "__data_loc") {
 		s = s[11:]
 		field.dataLocSize = field.Size
@@ -469,7 +461,14 @@ func parseTraceEventField(line string) (*TraceEventField, error) {
 		return nil, err
 	}
 	if skip {
-		return nil, nil
+		// If a field is marked as skip, treat it as an array of bytes
+		field.dataTypeSize = 1
+		field.arraySize = field.Size
+		if field.IsSigned {
+			field.dataType = dtS8
+		} else {
+			field.dataType = dtU8
+		}
 	}
 	return field, nil
 }
