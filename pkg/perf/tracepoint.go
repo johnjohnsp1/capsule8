@@ -189,18 +189,57 @@ func (field *TraceEventField) parseTypeName(s string, isArray bool, arraySize in
 
 	switch s {
 	// Standard C types
-	case "bool", "size_t", "ssize_t":
+	case "bool":
+		// "bool" is usually 1 byte, but it could be defined otherwise?
 		return field.setTypeFromSizeAndSign(isArray, arraySize)
+
+	// These types are going to be consistent in a 64-bit kernel, and in a
+	// 32-bit kernel as well, except for "long".
 	case "int", "signed int", "signed", "unsigned int", "unsigned", "uint":
-		return field.setTypeFromSizeAndSign(isArray, arraySize)
+		if field.IsSigned {
+			field.dataType = dtS32
+		} else {
+			field.dataType = dtU32
+		}
+		field.dataTypeSize = 4
+		return false, nil
 	case "char", "signed char", "unsigned char":
-		return field.setTypeFromSizeAndSign(isArray, arraySize)
+		if field.IsSigned {
+			field.dataType = dtS8
+		} else {
+			field.dataType = dtU8
+		}
+		field.dataTypeSize = 1
+		return false, nil
 	case "short", "signed short", "unsigned short":
-		return field.setTypeFromSizeAndSign(isArray, arraySize)
+		if field.IsSigned {
+			field.dataType = dtS16
+		} else {
+			field.dataType = dtU16
+		}
+		field.dataTypeSize = 2
+		return false, nil
 	case "long", "signed long", "unsigned long":
-		return field.setTypeFromSizeAndSign(isArray, arraySize)
+		skip, err := field.setTypeFromSizeAndSign(isArray, arraySize)
+		if skip && err == nil {
+			// Assume a 64-bit kernel
+			if field.IsSigned {
+				field.dataType = dtS64
+			} else {
+				field.dataType = dtU64
+			}
+			field.dataTypeSize = 8
+			return false, nil
+		}
+		return skip, err
 	case "long long", "signed long long", "unsigned long long":
-		return field.setTypeFromSizeAndSign(isArray, arraySize)
+		if field.IsSigned {
+			field.dataType = dtS64
+		} else {
+			field.dataType = dtU64
+		}
+		field.dataTypeSize = 8
+		return false, nil
 
 	// Fixed-size types
 	case "s8", "__s8", "int8_t", "__int8_t":
