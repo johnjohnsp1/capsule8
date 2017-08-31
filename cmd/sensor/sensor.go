@@ -3,12 +3,10 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
-	"log"
 	"sync"
 	"time"
-
-	"os"
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/config"
@@ -17,6 +15,7 @@ import (
 	pbstan "github.com/capsule8/reactive8/pkg/pubsub/stan"
 	pbsensor "github.com/capsule8/reactive8/pkg/sensor"
 	"github.com/capsule8/reactive8/pkg/sysinfo"
+	"github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 )
 
@@ -94,38 +93,42 @@ func (s *sensor) Start() (chan interface{}, error) {
 				break sendLoop
 			case msg, ok := <-messages:
 				if !ok {
-					fmt.Fprint(os.Stderr, "Failed receiving events\n")
+					glog.Errorln("failed receiving events")
 					break sendLoop
 				}
-				ss := &api.SignedSubscription{}
-				if err = proto.Unmarshal(msg.Payload, ss); err != nil {
-					fmt.Fprintf(os.Stderr, "No selector specified in subscription.%s\n", err.Error())
+				sub := &api.Subscription{}
+				if err = proto.Unmarshal(msg.Payload, sub); err != nil {
+					glog.Errorf("no selector specified in subscription.%s\n", err.Error())
 					continue sendLoop
 				}
 				// Ignore subscriptions that have specified a time range
-				if ss.Subscription.SinceDuration != nil || ss.Subscription.ForDuration != nil {
+				if sub.SinceDuration != nil || sub.ForDuration != nil {
 					continue sendLoop
 				}
 
 				// TODO: Filter subscriptions based on cluster/node information
 
 				// Check if there is actually an EventFilter in the request. If not, ignore.
-				if ss.Subscription.EventFilter == nil {
-					fmt.Fprint(os.Stderr, "No EventFilter specified in subscription\n")
+				if sub.EventFilter == nil {
+					glog.Errorln("no EventFilter specified in subscription")
 					continue sendLoop
 				}
 
 				// New subscription?
+				b, _ := proto.Marshal(sub)
+				h := sha256.New()
+				h.Write(b)
+				subID := fmt.Sprintf("%x", h.Sum(nil))
 				s.Lock()
-				if _, ok := s.subscriptions[ss.SubscriptionId]; !ok {
-					s.subscriptions[ss.SubscriptionId] = &subscriptionMetadata{
+				if _, ok := s.subscriptions[subID]; !ok {
+					s.subscriptions[subID] = &subscriptionMetadata{
 						lastSeen:     time.Now().Add(time.Duration(config.Sensor.SubscriptionTimeout) * time.Second).Unix(),
-						subscription: ss.Subscription,
+						subscription: sub,
 					}
-					s.subscriptions[ss.SubscriptionId].stopChan = s.newSensor(ss.Subscription, ss.SubscriptionId)
+					s.subscriptions[subID].stopChan = s.newSensor(sub, subID)
 				} else {
 					// Existing subscription? Update unix ts
-					s.subscriptions[ss.SubscriptionId].lastSeen = time.Now().Unix()
+					s.subscriptions[subID].lastSeen = time.Now().Unix()
 				}
 				s.Unlock()
 
@@ -144,7 +147,7 @@ func (s *sensor) Start() (chan interface{}, error) {
 			default:
 				uname, err := sysinfo.Uname()
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Failed to get uname info: %s\n", err.Error())
+					glog.Errorf("failed to get uname info: %s\n", err.Error())
 					continue discoveryLoop
 				}
 				nodename := string(uname.Nodename[:])
@@ -177,7 +180,7 @@ func (s *sensor) RemoveStaleSubscriptions() {
 		now := time.Now().Unix()
 		for subscriptionID, subscription := range s.subscriptions {
 			if now-subscription.lastSeen >= config.Sensor.SubscriptionTimeout {
-				log.Println("SENSOR REMOVING STALE SUB:", subscriptionID)
+				glog.Infoln("SENSOR REMOVING STALE SUB:", subscriptionID)
 				close(s.subscriptions[subscriptionID].stopChan)
 				delete(s.subscriptions, subscriptionID)
 			}
@@ -197,10 +200,10 @@ func (s *sensor) newSensor(sub *api.Subscription, subscriptionID string) chan in
 	}
 	stream, err := pbsensor.NewSensor(sub)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Couldn't start Sensor: %v\n", err)
+		glog.Errorf("couldn't start Sensor: %s\n", err.Error())
 	}
 
-	log.Println("STARTING NEW LIVE SUBSCRIPTION:", subscriptionID)
+	glog.Infoln("STARTING NEW LIVE SUBSCRIPTION:", subscriptionID)
 	go func() {
 	sendLoop:
 		for {
@@ -212,14 +215,14 @@ func (s *sensor) newSensor(sub *api.Subscription, subscriptionID string) chan in
 				break sendLoop
 			case ev, ok := <-stream.Data:
 				if !ok {
-					fmt.Fprint(os.Stderr, "Failed to get next event.\n")
+					glog.Errorln("Failed to get next event.")
 					break sendLoop
 				}
-				//log.Println("Sending event:", ev, "sub id", subscriptionID)
+				//glog.Infoln("Sending event:", ev, "sub id", subscriptionID)
 
 				data, err := proto.Marshal(ev.(*api.Event))
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Failed to marshal event data: %v\n", err)
+					glog.Errorf("Failed to marshal event data: %s\n", err.Error())
 					continue sendLoop
 				}
 				// TODO: We should have some retry logic in place

@@ -15,7 +15,7 @@ import (
 
 var timerDelay = 5 * time.Second
 
-func DisabledTestFile(t *testing.T) {
+func TestFile(t *testing.T) {
 	ticker := time.After(5 * time.Second)
 	gotOne := make(chan struct{})
 
@@ -55,7 +55,7 @@ func DisabledTestFile(t *testing.T) {
 	}
 }
 
-func DisabledTestFiveFiles(t *testing.T) {
+func TestFiveFiles(t *testing.T) {
 	instance, err := NewInstance()
 	if err != nil {
 		t.Error(err)

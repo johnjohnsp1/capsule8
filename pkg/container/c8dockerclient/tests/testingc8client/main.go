@@ -7,9 +7,10 @@
 package main
 
 import (
-	"log"
+	"flag"
 
 	"github.com/capsule8/reactive8/pkg/container/c8dockerclient"
+	"github.com/golang/glog"
 )
 
 func inspectContainer(client *c8dockerclient.Client, id string) {
@@ -17,70 +18,70 @@ func inspectContainer(client *c8dockerclient.Client, id string) {
 	if err == nil {
 		imageInfo, err := client.InspectImage(containerInfo.ImageID)
 		if err != nil {
-			log.Println("Error:", err)
+			glog.Infoln("Error:", err)
 			return
 		}
 
-		log.Println(imageInfo.String())
-		log.Println(containerInfo.String())
+		glog.Infoln(imageInfo.String())
+		glog.Infoln(containerInfo.String())
 
 		for networkKey, network := range containerInfo.NetworkSettings.Networks {
 			networkInfo, err := client.InspectNetwork(network.NetworkID)
 
 			if err == nil {
-				log.Println("Network entry:", networkKey)
-				log.Println(networkInfo.String())
+				glog.Infoln("Network entry:", networkKey)
+				glog.Infoln(networkInfo.String())
 			} else {
-				log.Println("Error enumerating network:", err)
+				glog.Infoln("Error enumerating network:", err)
 			}
 
 		}
 
 		processes, err := client.ContainerTop(id)
 		if err != nil {
-			log.Println("Error:", err)
+			glog.Infoln("Error:", err)
 			return
 		}
 
 		for _, process := range processes {
-			log.Println(process.String())
+			glog.Infoln(process.String())
 		}
 
 	} else {
-		log.Println("Error", err)
+		glog.Infoln("Error", err)
 	}
 
 }
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	flag.Parse()
 	client := c8dockerclient.NewClient()
 	dockerInfo, err := client.DockerInfo()
 	if err != nil {
-		log.Fatal("Error:", err)
+		glog.Fatal("Error:", err)
 	}
 
-	log.Println(dockerInfo.String())
+	glog.Infoln(dockerInfo.String())
 
 	eventChannel, stopChan, err := client.EventChannel()
 	defer close(stopChan)
 
 	if err != nil {
-		log.Fatal("Error: ", err)
+		glog.Fatal("Error: ", err)
 	}
 
-	log.Println("Enumerating existing containers")
+	glog.Infoln("Enumerating existing containers")
 	containers, err := client.ListContainers()
 	if err != nil {
-		log.Fatal("Error:", err)
+		glog.Fatal("Error:", err)
 	}
 
 	for _, enumeratedContainer := range containers {
-		log.Println("Inspecting:", enumeratedContainer.ContainerID)
+		glog.Infoln("Inspecting:", enumeratedContainer.ContainerID)
 		inspectContainer(client, enumeratedContainer.ContainerID)
 	}
 
-	log.Println("Entering loop for event messages")
+	glog.Infoln("Entering loop for event messages")
 	for {
 		event := <-eventChannel
 		switch event.Type {
@@ -88,15 +89,15 @@ func main() {
 			// tell the pcapper
 			if event.Action == "connect" {
 				// connect: docker inspect to get info about network
-				log.Println("container network connect")
-				log.Println(event.String())
+				glog.Infoln("container network connect")
+				glog.Infoln(event.String())
 
 			} else if event.Action == "disconnect" {
 				// do inspect on docker to get all interfaces/ips ??
 				// maybe this was the last container with this interface
 				// and so pcapping can conclude
-				log.Println("container network disconnect")
-				log.Println(event.String())
+				glog.Infoln("container network disconnect")
+				glog.Infoln(event.String())
 			}
 
 		case "container":
@@ -105,19 +106,19 @@ func main() {
 				// creation
 				// tell aggregator
 				// since we do not know a "connect" will happen
-				log.Println("container created")
+				glog.Infoln("container created")
 				inspectContainer(client, event.ID)
 
 			} else if event.Action == "die" {
 				// death
 				// tell aggregator
-				log.Println("container death")
-				log.Println(event.String())
+				glog.Infoln("container death")
+				glog.Infoln(event.String())
 			}
 
 		default:
-			log.Println("UNKNOWN event action ", event.Action)
-			log.Println(event.String())
+			glog.Infoln("UNKNOWN event action ", event.Action)
+			glog.Infoln(event.String())
 		}
 	}
 }

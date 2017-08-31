@@ -1,15 +1,13 @@
 package main
 
 import (
-	"fmt"
-	"log"
 	"net"
-	"os"
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/config"
 	pbsensor "github.com/capsule8/reactive8/pkg/sensor"
 	telemetry "github.com/capsule8/reactive8/pkg/sensor/telemetry"
+	"github.com/golang/glog"
 	"google.golang.org/grpc"
 )
 
@@ -22,7 +20,7 @@ func startTelemetryService(s *sensor, closeSignal chan interface{}) {
 	lis, err := net.Listen("tcp", config.Sensor.TelemetryServiceBindAddress)
 	if err != nil {
 		// We should probably give up if we can't start this.
-		log.Fatal("Failed to start local telemetry service:", err)
+		glog.Fatal("Failed to start local telemetry service:", err)
 	}
 
 	go func() {
@@ -40,7 +38,7 @@ type telemetryServiceServer struct {
 func (t *telemetryServiceServer) GetEvents(sub *api.Subscription, stream telemetry.TelemetryService_GetEventsServer) error {
 	eventStream, err := pbsensor.NewSensor(sub)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to get events: %s\n", err.Error())
+		glog.Errorf("failed to get events: %s\n", err.Error())
 		return err
 	}
 

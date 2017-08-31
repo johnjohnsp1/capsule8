@@ -1,10 +1,9 @@
 package sensor
 
 import (
-	"log"
-
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/perf"
+	"github.com/golang/glog"
 )
 
 func decodeDoSysOpen(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
@@ -32,17 +31,18 @@ func init() {
 
 	err := sensor.registerDecoder("fs/do_sys_open", decodeDoSysOpen)
 	if err != nil {
-		log.Printf("Tracepoint fs/do_sys_open not found, adding a kprobe to emulate")
+		glog.Infof("Tracepoint fs/do_sys_open not found, adding a kprobe to emulate")
 
 		err = addKprobe()
 		if err != nil {
-			log.Printf("Couldn't add do_sys_open kprobe: %v", err)
+			glog.Infof("Couldn't add do_sys_open kprobe: %s", err)
+
+			// Don't register decoder
 			return
 		}
 		err = sensor.registerDecoder("fs/do_sys_open", decodeDoSysOpen)
 		if err != nil {
-			log.Printf("Couldn't register observer for fs/do_sys_open kprobe: %v", err)
-			return
+			glog.Infof("Couldn't get trace event ID for kprobe fs/do_sys_open")
 		}
 	}
 }

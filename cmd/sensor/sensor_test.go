@@ -1,14 +1,18 @@
 package main
 
 import (
-	"log"
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/capsule8/reactive8/pkg/pubsub/mock"
+
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/config"
-	"github.com/capsule8/reactive8/pkg/pubsub/mock"
+	"github.com/golang/glog"
+	"github.com/golang/protobuf/proto"
 )
 
 func TestMain(m *testing.M) {
@@ -20,33 +24,36 @@ func TestMain(m *testing.M) {
 // TestCreateSubscription tests for the successful creation of a subscription over NATS.
 // It verifies sub creation by ensuring the delivery of a single message over the sub STAN channel.
 func TestCreateSubscription(t *testing.T) {
-	mock.SetMockReturn("subscription.*", &api.SignedSubscription{
-		Subscription: &api.Subscription{
-			EventFilter: &api.EventFilter{
-				ChargenEvents: []*api.ChargenEventFilter{
-					&api.ChargenEventFilter{
-						Length: 1,
-					},
-				},
-			},
-
-			Modifier: &api.Modifier{
-				Throttle: &api.ThrottleModifier{
-					Interval:     1,
-					IntervalType: 0,
+	sub := &api.Subscription{
+		EventFilter: &api.EventFilter{
+			ChargenEvents: []*api.ChargenEventFilter{
+				&api.ChargenEventFilter{
+					Length: 1,
 				},
 			},
 		},
-		SubscriptionId: "SOMEID",
-	})
+
+		Modifier: &api.Modifier{
+			Throttle: &api.ThrottleModifier{
+				Interval:     1,
+				IntervalType: 0,
+			},
+		},
+	}
+	mock.SetMockReturn("subscription.*", sub)
+
+	b, _ := proto.Marshal(sub)
+	h := sha256.New()
+	h.Write(b)
+	subID := fmt.Sprintf("%x", h.Sum(nil))
 
 	s, err := CreateSensor()
 	if err != nil {
-		log.Fatal("Error creating sensor:", err)
+		glog.Fatal("Error creating sensor:", err)
 	}
 	stopSignal, err := s.Start()
 	if err != nil {
-		log.Fatal("Error starting sensor:", err)
+		glog.Fatal("Error starting sensor:", err)
 	}
 
 	msgs := make(chan *mock.OutboundMessage)
@@ -57,9 +64,9 @@ func TestCreateSubscription(t *testing.T) {
 			case <-stopSignal:
 				break getMessageLoop
 			default:
-				if len(mock.GetOutboundMessages("event.SOMEID")) > 0 {
+				if len(mock.GetOutboundMessages(fmt.Sprintf("event.%s", subID))) > 0 {
 					// We only care about getting a single event here
-					msgs <- &mock.GetOutboundMessages("event.SOMEID")[0]
+					msgs <- &mock.GetOutboundMessages(fmt.Sprintf("event.%s", subID))[0]
 				}
 				time.Sleep(10 * time.Millisecond)
 			}
@@ -84,11 +91,11 @@ func TestCreateSubscription(t *testing.T) {
 func TestDiscover(t *testing.T) {
 	s, err := CreateSensor()
 	if err != nil {
-		log.Fatal("Error creating sensor:", err)
+		glog.Fatal("Error creating sensor:", err)
 	}
 	stopSignal, err := s.Start()
 	if err != nil {
-		log.Fatal("Error starting sensor:", err)
+		glog.Fatal("Error starting sensor:", err)
 	}
 
 	msgs := make(chan *mock.OutboundMessage)

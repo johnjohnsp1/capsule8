@@ -1,10 +1,9 @@
 package sensor
 
 import (
-	"log"
-
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/perf"
+	"github.com/golang/glog"
 )
 
 func decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
@@ -66,18 +65,18 @@ func init() {
 	eventName := "sched/sched_process_fork"
 	err := sensor.registerDecoder(eventName, decodeSchedProcessFork)
 	if err != nil {
-		log.Printf("Couldn't get %s event id: %v", eventName, err)
+		glog.Infof("Couldn't get %s event id: %v", eventName, err)
 	}
 
 	eventName = "sched/sched_process_exec"
 	err = sensor.registerDecoder(eventName, decodeSchedProcessExec)
 	if err != nil {
-		log.Printf("Couldn't get %s event id: %v", eventName, err)
+		glog.Infof("Couldn't get %s event id: %v", eventName, err)
 	}
 
 	eventName = "syscalls/sys_enter_exit_group"
 	err = sensor.registerDecoder(eventName, decodeSysEnterExitGroup)
 	if err != nil {
-		log.Printf("Couldn't get %s event id: %v", eventName, err)
+		glog.Infof("Couldn't get %s event id: %v", eventName, err)
 	}
 }

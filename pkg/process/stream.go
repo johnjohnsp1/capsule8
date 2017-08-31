@@ -2,11 +2,11 @@ package process
 
 import (
 	"errors"
-	"log"
 	"sync"
 
 	"github.com/capsule8/reactive8/pkg/perf"
 	"github.com/capsule8/reactive8/pkg/stream"
+	"github.com/golang/glog"
 )
 
 var once sync.Once
@@ -92,7 +92,7 @@ func (ps *processStream) onSample(perfEv *perf.Sample, err error) {
 		procEv = result.(*Event)
 
 	default:
-		log.Printf("Unknown perf record type %T", perfEv.Record)
+		glog.Infof("Unknown perf record type %T", perfEv.Record)
 
 	}
 
@@ -238,7 +238,7 @@ func newPidStream(args ...int) (*stream.Stream, error) {
 
 	p, err := perf.New(eventAttrs, nil, pid)
 	if err != nil {
-		log.Printf("Couldn't open perf events: %v\n", err)
+		glog.Infof("Couldn't open perf events: %v\n", err)
 		return nil, err
 
 	}
@@ -256,7 +256,7 @@ func newCgroupStream(cgroup string) (*stream.Stream, error) {
 
 	p, err := perf.NewWithCgroup(eventAttrs, nil, cgroup)
 	if err != nil {
-		log.Printf("Couldn't open perf events: %v\n", err)
+		glog.Infof("Couldn't open perf events: %v\n", err)
 		return nil, err
 	}
 

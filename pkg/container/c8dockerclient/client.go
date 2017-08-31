@@ -14,13 +14,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/golang/glog"
 )
 
 //DockerSocketPath is the filesytem path to the docker socket
@@ -306,8 +307,8 @@ func (client *Client) ContainerTop(containerID string) ([]*ProcessEntry, error) 
 	for _, entry := range processList.Processes {
 		process, err := parseProcessEntryDocker(entry, processList.Titles)
 		if err != nil {
-			log.Println(string(jsonText))
-			log.Println(err)
+			glog.Infoln(string(jsonText))
+			glog.Infoln(err)
 			return nil, err
 		}
 		processes = append(processes, process)

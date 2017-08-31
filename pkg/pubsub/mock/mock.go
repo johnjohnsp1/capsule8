@@ -4,7 +4,6 @@ package mock
 
 import (
 	"fmt"
-	"log"
 	"reflect"
 	"regexp"
 	"sync"
@@ -12,6 +11,7 @@ import (
 
 	api "github.com/capsule8/api/v0"
 	backend "github.com/capsule8/reactive8/pkg/pubsub"
+	"github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 )
 
@@ -41,7 +41,7 @@ func (sb *Backend) Connect() error {
 // Publish a known message type to a topic
 func (sb *Backend) Publish(topic string, message interface{}) error {
 	switch message.(type) {
-	case *api.SignedSubscription:
+	case *api.Subscription:
 		// do nothing
 	case *api.Config:
 		// do nothing
@@ -78,7 +78,7 @@ func (sb *Backend) Pull(topic string) (backend.Subscription, <-chan *api.Receive
 		for {
 			select {
 			case <-closeSignal:
-				log.Println("Close signal received")
+				glog.Infoln("Close signal received")
 				break sendLoop
 			default:
 				msg := &api.ReceivedMessage{
@@ -89,7 +89,7 @@ func (sb *Backend) Pull(topic string) (backend.Subscription, <-chan *api.Receive
 				if ev, ok := mockTopics[topic]; ok {
 					switch {
 					case maybeSubscription.MatchString(topic):
-						payload := ev.(*api.SignedSubscription)
+						payload := ev.(*api.Subscription)
 						b, _ := proto.Marshal(payload)
 						msg.Payload = b
 					case maybeEvent.MatchString(topic):

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"math/rand"
 	"testing"
 	"time"
@@ -14,18 +13,19 @@ import (
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/config"
 	telemetry "github.com/capsule8/reactive8/pkg/sensor/telemetry"
+	"github.com/golang/glog"
 )
 
 func TestGetEvents(t *testing.T) {
-	config.Sensor.TelemetryServiceBindAddress = fmt.Sprintf("127.0.0.1:%d", 49152 + rand.Intn(16384))
+	config.Sensor.TelemetryServiceBindAddress = fmt.Sprintf("127.0.0.1:%d", 49152+rand.Intn(16384))
 
 	s, err := CreateSensor()
 	if err != nil {
-		log.Fatal("Error creating sensor:", err)
+		glog.Fatal("Error creating sensor:", err)
 	}
 	stopSignal, err := s.Start()
 	if err != nil {
-		log.Fatal("Error starting sensor:", err)
+		glog.Fatal("Error starting sensor:", err)
 	}
 
 	conn, _ := grpc.Dial(config.Sensor.TelemetryServiceBindAddress, grpc.WithInsecure())

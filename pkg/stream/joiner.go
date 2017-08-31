@@ -1,8 +1,9 @@
 package stream
 
 import (
-	"log"
 	"reflect"
+
+	"github.com/golang/glog"
 )
 
 type Joiner struct {
@@ -72,7 +73,7 @@ func (j *joiner) controlHandler(m interface{}) {
 		j.enable = m
 
 	default:
-		log.Fatalf("Unknown control message: %V", m)
+		glog.Fatalf("Unknown control message: %V", m)
 	}
 
 }

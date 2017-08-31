@@ -4,13 +4,13 @@ package perf
 
 import (
 	"errors"
-	"log"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 
 	"github.com/capsule8/reactive8/pkg/config"
+	"github.com/golang/glog"
 
 	"sync"
 
@@ -47,7 +47,7 @@ func newCgroupSession(eventAttrs []*EventAttr, filters []string, cgroup string) 
 	} else {
 		parts := strings.Split(cgroup, ":")
 		if parts[1] != "docker" {
-			log.Printf("Couldn't parse cgroup %s", cgroup)
+			glog.Infof("Couldn't parse cgroup %s", cgroup)
 			return nil, errors.New("Couldn't parse cgroup")
 		}
 
@@ -126,7 +126,7 @@ func newSession(eventAttrs []*EventAttr, filters []string, initFlags uintptr, ar
 			if filters != nil && len(filters[j]) > 0 {
 				err := setFilter(fd, filters[j])
 				if err != nil {
-					log.Printf("Couldn't set filter %s: %v",
+					glog.Infof("Couldn't set filter %s: %v",
 						filters[j], err)
 					return nil, err
 				}
@@ -136,8 +136,7 @@ func newSession(eventAttrs []*EventAttr, filters []string, initFlags uintptr, ar
 				continue
 			}
 
-			rb, err := newRingBuffer(fd, eventAttrs[j].SampleType,
-				eventAttrs[j].ReadFormat)
+			rb, err := newRingBuffer(fd, eventAttrs[j])
 			if err != nil {
 				return nil, err
 			}
@@ -177,7 +176,7 @@ func (p *Perf) Enable() error {
 	for i := range p.fds {
 		err := enable(p.fds[i])
 		if err != nil {
-			log.Printf("Couldn't enable event: %v", err)
+			glog.Infof("Couldn't enable event: %v", err)
 			return err
 		}
 	}
@@ -192,7 +191,7 @@ func (p *Perf) Disable() error {
 	for i := range p.fds {
 		err := disable(p.fds[i])
 		if err != nil {
-			log.Printf("Couldn't disable event: %v", err)
+			glog.Infof("Couldn't disable event: %v", err)
 			return err
 		}
 	}
@@ -207,7 +206,7 @@ func (p *Perf) SetFilter(filter string) error {
 	for i := range p.fds {
 		err := setFilter(p.fds[i], filter)
 		if err != nil {
-			log.Printf("Couldn't set filter %s on event: %v", filter, err)
+			glog.Infof("Couldn't set filter %s on event: %v", filter, err)
 			return err
 		}
 	}

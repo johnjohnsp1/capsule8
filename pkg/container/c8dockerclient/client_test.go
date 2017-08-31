@@ -6,13 +6,14 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/golang/glog"
 )
 
 var dockerSock = "docker.sock"
@@ -25,10 +26,10 @@ type FakeDockerServer struct{}
 func (f *FakeDockerServer) listenAndServe(t *testing.T, expected chan []byte, dockerSockPath string) {
 	var buf [1024]byte
 
-	log.Println("Listening on:", dockerSockPath)
+	glog.Infoln("Listening on:", dockerSockPath)
 	l, err := net.Listen("unix", dockerSockPath)
 	if err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
 	defer os.Remove(dockerSockPath)
 
@@ -44,7 +45,7 @@ func (f *FakeDockerServer) listenAndServe(t *testing.T, expected chan []byte, do
 	sock, err := l.Accept()
 
 	if err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
 
 	sock.Read(buf[:])
@@ -61,7 +62,7 @@ func DockerTestSetup(t *testing.T, filename string) (cli *Client) {
 	h.Write([]byte(filename))
 	tempDir, err := ioutil.TempDir("/tmp", "c8dockerclient_client_test")
 	if err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
 
 	dockerSockPath := filepath.Join(tempDir, dockerSock)
@@ -69,7 +70,7 @@ func DockerTestSetup(t *testing.T, filename string) (cli *Client) {
 
 	msg, err := ioutil.ReadFile(filename)
 	if err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
 
 	cli = &Client{SocketPath: dockerSockPath}

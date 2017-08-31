@@ -5,10 +5,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"log"
 	"os"
 	"sync"
 	"sync/atomic"
+
+	"github.com/golang/glog"
 )
 
 //
@@ -855,7 +856,7 @@ type SampleID struct {
 var sampleIDSizeCache atomic.Value
 var sampleIDSizeCacheMutex sync.Mutex
 
-func (sid *SampleID) getSize(eventSampleType uint64) int {
+func (sid *SampleID) getSize(eventSampleType uint64, eventSampleIDAll bool) int {
 	var cache map[uint64]int
 
 	sizeCache := sampleIDSizeCache.Load()
@@ -878,32 +879,34 @@ func (sid *SampleID) getSize(eventSampleType uint64) int {
 
 	size := int(0)
 
-	if (eventSampleType & PERF_SAMPLE_TID) != 0 {
-		size += binary.Size(sid.PID)
-		size += binary.Size(sid.TID)
-	}
+	if eventSampleIDAll {
+		if (eventSampleType & PERF_SAMPLE_TID) != 0 {
+			size += binary.Size(sid.PID)
+			size += binary.Size(sid.TID)
+		}
 
-	if (eventSampleType & PERF_SAMPLE_TIME) != 0 {
-		size += binary.Size(sid.Time)
-	}
+		if (eventSampleType & PERF_SAMPLE_TIME) != 0 {
+			size += binary.Size(sid.Time)
+		}
 
-	if (eventSampleType & PERF_SAMPLE_ID) != 0 {
-		size += binary.Size(sid.ID)
-	}
+		if (eventSampleType & PERF_SAMPLE_ID) != 0 {
+			size += binary.Size(sid.ID)
+		}
 
-	if (eventSampleType & PERF_SAMPLE_STREAM_ID) != 0 {
-		size += binary.Size(sid.StreamID)
-	}
+		if (eventSampleType & PERF_SAMPLE_STREAM_ID) != 0 {
+			size += binary.Size(sid.StreamID)
+		}
 
-	if (eventSampleType & PERF_SAMPLE_CPU) != 0 {
-		res := uint32(0)
+		if (eventSampleType & PERF_SAMPLE_CPU) != 0 {
+			res := uint32(0)
 
-		size += binary.Size(sid.CPU)
-		size += binary.Size(res)
-	}
+			size += binary.Size(sid.CPU)
+			size += binary.Size(res)
+		}
 
-	if (eventSampleType & PERF_SAMPLE_IDENTIFIER) != 0 {
-		size += binary.Size(sid.ID)
+		if (eventSampleType & PERF_SAMPLE_IDENTIFIER) != 0 {
+			size += binary.Size(sid.ID)
+		}
 	}
 
 	cache[eventSampleType] = size
@@ -977,7 +980,7 @@ type Sample struct {
 	SampleID
 }
 
-func (sample *Sample) read(reader *bytes.Reader, sampleType, readFormat uint64) error {
+func (sample *Sample) read(reader *bytes.Reader, sampleType uint64, readFormat uint64, sampleIDAll bool) error {
 	startPos, _ := reader.Seek(0, os.SEEK_CUR)
 
 	err := sample.eventHeader.read(reader)
@@ -995,8 +998,9 @@ func (sample *Sample) read(reader *bytes.Reader, sampleType, readFormat uint64) 
 		}
 
 		sample.Record = record
-
-		sample.SampleID.read(reader, sampleType)
+		if sampleIDAll {
+			sample.SampleID.read(reader, sampleType)
+		}
 
 	case PERF_RECORD_EXIT:
 		record := new(ExitRecord)
@@ -1006,8 +1010,9 @@ func (sample *Sample) read(reader *bytes.Reader, sampleType, readFormat uint64) 
 		}
 
 		sample.Record = record
-
-		sample.SampleID.read(reader, sampleType)
+		if sampleIDAll {
+			sample.SampleID.read(reader, sampleType)
+		}
 
 	case PERF_RECORD_COMM:
 		record := new(CommRecord)
@@ -1017,7 +1022,9 @@ func (sample *Sample) read(reader *bytes.Reader, sampleType, readFormat uint64) 
 		}
 
 		sample.Record = record
-		sample.SampleID.read(reader, sampleType)
+		if sampleIDAll {
+			sample.SampleID.read(reader, sampleType)
+		}
 
 	case PERF_RECORD_SAMPLE:
 		record := new(SampleRecord)
@@ -1038,15 +1045,17 @@ func (sample *Sample) read(reader *bytes.Reader, sampleType, readFormat uint64) 
 			break
 		}
 
-		log.Println("Lost", record.Lost, "events")
+		glog.Infoln("Lost", record.Lost, "events")
 		sample.Record = record
-		sample.SampleID.read(reader, sampleType)
+		if sampleIDAll {
+			sample.SampleID.read(reader, sampleType)
+		}
 
 	default:
 		//
 		// Unknown type, read sample record as a byte slice
 		//
-		sampleIDSize := sample.SampleID.getSize(sampleType)
+		sampleIDSize := sample.SampleID.getSize(sampleType, sampleIDAll)
 
 		recordSize := sample.Size -
 			uint16(binary.Size(sample.eventHeader)) -
@@ -1059,14 +1068,16 @@ func (sample *Sample) read(reader *bytes.Reader, sampleType, readFormat uint64) 
 		if err != nil {
 			break
 		} else if n < int(recordSize) {
-			log.Printf("Short read: %d < %d", n, int(recordSize))
+			glog.Infof("Short read: %d < %d", n, int(recordSize))
 			err = errors.New("Read error")
 			break
 		}
 
 		sample.Record = recordData
 
-		sample.SampleID.read(reader, sampleType)
+		if sampleIDAll {
+			sample.SampleID.read(reader, sampleType)
+		}
 	}
 
 	// If there was a read error, seek to end of the record
