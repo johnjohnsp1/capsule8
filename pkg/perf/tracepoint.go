@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -114,12 +115,16 @@ func GetTraceEventID(name string) (uint16, error) {
 	}
 	defer file.Close()
 
+	return ReadTraceEventID(name, file)
+}
+
+func ReadTraceEventID(name string, reader io.Reader) (uint16, error) {
 	//
 	// The tracepoint id is a uint16, so we can assume it'll be
 	// no longer than 5 characters plus a newline.
 	//
 	var buf [6]byte
-	_, err = file.Read(buf[:])
+	_, err := reader.Read(buf[:])
 	if err != nil {
 		glog.Infof("Couldn't read trace event id: %v", err)
 		return 0, err
@@ -479,11 +484,15 @@ func GetTraceEventFormat(name string) (uint16, map[string]TraceEventField, error
 	}
 	defer file.Close()
 
+	return ReadTraceEventFormat(name, file)
+}
+
+func ReadTraceEventFormat(name string, reader io.Reader) (uint16, map[string]TraceEventField, error) {
 	var eventID uint16
 
 	inFormat := false
 	fields := make(map[string]TraceEventField)
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		rawLine := scanner.Text()
 		line := strings.TrimSpace(rawLine)
@@ -516,7 +525,7 @@ func GetTraceEventFormat(name string) (uint16, map[string]TraceEventField, error
 			eventID = uint16(parsedValue)
 		}
 	}
-	err = scanner.Err()
+	err := scanner.Err()
 	if err != nil {
 		return 0, nil, err
 	}

@@ -1,77 +1,76 @@
 package perf
 
 import (
-	"fmt"
+	"archive/tar"
+	"compress/gzip"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestGetTraceEventID(t *testing.T) {
-	// Root is required to access the tracing fs
-	if os.Geteuid() != 0 {
-		t.Skip("root privileges are required")
-		return
-	}
+type extractFileFn func (string, io.Reader) error
 
-	_, err := GetTraceEventID("fs/do_sys_open")
+func extractFiles(filename string, fn extractFileFn) error {
+	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	if err != nil {
-		t.Error(err)
-		return
+		return err
 	}
-}
+	defer file.Close()
 
-func collectFormatFiles(path string) ([]string, error) {
-	f, err := os.Open(filepath.Join(getTraceFs(), "events", path))
+	gzstream, err := gzip.NewReader(file)
 	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	files, err := f.Readdir(-1)
-	if err != nil {
-		return nil, err
+		return err
 	}
 
-	result := make([]string, 0, len(files))
-	for i := 0; i < len(files); i++ {
-		if files[i].IsDir() {
-			subfiles, err := collectFormatFiles(filepath.Join(path, files[i].Name()))
-			if err != nil {
-				return nil, err
-			}
-			for j := 0; j < len(subfiles); j++ {
-				result = append(result, subfiles[j])
-			}
+	tarstream := tar.NewReader(gzstream)
+	for true {
+		header, err := tarstream.Next()
+		if err == io.EOF {
+			break
 		}
-		if files[i].Name() == "format" {
-			result = append(result, path)
-		}
-	}
-
-	return result, nil
-}
-
-func TestGetTraceEventFormat(t *testing.T) {
-	// Root is required to access the tracing fs
-	if os.Geteuid() != 0 {
-		t.Skip("root privileges are required")
-		return
-	}
-
-	// Parse every "format" file found under /sys/kernel/debug/tracing/events
-	formatFiles, err := collectFormatFiles("")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-
-	for i := 0; i < len(formatFiles); i++ {
-		fmt.Printf("%s\n", formatFiles[i])
-		_, _, err := GetTraceEventFormat(formatFiles[i])
 		if err != nil {
-			t.Error(err)
-			return
+			return err
 		}
+		if header.Typeflag == tar.TypeReg {
+			err = fn(header.Name, tarstream)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func testReadTraceEventID(name string, reader io.Reader) error {
+	if filepath.Base(name) != "id" {
+		return nil
+	}
+
+	_, err := ReadTraceEventID(filepath.Dir(name), reader)
+	return err
+}
+
+func TestReadTraceEventID(t *testing.T) {
+	err := extractFiles("testdata/events.tar.gz", testReadTraceEventID)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func testReadTraceEventFormat(name string, reader io.Reader) error {
+	if filepath.Base(name) != "format" {
+		return nil
+	}
+
+	_, _, err := ReadTraceEventFormat(filepath.Dir(name), reader)
+	return err
+}
+
+func TestReadTraceEventFormat(t *testing.T) {
+	err := extractFiles("testdata/events.tar.gz", testReadTraceEventFormat)
+	if err != nil {
+		t.Error(err)
 	}
 }
