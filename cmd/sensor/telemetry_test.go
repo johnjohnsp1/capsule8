@@ -34,6 +34,10 @@ func TestGetEvents(t *testing.T) {
 	stopSignal := make(chan interface{})
 
 	conn, _ := grpc.Dial(config.Sensor.TelemetryServiceBindAddress, grpc.WithInsecure())
+	go func() {
+		<-stopSignal
+		conn.Close()
+	}()
 	c := telemetry.NewTelemetryServiceClient(conn)
 
 	var stream telemetry.TelemetryService_GetEventsClient

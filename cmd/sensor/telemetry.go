@@ -25,14 +25,14 @@ func startTelemetryService(s *sensor) {
 	}
 
 	go func() {
+		s.wg.Add(1)
+		defer s.wg.Done()
+
 		<-s.stopChan
 		g.GracefulStop()
 	}()
 	// Serve requests until the server is stopped.
 	go func() {
-		s.wg.Add(1)
-		defer s.wg.Done()
-
 		g.Serve(lis)
 	}()
 }
