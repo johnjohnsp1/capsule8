@@ -136,7 +136,7 @@ func newSession(eventAttrs []*EventAttr, filters []string, initFlags uintptr, ar
 				continue
 			}
 
-			rb, err := newRingBuffer(fd, eventAttrs[j])
+			rb, err := newRingBuffer(fd, 0, eventAttrs[j])
 			if err != nil {
 				return nil, err
 			}

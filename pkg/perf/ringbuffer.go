@@ -13,7 +13,7 @@ import (
 
 // mmap'd ring buffer must be 1+2^n pages. We optimize for low latency, so
 // we shouldn't need a large ringbuffer memory region.
-const numRingBufferPages = 1 + (1 << 0)
+const numRingBufferPages = (1 << 0)
 
 type ringBuffer struct {
 	fd          int
@@ -25,10 +25,14 @@ type ringBuffer struct {
 	data        []byte
 }
 
-func newRingBuffer(fd int, attr *EventAttr) (*ringBuffer, error) {
+func newRingBuffer(fd int, size int, attr *EventAttr) (*ringBuffer, error) {
 	pageSize := os.Getpagesize()
 
-	memory, err := unix.Mmap(fd, 0, numRingBufferPages*pageSize, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
+	if size <= 0 {
+		size = numRingBufferPages
+	}
+
+	memory, err := unix.Mmap(fd, 0, (size+1)*pageSize, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +44,7 @@ func newRingBuffer(fd int, attr *EventAttr) (*ringBuffer, error) {
 	rb.sampleIDAll = attr.SampleIDAll
 	rb.memory = memory
 	rb.metadata = (*metadata)(unsafe.Pointer(&memory[0]))
-	rb.data = memory[os.Getpagesize():]
+	rb.data = memory[pageSize:]
 
 	for {
 		seq := atomic.LoadUint32(&rb.metadata.Lock)
@@ -65,6 +69,11 @@ func newRingBuffer(fd int, attr *EventAttr) (*ringBuffer, error) {
 	}
 
 	return rb, nil
+}
+
+func (rb *ringBuffer) unmap() error {
+	//return unix.Munmap(rb.memory, (rb.size+1)*os.Getpagesize())
+	return unix.Munmap(rb.memory)
 }
 
 // Read calls the given function on each available record in the ringbuffer
