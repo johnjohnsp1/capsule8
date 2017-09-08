@@ -533,12 +533,13 @@ func (fs *filterSet) getPerfFilters() map[uint16]string {
 // ---------------------------------------------------------------------
 
 type Sensor struct {
-	mu           sync.Mutex
-	events       []*perf.EventAttr
-	filters      []string
-	perf         *perf.Perf
-	decoders     *perf.TraceEventDecoderMap
-	eventStreams map[*api.Subscription]chan interface{}
+	mu                     sync.Mutex
+	events                 []*perf.EventAttr
+	filters                []string
+	perf                   *perf.Perf
+	containerEventRepeater *stream.Repeater
+	decoders               *perf.TraceEventDecoderMap
+	eventStreams           map[*api.Subscription]chan interface{}
 }
 
 //
@@ -667,6 +668,23 @@ func (s *Sensor) createPerfEventStream(sub *api.Subscription) (*stream.Stream, e
 	}, nil
 }
 
+func (s *Sensor) getContainerEventStream() (*stream.Stream, error) {
+	if s.containerEventRepeater == nil {
+		ces, err := container.NewEventStream()
+		if err != nil {
+			return nil, err
+		}
+
+		// Translate container events to protobuf versions
+		ces = stream.Map(ces, translateContainerEvents)
+		ces = stream.Filter(ces, filterNils)
+
+		s.containerEventRepeater = stream.NewRepeater(ces)
+	}
+
+	return s.containerEventRepeater.NewStream(), nil
+}
+
 func applyModifiers(strm *stream.Stream, modifier api.Modifier) *stream.Stream {
 	if modifier.Throttle != nil {
 		strm = stream.Throttle(strm, *modifier.Throttle)
@@ -718,18 +736,11 @@ func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 	}
 
 	if len(sub.EventFilter.ContainerEvents) > 0 {
-		//
-		// Create a container event stream
-		//
-		ces, err := container.NewEventStream()
+		ces, err := s.getContainerEventStream()
 		if err != nil {
 			joiner.Close()
 			return nil, err
 		}
-
-		// Translate container events to protobuf versions
-		ces = stream.Map(ces, translateContainerEvents)
-		ces = stream.Filter(ces, filterNils)
 
 		glog.Info("Adding container EventStream to joiner")
 		joiner.Add(ces)
