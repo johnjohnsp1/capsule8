@@ -98,7 +98,7 @@ func newEventFromFieldData(data map[string]interface{}) *api.Event {
 	// Even when the Sensor is running in a container and the event
 	// occurs within a different container, the "common_pid" field
 	// is present and contains the host pid.
-	e.ProcessPid = data["common_pid"].(int32)
+	e.ProcessPid = int32(data["common_pid"].(uint64))
 	e.ContainerId, _ = pidMapGetContainerID(e.ProcessPid)
 
 	return e
