@@ -2,8 +2,14 @@ package perf
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
+
+	"github.com/golang/glog"
 
 	"golang.org/x/sys/unix"
 )
@@ -23,6 +29,7 @@ type EventMonitor struct {
 	otherfds    []int
 	ringBuffers []*ringBuffer
 	decoders    *TraceEventDecoderMap
+	cgroup      *os.File
 
 	// Used while reading samples from ringbuffers
 	samples []*decodedSample
@@ -142,25 +149,48 @@ func (monitor *EventMonitor) RegisterEvent(name string, fn TraceEventDecoderFn, 
 	return nil
 }
 
-func (monitor *EventMonitor) Shutdown(wait bool) error {
+func (monitor *EventMonitor) Close(wait bool) error {
 	// if the monitor is running, stop it and wait for it to stop
 	monitor.Stop(wait)
 
-	for i := range monitor.otherfds {
-		unix.Close(monitor.otherfds[i])
+	for _, fd := range monitor.otherfds {
+		unix.Close(fd)
 	}
-	for i := range monitor.ringBuffers {
-		monitor.ringBuffers[i].unmap()
+	for _, rb := range monitor.ringBuffers {
+		rb.unmap()
 	}
-	for i := range monitor.groupfds {
-		unix.Close(monitor.groupfds[i])
+	for _, fd := range monitor.groupfds {
+		unix.Close(fd)
 	}
 
 	monitor.ringBuffers = monitor.ringBuffers[:0]
 	monitor.groupfds = monitor.groupfds[:0]
 	monitor.otherfds = monitor.otherfds[:0]
 
+	if monitor.cgroup != nil {
+		monitor.cgroup.Close()
+		monitor.cgroup = nil
+	}
+
 	return nil
+}
+
+func (monitor *EventMonitor) Disable() {
+	for _, fd := range monitor.groupfds {
+		disable(fd)
+	}
+	for _, fd := range monitor.otherfds {
+		disable(fd)
+	}
+}
+
+func (monitor *EventMonitor) Enable() {
+	for _, fd := range monitor.groupfds {
+		enable(fd)
+	}
+	for _, fd := range monitor.otherfds {
+		enable(fd)
+	}
 }
 
 func (monitor *EventMonitor) stopWithSignal() {
@@ -222,8 +252,7 @@ func (monitor *EventMonitor) readRingBuffers(ready []int, fn func(interface{}, e
 	// TODO Sort the data read from the ringbuffers
 
 	// Pass the sorted data to the callback function, which is as yet undefined
-	for i := range monitor.samples {
-		sample := monitor.samples[i]
+	for _, sample := range monitor.samples {
 		fn(sample.sampleOut, sample.err)
 	}
 
@@ -247,25 +276,14 @@ func (monitor *EventMonitor) Run(fn func(interface{}, error)) error {
 		return err
 	}
 
-	// Enable all perf events to be monitored. Do we ignore errors here,
-	// or do we revert enabling everything and return the error? Likelihood
-	// of failure is extremely low. Any error here is likely a programming
-	// error
-	for i := range monitor.groupfds {
-		enable(monitor.groupfds[i])
-	}
-	for i := range monitor.otherfds {
-		enable(monitor.otherfds[i])
-	}
-
 	// Set up the fds for polling. We only need to monitor the groupfds,
 	// since those are the only ones with ring buffers attached and so are
 	// the only ones that will get notifications.
 	pollfds := make([]unix.PollFd, len(monitor.groupfds)+1)
 	pollfds[0].Fd = int32(monitor.pipe[0])
 	pollfds[0].Events = unix.POLLIN
-	for i := range monitor.groupfds {
-		pollfds[i+1].Fd = int32(monitor.groupfds[i])
+	for i, fd := range monitor.groupfds {
+		pollfds[i+1].Fd = int32(fd)
 		pollfds[i+1].Events = unix.POLLIN
 	}
 
@@ -277,13 +295,13 @@ runloop:
 		}
 		if n > 0 {
 			ready := make([]int, 0, n)
-			for i := range pollfds {
+			for i, fd := range pollfds {
 				if i == 0 {
-					if (pollfds[i].Revents & ^unix.POLLIN) != 0 {
+					if (fd.Revents & ^unix.POLLIN) != 0 {
 						// POLLERR, POLLHUP, or POLLNVAL set
 						break runloop
 					}
-				} else if (pollfds[i].Revents & unix.POLLIN) != 0 {
+				} else if (fd.Revents & unix.POLLIN) != 0 {
 					ready = append(ready, i-1)
 				}
 			}
@@ -291,15 +309,6 @@ runloop:
 				monitor.readRingBuffers(ready, fn)
 			}
 		}
-	}
-
-	// Disable all perf events to be monitored. Unlike enabling, errors
-	// should absolutely be ignored here.
-	for i := range monitor.otherfds {
-		disable(monitor.otherfds[i])
-	}
-	for i := range monitor.groupfds {
-		disable(monitor.groupfds[i])
 	}
 
 	if monitor.pipe[1] != -1 {
@@ -335,7 +344,7 @@ func (monitor *EventMonitor) Stop(wait bool) {
 	}
 }
 
-func NewEventMonitor(pid int, flags uintptr, ringBufferSize int, defaultAttr *EventAttr) *EventMonitor {
+func NewEventMonitor(pid int, flags uintptr, ringBufferSize int, defaultAttr *EventAttr) (*EventMonitor, error) {
 	var eventAttr EventAttr
 
 	if defaultAttr == nil {
@@ -360,5 +369,40 @@ func NewEventMonitor(pid int, flags uintptr, ringBufferSize int, defaultAttr *Ev
 		decoders:       NewTraceEventDecoderMap(),
 	}
 
-	return monitor
+	return monitor, nil
+}
+
+func NewEventMonitorWithCgroup(cgroup string, flags uintptr, ringBufferSize int, defaultAttr *EventAttr) (*EventMonitor, error) {
+	// Cgroup can be either a:
+	// - cgroupfs path ("/docker/abcd09876...")
+	// - systemd cgroup path ("system.slice:docker:abcd09876...")
+
+	var path string
+
+	if cgroup[0] == '/' {
+		path = filepath.Join(getCgroupFs(), "perf_event", cgroup)
+	} else {
+		parts := strings.Split(cgroup, ":")
+		if parts[1] != "docker" {
+			glog.Infof("Couldn't parse cgroup %s", cgroup)
+			return nil, errors.New("Couldn't parse cgroup")
+		}
+
+		scope := fmt.Sprintf("docker-%s.scope", parts[2])
+		path = filepath.Join(getCgroupFs(), "perf_event", parts[0], scope)
+	}
+
+	f, err := os.OpenFile(path, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	monitor, err := NewEventMonitor(int(f.Fd()), flags|PERF_FLAG_PID_CGROUP, ringBufferSize, defaultAttr)
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	monitor.cgroup = f
+
+	return monitor, nil
 }
