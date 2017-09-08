@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"os"
-	"sync"
 	"sync/atomic"
 	"unsafe"
 
@@ -115,20 +114,5 @@ func (rb *ringBuffer) read(f func(*Sample, error)) {
 
 		// Update dataHead in case it has been advanced in the interim
 		dataHead = atomic.LoadUint64(&rb.metadata.DataHead)
-	}
-}
-
-func (rb *ringBuffer) readOnCond(cond *sync.Cond, fn func(*Sample, error)) {
-	for {
-		cond.L.Lock()
-		cond.Wait()
-
-		if rb.memory != nil {
-			rb.read(fn)
-			cond.L.Unlock()
-		} else {
-			cond.L.Unlock()
-			break
-		}
 	}
 }

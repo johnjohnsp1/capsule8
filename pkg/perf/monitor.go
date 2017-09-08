@@ -9,10 +9,15 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/capsule8/reactive8/pkg/config"
 	"github.com/golang/glog"
 
 	"golang.org/x/sys/unix"
 )
+
+func getCgroupFs() string {
+	return config.Sensor.CgroupFs
+}
 
 type EventMonitor struct {
 	pid            int
