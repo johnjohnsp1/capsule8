@@ -12,12 +12,12 @@ import (
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/config"
-	telemetry "github.com/capsule8/reactive8/pkg/sensor/telemetry"
 	"github.com/golang/glog"
 )
 
 func TestGetEvents(t *testing.T) {
-	config.Sensor.TelemetryServiceBindAddress = fmt.Sprintf("127.0.0.1:%d", 49152+rand.Intn(16384))
+	config.Sensor.TelemetryServiceBindAddress =
+		fmt.Sprintf("127.0.0.1:%d", 49152+rand.Intn(16384))
 
 	s, err := CreateSensor()
 	if err != nil {
@@ -33,16 +33,18 @@ func TestGetEvents(t *testing.T) {
 	}()
 	stopSignal := make(chan interface{})
 
-	conn, _ := grpc.Dial(config.Sensor.TelemetryServiceBindAddress, grpc.WithInsecure())
+	conn, _ := grpc.Dial(config.Sensor.TelemetryServiceBindAddress,
+		grpc.WithInsecure())
+
 	go func() {
 		<-stopSignal
 		conn.Close()
 	}()
-	c := telemetry.NewTelemetryServiceClient(conn)
+	c := api.NewTelemetryServiceClient(conn)
 
-	var stream telemetry.TelemetryService_GetEventsClient
+	var stream api.TelemetryService_GetEventsClient
 	for {
-		stream, err = c.GetEvents(context.Background(), &api.Subscription{
+		sub := &api.Subscription{
 			EventFilter: &api.EventFilter{
 				ChargenEvents: []*api.ChargenEventFilter{
 					&api.ChargenEventFilter{
@@ -57,13 +59,19 @@ func TestGetEvents(t *testing.T) {
 					IntervalType: 0,
 				},
 			},
-		})
+		}
+
+		stream, err = c.GetEvents(context.Background(),
+			&api.GetEventsRequest{
+				Subscription: sub,
+			})
+
 		if err == nil {
 			break
 		}
 	}
 
-	events := make(chan *api.Event)
+	events := make(chan *api.TelemetryEvent)
 	go func() {
 	getMessageLoop:
 		for {
