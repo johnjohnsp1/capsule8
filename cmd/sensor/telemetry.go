@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"strings"
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/config"
@@ -16,11 +17,21 @@ func startTelemetryService(s *sensor) {
 		s: s,
 	}
 	api.RegisterTelemetryServiceServer(g, t)
+
 	var err error
-	lis, err := net.Listen("tcp", config.Sensor.TelemetryServiceBindAddress)
+	var lis net.Listener
+
+	parts := strings.Split(config.Sensor.ListenAddr, ":")
+	if len(parts) > 1 && parts[0] == "unix" {
+		lis, err = net.Listen("unix", parts[1])
+	} else {
+		lis, err = net.Listen("tcp", config.Sensor.ListenAddr)
+	}
+
 	if err != nil {
 		// We should probably give up if we can't start this.
-		glog.Fatal("Failed to start local telemetry service:", err)
+		glog.Fatalf("Failed to start local telemetry service on %s: %s",
+			config.Sensor.ListenAddr, err)
 	}
 
 	go func() {
