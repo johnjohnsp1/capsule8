@@ -31,6 +31,13 @@ var Sensor struct {
 
 	TelemetryServiceBindAddress string `default:"127.0.0.1:5051"`
 	MonitoringPort              int    `default:"8083"`
+
+	// Name of Cgroup to monitor for events. The cgroup specified must
+	// exist within /sys/fs/cgroup/perf_event/. If this is set to "docker",
+	// the Sensor will monitor containers for events and ignore processes
+	// not running in Docker containers. To monitor the entire system,
+	// this can be set to "" or "/".
+	CgroupName string `split_words:"true" default:"docker"`
 }
 
 var ApiServer struct {

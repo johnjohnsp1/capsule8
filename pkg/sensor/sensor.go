@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	api "github.com/capsule8/api/v0"
+	"github.com/capsule8/reactive8/pkg/config"
 	"github.com/capsule8/reactive8/pkg/container"
 	"github.com/capsule8/reactive8/pkg/filter"
 	"github.com/capsule8/reactive8/pkg/perf"
@@ -612,7 +613,9 @@ func (s *Sensor) update() error {
 		//
 		// Attach to root cgroup of all docker containers
 		//
-		p, err := perf.NewWithCgroup(eventAttrs, filters, "/docker")
+		p, err := perf.NewWithCgroup(eventAttrs, filters,
+			config.Sensor.CgroupName)
+
 		if err != nil {
 			return err
 		}

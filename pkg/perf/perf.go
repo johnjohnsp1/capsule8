@@ -3,11 +3,9 @@
 package perf
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/capsule8/reactive8/pkg/config"
 	"github.com/golang/glog"
@@ -36,27 +34,7 @@ func NewWithCgroup(eventAttrs []*EventAttr, filters []string, name string) (*Per
 }
 
 func newCgroupSession(eventAttrs []*EventAttr, filters []string, cgroup string) (*Perf, error) {
-	// Cgroup can be either a:
-	// - cgroupfs path ("/docker/abcd09876...")
-	// - systemd cgroup path ("system.slice:docker:abcd09876...")
-
-	var path string
-
-	if cgroup[0] == '/' {
-		path = filepath.Join(getCgroupFs(), "perf_event", cgroup)
-	} else {
-		parts := strings.Split(cgroup, ":")
-		if parts[1] != "docker" {
-			glog.Infof("Couldn't parse cgroup %s", cgroup)
-			return nil, errors.New("Couldn't parse cgroup")
-		}
-
-		dockerScope := []string{"docker-", parts[2], ".scope"}
-
-		path = filepath.Join(getCgroupFs(), "perf_event", parts[0],
-			strings.Join(dockerScope, ""))
-	}
-
+	path := filepath.Join(getCgroupFs(), "perf_event", cgroup)
 	f, err := os.OpenFile(path, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
