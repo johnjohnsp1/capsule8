@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -67,6 +68,59 @@ const (
 	PERF_TYPE_RAW
 	PERF_TYPE_BREAKPOINT
 	PERF_TYPE_MAX
+)
+
+const (
+	PERF_COUNT_HW_CPU_CYCLES uint64 = iota
+	PERF_COUNT_HW_INSTRUCTIONS
+	PERF_COUNT_HW_CACHE_REFERENCES
+	PERF_COUNT_HW_CACHE_MISSES
+	PERF_COUNT_HW_BRANCH_INSTRUCTIONS
+	PERF_COUNT_HW_BRANCH_MISSES
+	PERF_COUNT_HW_BUS_CYCLES
+	PERF_COUNT_HW_STALLED_CYCLES_FRONTEND
+	PERF_COUNT_HW_STALLED_CYCLES_BACKEND
+	PERF_COUNT_HW_REF_CPU_CYCLES
+	PERF_COUNT_HW_MAX
+)
+
+const (
+	PERF_COUNT_HW_CACHE_L1D uint64 = iota
+	PERF_COUNT_HW_CACHE_L1I
+	PERF_COUNT_HW_CACHE_LL
+	PERF_COUNT_HW_CACHE_DTLB
+	PERF_COUNT_HW_CACHE_ITLB
+	PERF_COUNT_HW_CACHE_BPU
+	PERF_COUNT_HW_CACHE_NODE
+	PERF_COUNT_HW_CACHE_MAX
+)
+
+const (
+	PERF_COUNT_HW_CACHE_OP_READ uint64 = iota
+	PERF_COUNT_HW_CACHE_OP_WRITE
+	PERF_COUNT_HW_CACHE_OP_PREFETCH
+	PERF_COUNT_HW_CACHE_OP_MAX
+)
+
+const (
+	PERF_COUNT_HW_CACHE_RESULT_ACCESS uint64 = iota
+	PERF_COUNT_HW_CACHE_RESULT_MISS
+	PERF_COUNT_HW_CACHE_RESULT_MAX
+)
+
+const (
+	PERF_COUNT_SW_CPU_CLOCK uint64 = iota
+	PERF_COUNT_SW_TASK_CLOCK
+	PERF_COUNT_SW_PAGE_FAULTS
+	PERF_COUNT_SW_CONTEXT_SWITCHES
+	PERF_COUNT_SW_CPU_MIGRATIONS
+	PERF_COUNT_SW_PAGE_FAULTS_MIN
+	PERF_COUNT_SW_PAGE_FAULTS_MAJ
+	PERF_COUNT_SW_ALIGNMENT_FAULTS
+	PERF_COUNT_SW_EMULATION_FAULTS
+	PERF_COUNT_SW_DUMMY
+	PERF_COUNT_BPF_OUTPUT
+	PERF_COUNT_SW_MAX
 )
 
 const (
@@ -729,52 +783,70 @@ type SampleRecord struct {
 	IntrRegs    []uint64
 }
 
-func (s *SampleRecord) read(reader *bytes.Reader, sampleType uint64, readFormat uint64) error {
-	if (sampleType & PERF_SAMPLE_IDENTIFIER) != 0 {
+func (s *SampleRecord) read(reader *bytes.Reader, eventAttr *EventAttr, formatMap map[uint64]*EventAttr) error {
+	// If we have a formatMap, assume that the format of the data we're
+	// reading is as yet unknown. Further assume that PERF_SAMPLE_IDENTIFIER
+	// has been specified in every EventAttr (it must be!). Read the first
+	// 8 bytes (uint64) from the data and look up the identifier in the
+	// format map to get the EventAttr to use
+	if eventAttr == nil && formatMap != nil {
+		var ok bool
+		var sampleID uint64
+
+		binary.Read(reader, binary.LittleEndian, &sampleID)
+		eventAttr, ok = formatMap[sampleID]
+		if !ok {
+			return fmt.Errorf("Unknown SampleID %d from raw sample", sampleID)
+		}
+		if (eventAttr.SampleType & PERF_SAMPLE_IDENTIFIER) == 0 {
+			panic("PERF_SAMPLE_IDENTIFIER not specified in EventAttr")
+		}
+		s.SampleID = sampleID
+	} else if (eventAttr.SampleType & PERF_SAMPLE_IDENTIFIER) != 0 {
 		binary.Read(reader, binary.LittleEndian, &s.SampleID)
 	}
 
-	if (sampleType & PERF_SAMPLE_IP) != 0 {
+	if (eventAttr.SampleType & PERF_SAMPLE_IP) != 0 {
 		binary.Read(reader, binary.LittleEndian, &s.IP)
 	}
 
-	if (sampleType & PERF_SAMPLE_TID) != 0 {
+	if (eventAttr.SampleType & PERF_SAMPLE_TID) != 0 {
 		binary.Read(reader, binary.LittleEndian, &s.Pid)
 		binary.Read(reader, binary.LittleEndian, &s.Tid)
 	}
 
-	if (sampleType & PERF_SAMPLE_TIME) != 0 {
+	if (eventAttr.SampleType & PERF_SAMPLE_TIME) != 0 {
 		binary.Read(reader, binary.LittleEndian, &s.Time)
 	}
 
-	if (sampleType & PERF_SAMPLE_ADDR) != 0 {
+	if (eventAttr.SampleType & PERF_SAMPLE_ADDR) != 0 {
 		binary.Read(reader, binary.LittleEndian, &s.Addr)
 	}
 
-	if (sampleType & PERF_SAMPLE_ID) != 0 {
+	if (eventAttr.SampleType & PERF_SAMPLE_ID) != 0 {
 		binary.Read(reader, binary.LittleEndian, &s.ID)
 	}
 
-	if (sampleType & PERF_SAMPLE_STREAM_ID) != 0 {
+	if (eventAttr.SampleType & PERF_SAMPLE_STREAM_ID) != 0 {
 		binary.Read(reader, binary.LittleEndian, &s.StreamID)
 	}
 
-	if (sampleType & PERF_SAMPLE_CPU) != 0 {
+	if (eventAttr.SampleType & PERF_SAMPLE_CPU) != 0 {
 		res := uint32(0)
 
 		binary.Read(reader, binary.LittleEndian, &s.CPU)
 		binary.Read(reader, binary.LittleEndian, &res)
 	}
 
-	if (sampleType & PERF_SAMPLE_PERIOD) != 0 {
+	if (eventAttr.SampleType & PERF_SAMPLE_PERIOD) != 0 {
 		binary.Read(reader, binary.LittleEndian, &s.Period)
 	}
 
-	if (sampleType & PERF_SAMPLE_READ) != 0 {
-		s.V.read(reader, readFormat)
+	if (eventAttr.SampleType & PERF_SAMPLE_READ) != 0 {
+		s.V.read(reader, eventAttr.ReadFormat)
 	}
 
-	if (sampleType & PERF_SAMPLE_CALLCHAIN) != 0 {
+	if (eventAttr.SampleType & PERF_SAMPLE_CALLCHAIN) != 0 {
 		var nr uint64
 
 		binary.Read(reader, binary.LittleEndian, &nr)
@@ -787,14 +859,14 @@ func (s *SampleRecord) read(reader *bytes.Reader, sampleType uint64, readFormat 
 
 	}
 
-	if (sampleType & PERF_SAMPLE_RAW) != 0 {
+	if (eventAttr.SampleType & PERF_SAMPLE_RAW) != 0 {
 		rawDataSize := uint32(0)
 		binary.Read(reader, binary.LittleEndian, &rawDataSize)
 		s.RawData = make([]byte, rawDataSize)
 		binary.Read(reader, binary.LittleEndian, s.RawData)
 	}
 
-	if (sampleType & PERF_SAMPLE_BRANCH_STACK) != 0 {
+	if (eventAttr.SampleType & PERF_SAMPLE_BRANCH_STACK) != 0 {
 		bnr := uint64(0)
 		binary.Read(reader, binary.LittleEndian, &bnr)
 
@@ -820,12 +892,12 @@ func (s *SampleRecord) read(reader *bytes.Reader, sampleType uint64, readFormat 
 		}
 	}
 
-	if (sampleType&PERF_SAMPLE_REGS_USER) != 0 ||
-		(sampleType&PERF_SAMPLE_STACK_USER) != 0 ||
-		(sampleType&PERF_SAMPLE_WEIGHT) != 0 ||
-		(sampleType&PERF_SAMPLE_DATA_SRC) != 0 ||
-		(sampleType&PERF_SAMPLE_TRANSACTION) != 0 ||
-		(sampleType&PERF_SAMPLE_REGS_INTR) != 0 {
+	if (eventAttr.SampleType&PERF_SAMPLE_REGS_USER) != 0 ||
+		(eventAttr.SampleType&PERF_SAMPLE_STACK_USER) != 0 ||
+		(eventAttr.SampleType&PERF_SAMPLE_WEIGHT) != 0 ||
+		(eventAttr.SampleType&PERF_SAMPLE_DATA_SRC) != 0 ||
+		(eventAttr.SampleType&PERF_SAMPLE_TRANSACTION) != 0 ||
+		(eventAttr.SampleType&PERF_SAMPLE_REGS_INTR) != 0 {
 
 		panic("PERF_RECORD_SAMPLE field parsing not implemented")
 	}
@@ -980,7 +1052,7 @@ type Sample struct {
 	SampleID
 }
 
-func (sample *Sample) read(reader *bytes.Reader, sampleType uint64, readFormat uint64, sampleIDAll bool) error {
+func (sample *Sample) read(reader *bytes.Reader, eventAttr *EventAttr, formatMap map[uint64]*EventAttr) error {
 	startPos, _ := reader.Seek(0, os.SEEK_CUR)
 
 	err := sample.eventHeader.read(reader)
@@ -998,8 +1070,8 @@ func (sample *Sample) read(reader *bytes.Reader, sampleType uint64, readFormat u
 		}
 
 		sample.Record = record
-		if sampleIDAll {
-			sample.SampleID.read(reader, sampleType)
+		if eventAttr.SampleIDAll {
+			sample.SampleID.read(reader, eventAttr.SampleType)
 		}
 
 	case PERF_RECORD_EXIT:
@@ -1010,8 +1082,8 @@ func (sample *Sample) read(reader *bytes.Reader, sampleType uint64, readFormat u
 		}
 
 		sample.Record = record
-		if sampleIDAll {
-			sample.SampleID.read(reader, sampleType)
+		if eventAttr.SampleIDAll {
+			sample.SampleID.read(reader, eventAttr.SampleType)
 		}
 
 	case PERF_RECORD_COMM:
@@ -1022,13 +1094,13 @@ func (sample *Sample) read(reader *bytes.Reader, sampleType uint64, readFormat u
 		}
 
 		sample.Record = record
-		if sampleIDAll {
-			sample.SampleID.read(reader, sampleType)
+		if eventAttr.SampleIDAll {
+			sample.SampleID.read(reader, eventAttr.SampleType)
 		}
 
 	case PERF_RECORD_SAMPLE:
 		record := new(SampleRecord)
-		err = record.read(reader, sampleType, readFormat)
+		err = record.read(reader, eventAttr, formatMap)
 		if err != nil {
 			break
 		}
@@ -1047,15 +1119,15 @@ func (sample *Sample) read(reader *bytes.Reader, sampleType uint64, readFormat u
 
 		glog.Infoln("Lost", record.Lost, "events")
 		sample.Record = record
-		if sampleIDAll {
-			sample.SampleID.read(reader, sampleType)
+		if eventAttr.SampleIDAll {
+			sample.SampleID.read(reader, eventAttr.SampleType)
 		}
 
 	default:
 		//
 		// Unknown type, read sample record as a byte slice
 		//
-		sampleIDSize := sample.SampleID.getSize(sampleType, sampleIDAll)
+		sampleIDSize := sample.SampleID.getSize(eventAttr.SampleType, eventAttr.SampleIDAll)
 
 		recordSize := sample.Size -
 			uint16(binary.Size(sample.eventHeader)) -
@@ -1075,8 +1147,8 @@ func (sample *Sample) read(reader *bytes.Reader, sampleType uint64, readFormat u
 
 		sample.Record = recordData
 
-		if sampleIDAll {
-			sample.SampleID.read(reader, sampleType)
+		if eventAttr.SampleIDAll {
+			sample.SampleID.read(reader, eventAttr.SampleType)
 		}
 	}
 

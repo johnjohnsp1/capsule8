@@ -1,6 +1,8 @@
 package perf
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -19,6 +21,14 @@ func getCgroupFs() string {
 	return config.Sensor.CgroupFs
 }
 
+type registeredEvent struct {
+	name      string
+	filter    string
+	decoderfn TraceEventDecoderFn
+	fds       []int
+	eventAttr *EventAttr
+}
+
 type EventMonitor struct {
 	pid            int
 	flags          uintptr
@@ -28,15 +38,18 @@ type EventMonitor struct {
 	lock *sync.Mutex
 	cond *sync.Cond
 
+	events      map[string]*registeredEvent
 	isRunning   bool
 	pipe        [2]int
 	groupfds    []int
-	otherfds    []int
+	eventfds    map[int]int        // fd : cpu index
+	eventAttrs  map[int]*EventAttr // fd : attr
 	ringBuffers []*ringBuffer
 	decoders    *TraceEventDecoderMap
 	cgroup      *os.File
 
 	// Used while reading samples from ringbuffers
+	formats map[uint64]*EventAttr
 	samples []*decodedSample
 }
 
@@ -45,7 +58,8 @@ func fixupEventAttr(eventAttr *EventAttr) {
 	eventAttr.Type = PERF_TYPE_TRACEPOINT
 	eventAttr.Size = sizeofPerfEventAttr
 	eventAttr.SamplePeriod = 1 // SampleFreq not used
-	eventAttr.ReadFormat = 0
+	eventAttr.SampleType |= PERF_SAMPLE_STREAM_ID | PERF_SAMPLE_IDENTIFIER
+	eventAttr.ReadFormat = PERF_FORMAT_ID
 
 	eventAttr.Disabled = true
 	eventAttr.Pinned = false
@@ -59,14 +73,7 @@ func perfEventOpen(eventAttr *EventAttr, pid int, groupfds []int, flags uintptr,
 	newfds := make([]int, ncpu)
 
 	for i := 0; i < ncpu; i++ {
-		var groupfd int
-
-		if groupfds == nil {
-			groupfd = -1
-		} else {
-			groupfd = groupfds[i]
-		}
-		fd, err := open(eventAttr, pid, i, groupfd, flags)
+		fd, err := open(eventAttr, pid, i, groupfds[i], flags)
 		if err != nil {
 			for j := i; j >= 0; j-- {
 				unix.Close(newfds[j-1])
@@ -95,6 +102,12 @@ func (monitor *EventMonitor) RegisterEvent(name string, fn TraceEventDecoderFn, 
 		return errors.New("monitor is already running")
 	}
 
+	key := fmt.Sprintf("%s %s", name, filter)
+	_, ok := monitor.events[key]
+	if ok {
+		return errors.New("event is already registered")
+	}
+
 	id, err := monitor.decoders.AddDecoder(name, fn)
 	if err != nil {
 		return err
@@ -110,46 +123,50 @@ func (monitor *EventMonitor) RegisterEvent(name string, fn TraceEventDecoderFn, 
 	}
 	attr.Config = uint64(id)
 
-	if monitor.groupfds == nil {
-		newfds, err := perfEventOpen(&attr, monitor.pid, nil, monitor.flags, filter)
-		if err != nil {
-			monitor.decoders.RemoveDecoder(name)
-			return err
-		}
-
-		ncpu := runtime.NumCPU()
-		ringBuffers := make([]*ringBuffer, ncpu)
-		for i := 0; i < ncpu; i++ {
-			rb, err := newRingBuffer(newfds[i], monitor.ringBufferSize, &attr)
-			if err != nil {
-				for j := i; j >= 0; j-- {
-					ringBuffers[j-1].unmap()
-				}
-				for j := ncpu; j >= 0; j-- {
-					unix.Close(newfds[j-1])
-				}
-				monitor.decoders.RemoveDecoder(name)
-				return err
-			}
-			ringBuffers[i] = rb
-		}
-
-		monitor.groupfds = newfds
-		monitor.ringBuffers = ringBuffers
-	} else {
-		flags := monitor.flags | PERF_FLAG_FD_OUTPUT
-		newfds, err := perfEventOpen(&attr, monitor.pid, monitor.groupfds, flags, filter)
-		if err != nil {
-			monitor.decoders.RemoveDecoder(name)
-			return err
-		}
-
-		if monitor.otherfds == nil {
-			monitor.otherfds = newfds
-		} else {
-			monitor.otherfds = append(monitor.otherfds, newfds...)
-		}
+	flags := monitor.flags | PERF_FLAG_FD_OUTPUT | PERF_FLAG_FD_NO_GROUP
+	newfds, err := perfEventOpen(&attr, monitor.pid, monitor.groupfds, flags, filter)
+	if err != nil {
+		monitor.decoders.RemoveDecoder(name)
+		return err
 	}
+
+	for i, fd := range newfds {
+		monitor.eventAttrs[fd] = &attr
+		monitor.eventfds[fd] = i
+	}
+
+	event := &registeredEvent{
+		name:      name,
+		filter:    filter,
+		decoderfn: fn,
+		fds:       newfds,
+		eventAttr: &attr,
+	}
+	monitor.events[key] = event
+
+	return nil
+}
+
+func (monitor *EventMonitor) UnregisterEvent(name string, filter string) error {
+	if monitor.isRunning {
+		return errors.New("monitor is already running")
+	}
+
+	key := fmt.Sprintf("%s %s", name, filter)
+	event, ok := monitor.events[key]
+	if !ok {
+		return errors.New("event is not registered")
+	}
+
+	delete(monitor.events, key)
+
+	for _, fd := range event.fds {
+		delete(monitor.eventAttrs, fd)
+		delete(monitor.eventfds, fd)
+		unix.Close(fd)
+	}
+
+	monitor.decoders.RemoveDecoder(name)
 
 	return nil
 }
@@ -158,7 +175,7 @@ func (monitor *EventMonitor) Close(wait bool) error {
 	// if the monitor is running, stop it and wait for it to stop
 	monitor.Stop(wait)
 
-	for _, fd := range monitor.otherfds {
+	for fd := range monitor.eventfds {
 		unix.Close(fd)
 	}
 	for _, rb := range monitor.ringBuffers {
@@ -170,7 +187,8 @@ func (monitor *EventMonitor) Close(wait bool) error {
 
 	monitor.ringBuffers = monitor.ringBuffers[:0]
 	monitor.groupfds = monitor.groupfds[:0]
-	monitor.otherfds = monitor.otherfds[:0]
+	monitor.eventfds = make(map[int]int)
+	monitor.eventAttrs = make(map[int]*EventAttr)
 
 	if monitor.cgroup != nil {
 		monitor.cgroup.Close()
@@ -181,19 +199,15 @@ func (monitor *EventMonitor) Close(wait bool) error {
 }
 
 func (monitor *EventMonitor) Disable() {
-	for _, fd := range monitor.groupfds {
-		disable(fd)
-	}
-	for _, fd := range monitor.otherfds {
+	// Group FDs are always disabled
+	for fd := range monitor.eventfds {
 		disable(fd)
 	}
 }
 
 func (monitor *EventMonitor) Enable() {
-	for _, fd := range monitor.groupfds {
-		enable(fd)
-	}
-	for _, fd := range monitor.otherfds {
+	// Group FDs are always disabled
+	for fd := range monitor.eventfds {
 		enable(fd)
 	}
 }
@@ -234,24 +248,51 @@ func (monitor *EventMonitor) recordSample(sampleIn *Sample, err error) {
 	}
 }
 
-// Here, `ready` is a list of indices into monitor.groupfds that are ready for
-// reading. The same indices match monitor.ringBuffers.
-func (monitor *EventMonitor) readRingBuffers(ready []int, fn func(interface{}, error)) {
+func (monitor *EventMonitor) readSamples(data []byte) {
+	reader := bytes.NewReader(data)
+	for reader.Len() > 0 {
+		sample := Sample{}
+		err := sample.read(reader, nil, monitor.formats)
+		monitor.recordSample(&sample, err)
+	}
+}
+
+func (monitor *EventMonitor) readRingBuffers(readyfds []int, fn func(interface{}, error)) {
 	if monitor.samples == nil {
 		monitor.samples = make([]*decodedSample, 8)
 	}
 
-	for i := range ready {
-		var data [64]byte
+	monitor.formats = make(map[uint64]*EventAttr)
 
-		// Read data from monitor.groupfds[i] and discard it. There
-		// shouldn't be much there, but make sure we get it all.
-		_, err := unix.Read(monitor.groupfds[i], data[:])
+	// Read all of the data from each ready fd so that we can match up
+	// format ids with the right EventAttr
+	for _, fd := range readyfds {
+		var data [1024]byte
+
+		_, err := unix.Read(fd, data[:])
 		if err != nil {
 			continue
 		}
 
-		monitor.ringBuffers[i].read(monitor.recordSample)
+		reader := bytes.NewReader(data[:])
+		for reader.Len() > 0 {
+			type read_format struct {
+				value uint64
+				id    uint64
+			}
+			var format read_format
+
+			err := binary.Read(reader, binary.LittleEndian, &format)
+			if err != nil {
+				break
+			}
+			monitor.formats[format.id] = monitor.eventAttrs[fd]
+		}
+	}
+
+	for _, fd := range readyfds {
+		ringBuffer := monitor.ringBuffers[monitor.eventfds[fd]]
+		ringBuffer.read(monitor.readSamples)
 	}
 
 	// TODO Sort the data read from the ringbuffers
@@ -262,6 +303,14 @@ func (monitor *EventMonitor) readRingBuffers(ready []int, fn func(interface{}, e
 	}
 
 	monitor.samples = monitor.samples[:0]
+}
+
+func addPollFd(pollfds []unix.PollFd, fd int) []unix.PollFd {
+	pollfd := unix.PollFd{
+		Fd:     int32(fd),
+		Events: unix.POLLIN,
+	}
+	return append(pollfds, pollfd)
 }
 
 func (monitor *EventMonitor) Run(fn func(interface{}, error)) error {
@@ -281,15 +330,14 @@ func (monitor *EventMonitor) Run(fn func(interface{}, error)) error {
 		return err
 	}
 
-	// Set up the fds for polling. We only need to monitor the groupfds,
-	// since those are the only ones with ring buffers attached and so are
-	// the only ones that will get notifications.
-	pollfds := make([]unix.PollFd, len(monitor.groupfds)+1)
-	pollfds[0].Fd = int32(monitor.pipe[0])
-	pollfds[0].Events = unix.POLLIN
-	for i, fd := range monitor.groupfds {
-		pollfds[i+1].Fd = int32(fd)
-		pollfds[i+1].Events = unix.POLLIN
+	// Set up the fds for polling. Do not monitor the groupfds, because
+	// notifications there will prevent notifications on the eventfds,
+	// which are the ones we really want, because they give us the format
+	// information we need to decode the raw samples.
+	pollfds := make([]unix.PollFd, 0, len(monitor.eventfds)+1)
+	pollfds = addPollFd(pollfds, monitor.pipe[0])
+	for fd := range monitor.eventfds {
+		pollfds = addPollFd(pollfds, fd)
 	}
 
 runloop:
@@ -299,7 +347,7 @@ runloop:
 			break
 		}
 		if n > 0 {
-			ready := make([]int, 0, n)
+			readyfds := make([]int, 0, n)
 			for i, fd := range pollfds {
 				if i == 0 {
 					if (fd.Revents & ^unix.POLLIN) != 0 {
@@ -307,11 +355,11 @@ runloop:
 						break runloop
 					}
 				} else if (fd.Revents & unix.POLLIN) != 0 {
-					ready = append(ready, i-1)
+					readyfds = append(readyfds, int(fd.Fd))
 				}
 			}
-			if len(ready) > 0 {
-				monitor.readRingBuffers(ready, fn)
+			if len(readyfds) > 0 {
+				monitor.readRingBuffers(readyfds, fn)
 			}
 		}
 	}
@@ -349,6 +397,47 @@ func (monitor *EventMonitor) Stop(wait bool) {
 	}
 }
 
+func (monitor *EventMonitor) initializeGroupLeaders() error {
+	eventAttr := &EventAttr{
+		Type:            PERF_TYPE_SOFTWARE,
+		Size:            sizeofPerfEventAttr,
+		Config:          PERF_COUNT_SW_DUMMY, // Added in Linux 3.12
+		Disabled:        true,
+		Watermark:       true,
+		WakeupWatermark: 1,
+	}
+
+	ncpu := runtime.NumCPU()
+	newfds := make([]int, ncpu)
+	ringBuffers := make([]*ringBuffer, ncpu)
+
+	for i := 0; i < ncpu; i++ {
+		fd, err := open(eventAttr, monitor.pid, i, -1, monitor.flags)
+		if err != nil {
+			for j := i; j >= 0; j-- {
+				unix.Close(newfds[j-1])
+			}
+			return err
+		}
+		newfds[i] = fd
+
+		rb, err := newRingBuffer(newfds[i], monitor.ringBufferSize)
+		if err != nil {
+			for j := i; j >= 0; j-- {
+				ringBuffers[j-1].unmap()
+				unix.Close(newfds[j-1])
+			}
+			return err
+		}
+		ringBuffers[i] = rb
+	}
+
+	monitor.groupfds = newfds
+	monitor.ringBuffers = ringBuffers
+
+	return nil
+}
+
 func NewEventMonitor(pid int, flags uintptr, ringBufferSize int, defaultAttr *EventAttr) (*EventMonitor, error) {
 	var eventAttr EventAttr
 
@@ -371,7 +460,14 @@ func NewEventMonitor(pid int, flags uintptr, ringBufferSize int, defaultAttr *Ev
 		flags:          flags,
 		ringBufferSize: ringBufferSize,
 		defaultAttr:    eventAttr,
+		eventfds:       make(map[int]int),
+		eventAttrs:     make(map[int]*EventAttr),
 		decoders:       NewTraceEventDecoderMap(),
+	}
+
+	err := monitor.initializeGroupLeaders()
+	if err != nil {
+		return nil, err
 	}
 
 	return monitor, nil

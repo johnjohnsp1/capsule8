@@ -94,8 +94,8 @@ func (d *traceEventDecoder) decodeRawData(rawData []byte) (TraceEventSampleData,
 
 type TraceEventDecoderMap struct {
 	sync.Mutex
-	decoders   map[uint16]*traceEventDecoder
-	nameMap    map[string]uint16
+	decoders map[uint16]*traceEventDecoder
+	nameMap  map[string]uint16
 }
 
 func NewTraceEventDecoderMap() *TraceEventDecoderMap {
@@ -117,7 +117,7 @@ func (l *TraceEventDecoderMap) AddDecoder(name string, fn TraceEventDecoderFn) (
 		l.decoders = make(map[uint16]*traceEventDecoder)
 	}
 	l.decoders[id] = &traceEventDecoder{
-		fields: fields,
+		fields:    fields,
 		decoderfn: fn,
 	}
 
