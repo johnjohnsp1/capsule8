@@ -295,12 +295,15 @@ func (monitor *EventMonitor) readRingBuffers(readyfds []int, fn func(interface{}
 		ringBuffer.read(monitor.readSamples)
 	}
 
-	// TODO Sort the data read from the ringbuffers
+	go func(samples []*decodedSample) {
+		// TODO Sort the data read from the ringbuffers
 
-	// Pass the sorted data to the callback function, which is as yet undefined
-	for _, sample := range monitor.samples {
-		fn(sample.sampleOut, sample.err)
-	}
+		// Pass the sorted data to the callback function, which is as yet undefined
+		for _, sample := range samples {
+			fn(sample.sampleOut, sample.err)
+		}
+
+	}(monitor.samples)
 
 	monitor.samples = monitor.samples[:0]
 }
