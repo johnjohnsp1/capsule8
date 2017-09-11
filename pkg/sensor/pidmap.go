@@ -12,6 +12,8 @@ import (
 )
 
 var mu sync.Mutex
+
+// pidMap is a map from host PID to cgroup name (includes Docker container ID)
 var pidMap map[int32]string
 
 func getProcFs() string {
@@ -30,12 +32,11 @@ func readCgroup(hostPid int32) (string, error) {
 	for scanner.Scan() {
 		t := scanner.Text()
 		parts := strings.Split(t, ":")
+		controllerList := parts[1]
 		cgroupPath := parts[2]
 
-		if strings.Index(cgroupPath, "/docker") == 0 {
-			pathParts := strings.Split(cgroupPath, "/")
-			containerID := pathParts[2]
-			return containerID, nil
+		if strings.Index(controllerList, "perf_event") > 0 {
+			return cgroupPath, nil
 		}
 	}
 
@@ -50,13 +51,13 @@ func pidMapOnFork(parentPid int32, childPid int32) {
 		pidMap = make(map[int32]string)
 	}
 
-	cID, ok := pidMap[parentPid]
+	cgroup, ok := pidMap[parentPid]
 	if !ok {
-		cID, _ = readCgroup(parentPid)
-		pidMap[parentPid] = cID
+		cgroup, _ := readCgroup(parentPid)
+		pidMap[parentPid] = cgroup
 	}
 
-	pidMap[childPid] = cID
+	pidMap[childPid] = cgroup
 }
 
 func pidMapGetContainerID(hostPid int32) (string, error) {
@@ -67,13 +68,19 @@ func pidMapGetContainerID(hostPid int32) (string, error) {
 		pidMap = make(map[int32]string)
 	}
 
-	cID, ok := pidMap[hostPid]
+	cgroup, ok := pidMap[hostPid]
 	if !ok {
-		cID, _ = readCgroup(hostPid)
-		pidMap[hostPid] = cID
+		cgroup, _ = readCgroup(hostPid)
+		pidMap[hostPid] = cgroup
 	}
 
-	return cID, nil
+	if strings.Index(cgroup, "/docker") == 0 {
+		pathParts := strings.Split(cgroup, "/")
+		cID := pathParts[2]
+		return cID, nil
+	}
+
+	return "", nil
 }
 
 func pidMapGetCommandLine(hostPid int32) ([]string, error) {
