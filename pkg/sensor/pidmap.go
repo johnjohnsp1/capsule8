@@ -74,7 +74,7 @@ func pidMapGetContainerID(hostPid int32) (string, error) {
 		pidMap[hostPid] = cgroup
 	}
 
-	if strings.Index(cgroup, "/docker") == 0 {
+	if strings.HasPrefix(cgroup, "/docker") {
 		pathParts := strings.Split(cgroup, "/")
 		cID := pathParts[2]
 		return cID, nil
