@@ -598,7 +598,10 @@ func (s *Sensor) update() error {
 		filters[i] = filterMap[uint16(eventAttrs[i].Config)]
 	}
 
-	glog.Infof("Creating new perf session with:\n eventAttrs = %v\nfilters = %v", eventAttrs, filters)
+	glog.Infoln("Creating new perf session with:")
+	for i, ea := range eventAttrs {
+		glog.Infof("  filter='%s' eventAttr=%#v\n", filters[i], *ea)
+	}
 
 	// Stop old perf session
 	if s.perf != nil {
@@ -610,11 +613,28 @@ func (s *Sensor) update() error {
 
 	// Create a new perf session only if we have perf event config info
 	if len(eventAttrs) > 0 {
+		var (
+			p   *perf.Perf
+			err error
+		)
+
 		//
-		// Attach to root cgroup of all docker containers
+		// If a cgroup name is configured (can be "/"), then monitor
+		// that cgroup within the perf_event hierarchy. Otherwise,
+		// monitor all processes on the system.
 		//
-		p, err := perf.NewWithCgroup(eventAttrs, filters,
-			config.Sensor.CgroupName)
+		if len(config.Sensor.CgroupName) > 0 {
+			glog.Info("Creating new perf session on cgroup %s",
+				config.Sensor.CgroupName)
+
+			p, err = perf.NewWithCgroup(eventAttrs, filters,
+				config.Sensor.CgroupName)
+		} else {
+			glog.Info("Creating system-wide perf session",
+				config.Sensor.CgroupName)
+
+			p, err = perf.New(eventAttrs, filters)
+		}
 
 		if err != nil {
 			return err
