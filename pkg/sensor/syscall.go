@@ -11,19 +11,19 @@ import (
 )
 
 func decodeSysEnter(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	var args = data["args"].([]uint64)
+	var args = data["args"].([]interface{})
 
 	ev := newEventFromSample(sample, data)
 	ev.Event = &api.Event_Syscall{
 		Syscall: &api.SyscallEvent{
 			Type: api.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER,
 			Id:   int64(data["id"].(uint64)),
-			Arg0: args[0],
-			Arg1: args[1],
-			Arg2: args[2],
-			Arg3: args[3],
-			Arg4: args[4],
-			Arg5: args[5],
+			Arg0: args[0].(uint64),
+			Arg1: args[1].(uint64),
+			Arg2: args[2].(uint64),
+			Arg3: args[3].(uint64),
+			Arg4: args[4].(uint64),
+			Arg5: args[5].(uint64),
 		},
 	}
 

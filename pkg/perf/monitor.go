@@ -75,8 +75,8 @@ func perfEventOpen(eventAttr *EventAttr, pid int, groupfds []int, flags uintptr,
 	for i := 0; i < ncpu; i++ {
 		fd, err := open(eventAttr, pid, i, groupfds[i], flags)
 		if err != nil {
-			for j := i; j >= 0; j-- {
-				unix.Close(newfds[j-1])
+			for j := i-1; j >= 0; j-- {
+				unix.Close(newfds[j])
 			}
 			return nil, err
 		}
@@ -105,7 +105,7 @@ func (monitor *EventMonitor) RegisterEvent(name string, fn TraceEventDecoderFn, 
 	key := fmt.Sprintf("%s %s", name, filter)
 	_, ok := monitor.events[key]
 	if ok {
-		return errors.New("event is already registered")
+		return fmt.Errorf("event \"%s\" is already registered", name)
 	}
 
 	id, err := monitor.decoders.AddDecoder(name, fn)
@@ -258,35 +258,47 @@ func (monitor *EventMonitor) readSamples(data []byte) {
 }
 
 func (monitor *EventMonitor) readRingBuffers(readyfds []int, fn func(interface{}, error)) {
-	if monitor.samples == nil {
-		monitor.samples = make([]*decodedSample, 8)
-	}
-
-	monitor.formats = make(map[uint64]*EventAttr)
-
 	// Read all of the data from each ready fd so that we can match up
 	// format ids with the right EventAttr
 	for _, fd := range readyfds {
 		var data [1024]byte
 
-		_, err := unix.Read(fd, data[:])
-		if err != nil {
-			continue
-		}
-
-		reader := bytes.NewReader(data[:])
-		for reader.Len() > 0 {
-			type read_format struct {
-				value uint64
-				id    uint64
-			}
-			var format read_format
-
-			err := binary.Read(reader, binary.LittleEndian, &format)
+		for more := true; more; {
+			n, err := unix.Read(fd, data[:])
 			if err != nil {
-				break
+				continue
 			}
-			monitor.formats[format.id] = monitor.eventAttrs[fd]
+
+			if n == cap(data) {
+				pollfds := make([]unix.PollFd, 1)
+				pollfds[0] = unix.PollFd{
+					Fd: int32(fd),
+					Events: unix.POLLIN,
+				}
+				_, err := unix.Poll(pollfds, 0)
+				if err != nil {
+					more = false
+				} else {
+					more = (pollfds[0].Revents & unix.POLLIN) != 0
+				}
+			} else {
+				more = false
+			}
+
+			reader := bytes.NewReader(data[:n])
+			for reader.Len() > 0 {
+				type read_format struct {
+					Value uint64
+					Id    uint64
+				}
+				var format read_format
+
+				err := binary.Read(reader, binary.LittleEndian, &format)
+				if err != nil {
+					break
+				}
+				monitor.formats[format.Id] = monitor.eventAttrs[fd]
+			}
 		}
 	}
 
@@ -417,8 +429,8 @@ func (monitor *EventMonitor) initializeGroupLeaders() error {
 	for i := 0; i < ncpu; i++ {
 		fd, err := open(eventAttr, monitor.pid, i, -1, monitor.flags)
 		if err != nil {
-			for j := i; j >= 0; j-- {
-				unix.Close(newfds[j-1])
+			for j := i-1; j >= 0; j-- {
+				unix.Close(newfds[j])
 			}
 			return err
 		}
@@ -426,9 +438,10 @@ func (monitor *EventMonitor) initializeGroupLeaders() error {
 
 		rb, err := newRingBuffer(newfds[i], monitor.ringBufferSize)
 		if err != nil {
-			for j := i; j >= 0; j-- {
-				ringBuffers[j-1].unmap()
-				unix.Close(newfds[j-1])
+			unix.Close(newfds[i])
+			for j := i-1; j >= 0; j-- {
+				ringBuffers[j].unmap()
+				unix.Close(newfds[j])
 			}
 			return err
 		}
@@ -463,10 +476,14 @@ func NewEventMonitor(pid int, flags uintptr, ringBufferSize int, defaultAttr *Ev
 		flags:          flags,
 		ringBufferSize: ringBufferSize,
 		defaultAttr:    eventAttr,
+		events:         make(map[string]*registeredEvent),
 		eventfds:       make(map[int]int),
 		eventAttrs:     make(map[int]*EventAttr),
 		decoders:       NewTraceEventDecoderMap(),
+		formats:        make(map[uint64]*EventAttr),
 	}
+	monitor.lock = &sync.Mutex{}
+	monitor.cond = sync.NewCond(monitor.lock)
 
 	err := monitor.initializeGroupLeaders()
 	if err != nil {

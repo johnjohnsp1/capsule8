@@ -17,11 +17,11 @@ import (
 // We support PERF_ATTR_SIZE_VER0, which is the first published version
 //
 const sizeofPerfEventAttrVer0 = 64
-const sizeofPerfEventAttrVer1 = 72
-const sizeofPerfEventAttrVer2 = 80
-const sizeofPerfEventAttrVer3 = 96
-const sizeofPerfEventAttrVer4 = 104
-const sizeofPerfEventAttrVer5 = 112
+const sizeofPerfEventAttrVer1 = 72  // Linux 2.6.33
+const sizeofPerfEventAttrVer2 = 80  // Linux 3.4
+const sizeofPerfEventAttrVer3 = 96  // Linux 3.7
+const sizeofPerfEventAttrVer4 = 104 // Linux 3.19
+const sizeofPerfEventAttrVer5 = 112 // Linux 4.1
 
 const sizeofPerfEventAttr = sizeofPerfEventAttrVer0
 
@@ -1117,9 +1117,21 @@ func (sample *Sample) read(reader *bytes.Reader, eventAttr *EventAttr, formatMap
 			break
 		}
 
+		if eventAttr == nil && formatMap != nil {
+			// The Id is not guaranteed to be known here.
+			// The kernel seems to be a little wonky about
+			// reporting read_format IDs for lost records.
+			eventAttr = formatMap[record.Id]
+		}
+
 		glog.Infoln("Lost", record.Lost, "events")
 		sample.Record = record
-		if eventAttr.SampleIDAll {
+		if eventAttr == nil {
+			// If we don't have an eventAttr (see above), then just
+			// skip the rest of the record. Nothing we can do about
+			// it
+			reader.Seek((startPos + int64(sample.Size)), os.SEEK_SET)
+		} else if eventAttr.SampleIDAll {
 			sample.SampleID.read(reader, eventAttr.SampleType)
 		}
 
@@ -1127,29 +1139,26 @@ func (sample *Sample) read(reader *bytes.Reader, eventAttr *EventAttr, formatMap
 		//
 		// Unknown type, read sample record as a byte slice
 		//
-		sampleIDSize := sample.SampleID.getSize(eventAttr.SampleType, eventAttr.SampleIDAll)
+		recordSize := sample.Size - uint16(binary.Size(sample.eventHeader))
 
-		recordSize := sample.Size -
-			uint16(binary.Size(sample.eventHeader)) -
-			uint16(sampleIDSize)
+		if eventAttr != nil {
+			sampleIDSize := sample.SampleID.getSize(eventAttr.SampleType, eventAttr.SampleIDAll)
+			recordSize -= uint16(sampleIDSize)
+		}
 
 		recordData := make([]byte, recordSize)
 
-		var n int
-		n, err = reader.Read(recordData)
+		n, err := reader.Read(recordData)
 		if err != nil {
 			break
-		} else if n < int(recordSize) {
+		}
+		if n < int(recordSize) {
 			glog.Infof("Short read: %d < %d", n, int(recordSize))
 			err = errors.New("Read error")
 			break
 		}
 
 		sample.Record = recordData
-
-		if eventAttr.SampleIDAll {
-			sample.SampleID.read(reader, eventAttr.SampleType)
-		}
 	}
 
 	// If there was a read error, seek to end of the record
