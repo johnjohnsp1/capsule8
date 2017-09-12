@@ -30,10 +30,10 @@ type registeredEvent struct {
 }
 
 type EventMonitor struct {
-	pid            int
-	flags          uintptr
-	ringBufferSize int
-	defaultAttr    EventAttr
+	pid                int
+	flags              uintptr
+	ringBufferNumPages int
+	defaultAttr        EventAttr
 
 	lock *sync.Mutex
 	cond *sync.Cond
@@ -75,7 +75,7 @@ func perfEventOpen(eventAttr *EventAttr, pid int, groupfds []int, flags uintptr,
 	for i := 0; i < ncpu; i++ {
 		fd, err := open(eventAttr, pid, i, groupfds[i], flags)
 		if err != nil {
-			for j := i-1; j >= 0; j-- {
+			for j := i - 1; j >= 0; j-- {
 				unix.Close(newfds[j])
 			}
 			return nil, err
@@ -229,23 +229,24 @@ type decodedSample struct {
 // TODO Add Len(), Less(), and Swap() functions to make decodedSamples sortable
 
 func (monitor *EventMonitor) recordSample(sampleIn *Sample, err error) {
-	if err != nil {
-		// Log the error, or is it logged elsewhere?
-		return
+	sample := &decodedSample{
+		sampleIn: sampleIn,
+		err:      err,
 	}
 
-	// Decode the sample using monitor.decoders
-	switch sampleIn.Record.(type) {
-	case *SampleRecord:
-		sample := &decodedSample{
-			timestamp: sampleIn.Time,
-			sampleIn:  sampleIn,
+	if err == nil && sampleIn != nil {
+		sample.timestamp = sampleIn.Time
+
+		switch record := sampleIn.Record.(type) {
+		case *SampleRecord:
+			sample.sampleOut, sample.err = monitor.decoders.DecodeSample(record)
+		default:
+			// unknown sample type; pass the raw record up
+			break
 		}
-		sample.sampleOut, sample.err = monitor.decoders.DecodeSample(sampleIn.Record.(*SampleRecord))
-		monitor.samples = append(monitor.samples, sample)
-	default:
-		// unknown sample type; don't do anything with it for now
 	}
+
+	monitor.samples = append(monitor.samples, sample)
 }
 
 func (monitor *EventMonitor) readSamples(data []byte) {
@@ -272,7 +273,7 @@ func (monitor *EventMonitor) readRingBuffers(readyfds []int, fn func(interface{}
 			if n == cap(data) {
 				pollfds := make([]unix.PollFd, 1)
 				pollfds[0] = unix.PollFd{
-					Fd: int32(fd),
+					Fd:     int32(fd),
 					Events: unix.POLLIN,
 				}
 				_, err := unix.Poll(pollfds, 0)
@@ -429,17 +430,17 @@ func (monitor *EventMonitor) initializeGroupLeaders() error {
 	for i := 0; i < ncpu; i++ {
 		fd, err := open(eventAttr, monitor.pid, i, -1, monitor.flags)
 		if err != nil {
-			for j := i-1; j >= 0; j-- {
+			for j := i - 1; j >= 0; j-- {
 				unix.Close(newfds[j])
 			}
 			return err
 		}
 		newfds[i] = fd
 
-		rb, err := newRingBuffer(newfds[i], monitor.ringBufferSize)
+		rb, err := newRingBuffer(newfds[i], monitor.ringBufferNumPages)
 		if err != nil {
 			unix.Close(newfds[i])
-			for j := i-1; j >= 0; j-- {
+			for j := i - 1; j >= 0; j-- {
 				ringBuffers[j].unmap()
 				unix.Close(newfds[j])
 			}
@@ -454,7 +455,7 @@ func (monitor *EventMonitor) initializeGroupLeaders() error {
 	return nil
 }
 
-func NewEventMonitor(pid int, flags uintptr, ringBufferSize int, defaultAttr *EventAttr) (*EventMonitor, error) {
+func NewEventMonitor(pid int, flags uintptr, ringBufferNumPages int, defaultAttr *EventAttr) (*EventMonitor, error) {
 	var eventAttr EventAttr
 
 	if defaultAttr == nil {
@@ -472,15 +473,15 @@ func NewEventMonitor(pid int, flags uintptr, ringBufferSize int, defaultAttr *Ev
 	flags &= PERF_FLAG_FD_CLOEXEC | PERF_FLAG_PID_CGROUP
 
 	monitor := &EventMonitor{
-		pid:            pid,
-		flags:          flags,
-		ringBufferSize: ringBufferSize,
-		defaultAttr:    eventAttr,
-		events:         make(map[string]*registeredEvent),
-		eventfds:       make(map[int]int),
-		eventAttrs:     make(map[int]*EventAttr),
-		decoders:       NewTraceEventDecoderMap(),
-		formats:        make(map[uint64]*EventAttr),
+		pid:                pid,
+		flags:              flags,
+		ringBufferNumPages: ringBufferNumPages,
+		defaultAttr:        eventAttr,
+		events:             make(map[string]*registeredEvent),
+		eventfds:           make(map[int]int),
+		eventAttrs:         make(map[int]*EventAttr),
+		decoders:           NewTraceEventDecoderMap(),
+		formats:            make(map[uint64]*EventAttr),
 	}
 	monitor.lock = &sync.Mutex{}
 	monitor.cond = sync.NewCond(monitor.lock)
@@ -493,7 +494,7 @@ func NewEventMonitor(pid int, flags uintptr, ringBufferSize int, defaultAttr *Ev
 	return monitor, nil
 }
 
-func NewEventMonitorWithCgroup(cgroup string, flags uintptr, ringBufferSize int, defaultAttr *EventAttr) (*EventMonitor, error) {
+func NewEventMonitorWithCgroup(cgroup string, flags uintptr, ringBufferNumPages int, defaultAttr *EventAttr) (*EventMonitor, error) {
 	// Cgroup can be either a:
 	// - cgroupfs path ("/docker/abcd09876...")
 	// - systemd cgroup path ("system.slice:docker:abcd09876...")
@@ -518,7 +519,7 @@ func NewEventMonitorWithCgroup(cgroup string, flags uintptr, ringBufferSize int,
 		return nil, err
 	}
 
-	monitor, err := NewEventMonitor(int(f.Fd()), flags|PERF_FLAG_PID_CGROUP, ringBufferSize, defaultAttr)
+	monitor, err := NewEventMonitor(int(f.Fd()), flags|PERF_FLAG_PID_CGROUP, ringBufferNumPages, defaultAttr)
 	if err != nil {
 		f.Close()
 		return nil, err

@@ -10,6 +10,12 @@ import (
 	"github.com/golang/glog"
 )
 
+const (
+	FS_DO_SYS_OPEN_KPROBE_NAME      = "fs/do_sys_open"
+	FS_DO_SYS_OPEN_KPROBE_ADDRESS   = "do_sys_open"
+	FS_DO_SYS_OPEN_KPROBE_FETCHARGS = "filename=+0(%si):string flags=%dx:s32 mode=%cx:s32"
+)
+
 func decodeDoSysOpen(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
 	ev := newEventFromSample(sample, data)
 	ev.Event = &api.Event_File{
@@ -112,7 +118,7 @@ func (ffs *fileFilterSet) registerEvents(monitor *perf.EventMonitor) {
 	if err != nil {
 		glog.Infof("Tracepoint fs/do_sys_open not found, adding a kprobe to emulate")
 
-		_, err := perf.AddKprobe("fs/do_sys_open", "do_sys_open", false, "filename=+0(%si):string flags=%dx:s32 mode=%cx:s32")
+		_, err := perf.AddKprobe(FS_DO_SYS_OPEN_KPROBE_NAME, FS_DO_SYS_OPEN_KPROBE_ADDRESS, false, FS_DO_SYS_OPEN_KPROBE_FETCHARGS)
 		if err != nil {
 			glog.Infof("Couldn't add do_sys_open kprobe: %s", err)
 			return

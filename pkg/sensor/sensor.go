@@ -12,10 +12,12 @@ import (
 )
 
 func (s *Sensor) onSampleEvent(sample interface{}, err error) {
-	event := sample.(*api.Event)
+	if sample != nil {
+		event := sample.(*api.Event)
 
-	for _, c := range s.eventStreams {
-		c <- event
+		for _, c := range s.eventStreams {
+			c <- event
+		}
 	}
 }
 
