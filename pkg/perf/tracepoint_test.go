@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-type extractFileFn func (string, io.Reader) error
+type extractFileFn func(string, io.Reader) error
 
 func extractFiles(filename string, fn extractFileFn) error {
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)

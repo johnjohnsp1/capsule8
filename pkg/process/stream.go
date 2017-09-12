@@ -35,8 +35,7 @@ type processStream struct {
 	ctrl        chan interface{}
 	data        chan interface{}
 	eventStream *stream.Stream
-	perf        *perf.Perf
-	decoders    *perf.TraceEventDecoderMap
+	monitor     *perf.EventMonitor
 }
 
 func decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
@@ -68,40 +67,19 @@ func decodeSysEnterExitGroup(sample *perf.SampleRecord, data perf.TraceEventSamp
 
 // -----------------------------------------------------------------------------
 
-func (ps *processStream) onSample(perfEv *perf.Sample, err error) {
+func (ps *processStream) onSample(event interface{}, err error) {
 	if err != nil {
 		ps.data <- err
 		return
 	}
 
-	var procEv *Event
-
-	switch perfEv.Record.(type) {
-	case *perf.SampleRecord:
-		//
-		// Sample events don't include the SampleID, so data like
-		// Pid and Time must be obtained from the Sample struct.
-		//
-
-		sample := perfEv.Record.(*perf.SampleRecord)
-		result, err := ps.decoders.DecodeSample(sample)
-		if err != nil {
-			ps.data <- err
-			return
-		}
-		procEv = result.(*Event)
-
-	default:
-		glog.Infof("Unknown perf record type %T", perfEv.Record)
-
-	}
-
+	procEv := event.(*Event)
 	if procEv != nil && procEv.State != 0 {
 		ps.data <- procEv
 	}
 }
 
-func createEventAttrs(decoders *perf.TraceEventDecoderMap) []*perf.EventAttr {
+func setupMonitor(monitor *perf.EventMonitor) error {
 	//
 	// TODO:
 	//
@@ -112,63 +90,23 @@ func createEventAttrs(decoders *perf.TraceEventDecoderMap) []*perf.EventAttr {
 	//
 	// - cgroup_attach_task?
 	//
-
-	sysEnterExitGroupID, _ :=
-		decoders.AddDecoder("syscalls/sys_enter_exit_group", decodeSysEnterExitGroup)
-	schedProcessExecID, _ :=
-		decoders.AddDecoder("sched/sched_process_exec", decodeSchedProcessExec)
-	schedProcessForkID, _ :=
-		decoders.AddDecoder("sched/sched_process_fork", decodeSchedProcessFork)
-
-	if sysEnterExitGroupID == 0 ||
-		schedProcessExecID == 0 ||
-		schedProcessForkID == 0 {
-
-		return nil
+	err := monitor.RegisterEvent("sched/sched_process_exec", decodeSchedProcessExec, "", nil)
+	if err != nil {
+		return err
+	}
+	err = monitor.RegisterEvent("sched/sched_process_fork", decodeSchedProcessFork, "", nil)
+	if err != nil {
+		return err
+	}
+	err = monitor.RegisterEvent("syscalls/sys_enter_exit_group", decodeSysEnterExitGroup, "", nil)
+	if err != nil {
+		return err
 	}
 
-	sampleType :=
-		perf.PERF_SAMPLE_TID | perf.PERF_SAMPLE_TIME |
-			perf.PERF_SAMPLE_CPU | perf.PERF_SAMPLE_RAW
-
-	eventAttrs := []*perf.EventAttr{
-		&perf.EventAttr{
-			Type:            perf.PERF_TYPE_TRACEPOINT,
-			Config:          uint64(sysEnterExitGroupID),
-			SampleType:      sampleType,
-			Inherit:         true,
-			SampleIDAll:     true,
-			SamplePeriod:    1,
-			Watermark:       true,
-			WakeupWatermark: 1,
-		},
-		&perf.EventAttr{
-			Type:            perf.PERF_TYPE_TRACEPOINT,
-			Config:          uint64(schedProcessExecID),
-			SampleType:      sampleType,
-			Inherit:         true,
-			SampleIDAll:     true,
-			SamplePeriod:    1,
-			Watermark:       true,
-			WakeupWatermark: 1,
-		},
-
-		&perf.EventAttr{
-			Type:            perf.PERF_TYPE_TRACEPOINT,
-			Config:          uint64(schedProcessForkID),
-			SampleType:      sampleType,
-			Inherit:         true,
-			SampleIDAll:     true,
-			SamplePeriod:    1,
-			Watermark:       true,
-			WakeupWatermark: 1,
-		},
-	}
-
-	return eventAttrs
+	return nil
 }
 
-func createStream(p *perf.Perf, decoders *perf.TraceEventDecoderMap) (*stream.Stream, error) {
+func createStream(monitor *perf.EventMonitor) (*stream.Stream, error) {
 	controlChannel := make(chan interface{})
 	dataChannel := make(chan interface{})
 
@@ -179,43 +117,41 @@ func createStream(p *perf.Perf, decoders *perf.TraceEventDecoderMap) (*stream.St
 			Ctrl: controlChannel,
 			Data: dataChannel,
 		},
-		perf:     p,
-		decoders: decoders,
+		monitor: monitor,
 	}
 
 	// Control loop
-	go func(p *perf.Perf) {
+	go func() {
 		for {
 			select {
 			case e, ok := <-ps.ctrl:
 				if ok {
 					enable := e.(bool)
 					if enable {
-						p.Enable()
+						monitor.Enable()
 					} else {
-						p.Disable()
+						monitor.Disable()
 					}
 				} else {
-					p.Close()
+					monitor.Stop(true)
 					return
 				}
 			}
 		}
-	}(p)
+	}()
 
 	// Data loop
 	go func() {
-		p.Enable()
+		monitor.Enable()
 
 		// This consumes everything in the loop
-		p.Run(ps.onSample)
+		monitor.Run(ps.onSample)
 
 		// Perf loop terminated, we won't be sending any more events
 		close(ps.data)
 	}()
 
 	return ps.eventStream, nil
-
 }
 
 func newPidStream(args ...int) (*stream.Stream, error) {
@@ -229,38 +165,35 @@ func newPidStream(args ...int) (*stream.Stream, error) {
 		pid = args[0]
 	}
 
-	decoders := perf.NewTraceEventDecoderMap()
-	eventAttrs := createEventAttrs(decoders)
-	if eventAttrs == nil {
-		err := errors.New("Couldn't create perf.EventAttrs")
-		return nil, err
-	}
-
-	p, err := perf.New(eventAttrs, nil, pid)
+	monitor, err := perf.NewEventMonitor(pid, 0, 0, nil)
 	if err != nil {
-		glog.Infof("Couldn't open perf events: %v\n", err)
+		glog.Infof("Couldn't create event monitor: %v", err)
 		return nil, err
-
 	}
 
-	return createStream(p, decoders)
+	err = setupMonitor(monitor)
+	if err != nil {
+		glog.Infof("Couldn't setup event monitor: %v", err)
+		return nil, err
+	}
+
+	return createStream(monitor)
 }
 
 func newCgroupStream(cgroup string) (*stream.Stream, error) {
-	decoders := perf.NewTraceEventDecoderMap()
-	eventAttrs := createEventAttrs(decoders)
-	if eventAttrs == nil {
-		err := errors.New("Couldn't create perf.EventAttrs")
-		return nil, err
-	}
-
-	p, err := perf.NewWithCgroup(eventAttrs, nil, cgroup)
+	monitor, err := perf.NewEventMonitorWithCgroup(cgroup, 0, 0, nil)
 	if err != nil {
-		glog.Infof("Couldn't open perf events: %v\n", err)
+		glog.Infof("Couldn't create event monitor: %v", err)
 		return nil, err
 	}
 
-	return createStream(p, decoders)
+	err = setupMonitor(monitor)
+	if err != nil {
+		glog.Infof("Couldn't setup event monitor: %v", err)
+		return nil, err
+	}
+
+	return createStream(monitor)
 }
 
 // NewEventStream creates a new system-wide process event stream.

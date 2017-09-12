@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"time"
 
-	"encoding/hex"
-
-	"encoding/binary"
+	"github.com/capsule8/reactive8/pkg/perf"
 
 	api "github.com/capsule8/api/v0"
 	"golang.org/x/sys/unix"
@@ -92,8 +92,11 @@ func newEventFromContainer(containerID string) *api.Event {
 	return e
 }
 
-func newEventFromFieldData(data map[string]interface{}) *api.Event {
+func newEventFromSample(sample *perf.SampleRecord, data map[string]interface{}) *api.Event {
 	e := NewEvent()
+
+	// Use monotime based on perf event vs. Event construction
+	e.SensorMonotimeNanos = HostMonotimeNanosToSensor(int64(sample.Time))
 
 	// Even when the Sensor is running in a container and the event
 	// occurs within a different container, the "common_pid" field
