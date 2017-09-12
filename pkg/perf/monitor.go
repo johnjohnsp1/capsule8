@@ -8,11 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 
 	"github.com/capsule8/reactive8/pkg/config"
-	"github.com/golang/glog"
 
 	"golang.org/x/sys/unix"
 )
@@ -495,25 +493,7 @@ func NewEventMonitor(pid int, flags uintptr, ringBufferNumPages int, defaultAttr
 }
 
 func NewEventMonitorWithCgroup(cgroup string, flags uintptr, ringBufferNumPages int, defaultAttr *EventAttr) (*EventMonitor, error) {
-	// Cgroup can be either a:
-	// - cgroupfs path ("/docker/abcd09876...")
-	// - systemd cgroup path ("system.slice:docker:abcd09876...")
-
-	var path string
-
-	if cgroup[0] == '/' {
-		path = filepath.Join(getCgroupFs(), "perf_event", cgroup)
-	} else {
-		parts := strings.Split(cgroup, ":")
-		if parts[1] != "docker" {
-			glog.Infof("Couldn't parse cgroup %s", cgroup)
-			return nil, errors.New("Couldn't parse cgroup")
-		}
-
-		scope := fmt.Sprintf("docker-%s.scope", parts[2])
-		path = filepath.Join(getCgroupFs(), "perf_event", parts[0], scope)
-	}
-
+	path := filepath.Join(getCgroupFs(), "perf_event", cgroup)
 	f, err := os.OpenFile(path, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err

@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	api "github.com/capsule8/api/v0"
+	"github.com/capsule8/reactive8/pkg/config"
 	"github.com/capsule8/reactive8/pkg/container"
 	"github.com/capsule8/reactive8/pkg/filter"
 	"github.com/capsule8/reactive8/pkg/perf"
@@ -150,10 +151,24 @@ func (s *Sensor) update() error {
 
 	// Create a new perf session only if we have perf event config info
 	if fs.len() > 0 {
+		var (
+			monitor *perf.EventMonitor
+			err     error
+		)
+
 		//
-		// Attach to root cgroup of all docker containers
+		// If a cgroup name is configured (can be "/"), then monitor
+		// that cgroup within the perf_event hierarchy. Otherwise,
+		// monitor all processes on the system.
 		//
-		monitor, err := perf.NewEventMonitorWithCgroup("/docker", 0, 0, nil)
+		if len(config.Sensor.CgroupName) > 0 {
+			glog.Infof("Creating new event monitor on cgroup %s",
+				config.Sensor.CgroupName)
+			monitor, err = perf.NewEventMonitorWithCgroup(config.Sensor.CgroupName, 0, 0, nil)
+		} else {
+			glog.Info("Createing new system-wide event monitor")
+			monitor, err = perf.NewEventMonitor(-1, 0, 0, nil)
+		}
 		if err != nil {
 			return err
 		}
