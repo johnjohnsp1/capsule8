@@ -6,12 +6,10 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/capsule8/reactive8/pkg/config"
+
 	"golang.org/x/sys/unix"
 )
-
-// mmap'd ring buffer must be 1+2^n pages. We optimize for low latency, so
-// we shouldn't need a large ringbuffer memory region.
-const numRingBufferPages = (1 << 0)
 
 type ringBuffer struct {
 	fd       int
@@ -24,7 +22,7 @@ func newRingBuffer(fd int, pageCount int) (*ringBuffer, error) {
 	pageSize := os.Getpagesize()
 
 	if pageCount <= 0 {
-		pageCount = numRingBufferPages
+		pageCount = config.Sensor.RingBufferNumPages
 	}
 
 	memory, err := unix.Mmap(fd, 0, (pageCount+1)*pageSize, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)

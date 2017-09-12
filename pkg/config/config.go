@@ -43,6 +43,10 @@ var Sensor struct {
 	// not running in Docker containers. To monitor the entire system,
 	// this can be set to "" or "/".
 	CgroupName string `split_words:"true" default:"docker"`
+
+	// The default size of ring buffers used for kernel perf_event
+	// monitors. The size is defined in units of pages.
+	RingBufferNumPages int `default:"8"`
 }
 
 var ApiServer struct {
