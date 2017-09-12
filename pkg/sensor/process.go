@@ -27,6 +27,9 @@ func decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampl
 func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
 	ev := newEventFromSample(sample, data)
 
+	// Notify pidmap of exec event
+	pidMapOnExec(ev.ProcessPid)
+
 	processEvent := &api.ProcessEvent{
 		Type:         api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
 		ExecFilename: data["filename"].(string),
