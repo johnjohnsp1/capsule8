@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -48,6 +50,14 @@ func TestCreateSubscription(t *testing.T) {
 	h := sha256.New()
 	h.Write(b)
 	subID := fmt.Sprintf("%x", h.Sum(nil))
+
+	tempDir, err := ioutil.TempDir("", "TestGetEvents")
+	if err != nil {
+		t.Fatal("Couldn't create temporary directory:", err)
+	}
+
+	config.Sensor.ListenAddr = fmt.Sprintf("unix:%s",
+		filepath.Join(tempDir, "sensor.sock"))
 
 	s, err := CreateSensor()
 	if err != nil {

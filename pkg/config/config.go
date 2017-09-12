@@ -29,8 +29,13 @@ var Sensor struct {
 	// Subscription timeout in seconds
 	SubscriptionTimeout int64 `default:"5"`
 
-	TelemetryServiceBindAddress string `default:"127.0.0.1:5051"`
-	MonitoringPort              int    `default:"8083"`
+	// Sensor gRPC API Server listen address may be specified as any of:
+	//   unix:/path/to/socket
+	//   127.0.0.1:8484
+	//   :8484
+	ListenAddr string `split_words:"true" default:"unix:/var/run/capsule8-sensor.sock"`
+
+	MonitoringPort int `default:"8083"`
 
 	// Name of Cgroup to monitor for events. The cgroup specified must
 	// exist within /sys/fs/cgroup/perf_event/. If this is set to "docker",
@@ -55,11 +60,11 @@ var Backplane struct {
 }
 
 var Recorder struct {
-	TelemetryServiceURL string `default:"127.0.0.1:5051"`
-	DbPath              string `default:"/var/lib/capsule8/recorder"`
-	DbFileName          string `default:"recorder.db"`
-	DbSizeLimit         string `default:"100mb"`
-	MonitoringPort      int    `default:"8084"`
+	APIServer      string `default:"unix:/var/run/capsule8-sensor.sock"`
+	DbPath         string `default:"/var/lib/capsule8/recorder"`
+	DbFileName     string `default:"recorder.db"`
+	DbSizeLimit    string `default:"100mb"`
+	MonitoringPort int    `default:"8084"`
 }
 
 func init() {
