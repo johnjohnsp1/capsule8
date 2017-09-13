@@ -17,7 +17,7 @@ func decodeSysEnter(sample *perf.SampleRecord, data perf.TraceEventSampleData) (
 	ev.Event = &api.Event_Syscall{
 		Syscall: &api.SyscallEvent{
 			Type: api.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER,
-			Id:   int64(data["id"].(uint64)),
+			Id:   data["id"].(int64),
 			Arg0: args[0].(uint64),
 			Arg1: args[1].(uint64),
 			Arg2: args[2].(uint64),
@@ -35,8 +35,8 @@ func decodeSysExit(sample *perf.SampleRecord, data perf.TraceEventSampleData) (i
 	ev.Event = &api.Event_Syscall{
 		Syscall: &api.SyscallEvent{
 			Type: api.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT,
-			Id:   int64(data["id"].(uint64)),
-			Ret:  int64(data["ret"].(uint64)),
+			Id:   data["id"].(int64),
+			Ret:  data["ret"].(int64),
 		},
 	}
 

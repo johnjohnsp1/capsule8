@@ -33,7 +33,7 @@ var Sensor struct {
 	//   unix:/path/to/socket
 	//   127.0.0.1:8484
 	//   :8484
-	ListenAddr string `split_words:"true" default:"unix:/var/run/capsule8-sensor.sock"`
+	ListenAddr string `split_words:"true" default:"unix:/var/run/capsule8/sensor.sock"`
 
 	MonitoringPort int `default:"8083"`
 
@@ -43,6 +43,10 @@ var Sensor struct {
 	// not running in Docker containers. To monitor the entire system,
 	// this can be set to "" or "/".
 	CgroupName string `split_words:"true" default:"docker"`
+
+	// The default size of ring buffers used for kernel perf_event
+	// monitors. The size is defined in units of pages.
+	RingBufferPages int `split_words:"true" default:"8"`
 }
 
 var ApiServer struct {
@@ -60,7 +64,7 @@ var Backplane struct {
 }
 
 var Recorder struct {
-	APIServer      string `default:"unix:/var/run/capsule8-sensor.sock"`
+	APIServer      string `default:"unix:/var/run/capsule8/sensor.sock"`
 	DbPath         string `default:"/var/lib/capsule8/recorder"`
 	DbFileName     string `default:"recorder.db"`
 	DbSizeLimit    string `default:"100mb"`

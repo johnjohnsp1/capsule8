@@ -22,8 +22,8 @@ func decodeDoSysOpen(sample *perf.SampleRecord, data perf.TraceEventSampleData) 
 		File: &api.FileEvent{
 			Type:      api.FileEventType_FILE_EVENT_TYPE_OPEN,
 			Filename:  data["filename"].(string),
-			OpenFlags: int32(data["flags"].(uint64)),
-			OpenMode:  int32(data["mode"].(uint64)),
+			OpenFlags: data["flags"].(int32),
+			OpenMode:  data["mode"].(int32),
 		},
 	}
 

@@ -237,13 +237,20 @@ func (field *TraceEventField) parseTypeName(s string, isArray bool, arraySize in
 	// These types are going to be consistent in a 64-bit kernel, and in a
 	// 32-bit kernel as well, except for "long".
 	case "int", "signed int", "signed", "unsigned int", "unsigned", "uint":
-		if field.IsSigned {
-			field.dataType = dtS32
-		} else {
-			field.dataType = dtU32
+		// The kernel is a bit unreliable about reporting "int" with
+		// different sizes and signs, so try to use size/sign whenever
+		// possible. If it's not possible, assume 32-bit int
+		skip, err := field.setTypeFromSizeAndSign(isArray, arraySize)
+		if skip && err == nil {
+			if field.IsSigned {
+				field.dataType = dtS32
+			} else {
+				field.dataType = dtU32
+			}
+			field.dataTypeSize = 4
+			return false, nil
 		}
-		field.dataTypeSize = 4
-		return false, nil
+		return skip, err
 	case "char", "signed char", "unsigned char":
 		if field.IsSigned {
 			field.dataType = dtS8

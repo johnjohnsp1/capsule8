@@ -2,6 +2,8 @@ package main
 
 import (
 	"net"
+	"os"
+	"path"
 	"strings"
 
 	api "github.com/capsule8/api/v0"
@@ -23,6 +25,15 @@ func startTelemetryService(s *sensor) {
 
 	parts := strings.Split(config.Sensor.ListenAddr, ":")
 	if len(parts) > 1 && parts[0] == "unix" {
+		socketPath := parts[1]
+		socketDir := path.Dir(socketPath)
+
+		err := os.MkdirAll(socketDir, 0600)
+		if err != nil {
+			glog.Fatalf("Couldn't create socket directory: %s",
+				socketDir)
+		}
+
 		lis, err = net.Listen("unix", parts[1])
 	} else {
 		lis, err = net.Listen("tcp", config.Sensor.ListenAddr)

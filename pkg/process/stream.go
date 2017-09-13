@@ -23,10 +23,10 @@ const (
 
 // Event represents a process event
 type Event struct {
-	Pid          uint32
+	Pid          int32
 	State        State
 	Counter      uint64
-	ForkPid      uint32
+	ForkPid      int32
 	ExecFilename string
 	ExitStatus   uint64
 }
@@ -41,16 +41,16 @@ type processStream struct {
 func decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
 	return &Event{
 		State:   ProcessFork,
-		Pid:     uint32(data["common_pid"].(uint64)),
+		Pid:     data["common_pid"].(int32),
 		Counter: sample.Time,
-		ForkPid: uint32(data["child_pid"].(uint64)),
+		ForkPid: data["child_pid"].(int32),
 	}, nil
 }
 
 func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
 	return &Event{
 		State:        ProcessExec,
-		Pid:          uint32(data["common_pid"].(uint64)),
+		Pid:          data["common_pid"].(int32),
 		Counter:      sample.Time,
 		ExecFilename: data["filename"].(string),
 	}, nil
@@ -59,7 +59,7 @@ func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampl
 func decodeSysEnterExitGroup(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
 	return &Event{
 		State:      ProcessExit,
-		Pid:        uint32(data["common_pid"].(uint64)),
+		Pid:        data["common_pid"].(int32),
 		Counter:    sample.Time,
 		ExitStatus: data["error_code"].(uint64),
 	}, nil
