@@ -29,17 +29,17 @@ var (
 	}
 )
 
+// Note: go array indices start at 0, which is why these stat field indices are
+// one less than the field numbers given in the `info proc` manpage.
 const (
-	// Index of /proc/PID/stat field for the process start time
-	// Note: go array indices start at 0, which is why these stat field indices
-	// are one less than the field numbers given in the `info proc` manpage.
-	PID_STAT_FIELD = 0
+	// Index of /proc/PID/stat field for the process PID
+	STAT_FIELD_PID = 0
 
 	// Index of /proc/PID/stat field for the process command
-	COMMAND_STAT_FIELD = 1
+	STAT_FIELD_COMMAND = 1
 
 	// Index of /proc/PID/stat field for the process start time
-	STARTTIME_STAT_FIELD = 21
+	STAT_FIELD_STARTTIME = 21
 )
 
 // The cached data for a process
@@ -52,9 +52,9 @@ type procCacheEntry struct {
 	// This does NOT change after creation.
 	processId string
 
-	// The `perf_event` control group path for this process.
+	// The ID for the container of this process.
 	// This does NOT change after creation.
-	perfEventPath string
+	containerId string
 
 	// The command for the process.
 	// This can be changed via a execve() call.
@@ -94,7 +94,7 @@ func getBootId() (string, error) {
 
 // Computes the process ID for a current process, given its /proc/pid/stat data
 func getProcessId(stat []string) string {
-	return fmt.Sprintf("%s/%s/%s", bootId, stat[PID_STAT_FIELD], stat[STARTTIME_STAT_FIELD])
+	return fmt.Sprintf("%s/%s/%s", bootId, stat[STAT_FIELD_PID], stat[STAT_FIELD_STARTTIME])
 }
 
 // Creates a new process cache entry.
@@ -105,16 +105,23 @@ func newProcCacheEntry(pid int32) (*procCacheEntry, error) {
 	}
 
 	processId := getProcessId(stat)
+
+	var containerId string = ""
 	perfEventPath, err := readCgroup(pid)
 	if err != nil {
 		return nil, err
 	}
-	command := stat[COMMAND_STAT_FIELD]
+	if strings.HasPrefix(perfEventPath, "/docker") {
+		pathParts := strings.Split(perfEventPath, "/")
+		containerId = pathParts[2]
+	}
+
+	command := stat[STAT_FIELD_COMMAND]
 
 	proc := &procCacheEntry{
-		processId:     processId,
-		perfEventPath: perfEventPath,
-		command:       command,
+		processId:   processId,
+		containerId: containerId,
+		command:     command,
 	}
 	return proc, nil
 }
@@ -200,9 +207,9 @@ func pidMapOnFork(parentPid int32, childPid int32) {
 		return
 	}
 	childEntry := &procCacheEntry{
-		processId:     getProcessId(childStat),
-		perfEventPath: parentEntry.perfEventPath,
-		command:       parentEntry.command,
+		processId:   getProcessId(childStat),
+		containerId: parentEntry.containerId,
+		command:     parentEntry.command,
 	}
 
 	mu.Lock()
@@ -220,7 +227,7 @@ func pidMapOnExec(hostPid int32) {
 	}
 	procEntry.lock.Lock()
 	defer procEntry.lock.Unlock()
-	procEntry.command = stat[COMMAND_STAT_FIELD]
+	procEntry.command = stat[STAT_FIELD_COMMAND]
 }
 
 func pidMapGetContainerID(hostPid int32) (string, error) {
@@ -229,15 +236,7 @@ func pidMapGetContainerID(hostPid int32) (string, error) {
 		return "", err
 	}
 
-	cgroup := procEntry.perfEventPath
-
-	if strings.HasPrefix(cgroup, "/docker") {
-		pathParts := strings.Split(cgroup, "/")
-		cID := pathParts[2]
-		return cID, nil
-	}
-
-	return "", nil
+	return procEntry.containerId, nil
 }
 
 func pidMapGetProcessID(hostPid int32) (string, error) {
