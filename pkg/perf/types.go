@@ -790,8 +790,10 @@ func (s *SampleRecord) read(reader *bytes.Reader, eventAttr *EventAttr, formatMa
 	// 8 bytes (uint64) from the data and look up the identifier in the
 	// format map to get the EventAttr to use
 	if eventAttr == nil && formatMap != nil {
-		var ok bool
-		var sampleID uint64
+		var (
+			ok       bool
+			sampleID uint64
+		)
 
 		binary.Read(reader, binary.LittleEndian, &sampleID)
 		eventAttr, ok = formatMap[sampleID]
@@ -1046,6 +1048,49 @@ func (sid *SampleID) read(reader *bytes.Reader, eventSampleType uint64) error {
 	return nil
 }
 
+func (sid *SampleID) maybeRead(reader *bytes.Reader, startPos int64, recordSize uint16, eventAttr *EventAttr, formatMap map[uint64]*EventAttr) error {
+	if eventAttr != nil {
+		if eventAttr.SampleIDAll {
+			return sid.read(reader, eventAttr.SampleType)
+		}
+		return nil
+	}
+
+	// currentPos - startPos == # bytes already read
+	currentPos, _ := reader.Seek(0, os.SEEK_CUR)
+	if currentPos - startPos == int64(recordSize) {
+		return nil
+	}
+	if currentPos - startPos > int64(recordSize) {
+		panic("internal error - read too much data!")
+	}
+	if int64(recordSize) - (currentPos - startPos) < 8 {
+		panic("internal error - not enough data left to read for SampleIDAll!")
+	}
+
+	var (
+		ok       bool
+		sampleID uint64
+	)
+
+	reader.Seek(currentPos + int64(recordSize) - 8, os.SEEK_SET)
+	binary.Read(reader, binary.LittleEndian, &sampleID)
+	reader.Seek(currentPos, os.SEEK_SET)
+
+	eventAttr, ok = formatMap[sampleID]
+	if !ok {
+		return fmt.Errorf("Unknown SampleID %d from raw sample", sampleID)
+	}
+	if !eventAttr.SampleIDAll {
+		panic("SampleIDAll not specified in EventAttr")
+	}
+	if (eventAttr.SampleType & PERF_SAMPLE_IDENTIFIER) == 0 {
+		panic("PERF_SAMPLE_IDENTIFIER not specified in EventAttr")
+	}
+
+	return sid.read(reader, eventAttr.SampleType)
+}
+
 type Sample struct {
 	eventHeader
 	Record interface{}
@@ -1061,6 +1106,11 @@ func (sample *Sample) read(reader *bytes.Reader, eventAttr *EventAttr, formatMap
 		panic("Could not read perf event header")
 	}
 
+	// If we're finding the eventAttr from formatMap, the sample ID will be
+	// in the record where it's needed. For PERF_RECORD_SAMPLE, the ID will
+	// be the first thing in the data. For everything else, the ID will be
+	// the last thing in the data.
+
 	switch sample.Type {
 	case PERF_RECORD_FORK:
 		record := new(ForkRecord)
@@ -1070,9 +1120,7 @@ func (sample *Sample) read(reader *bytes.Reader, eventAttr *EventAttr, formatMap
 		}
 
 		sample.Record = record
-		if eventAttr.SampleIDAll {
-			sample.SampleID.read(reader, eventAttr.SampleType)
-		}
+		err = sample.SampleID.maybeRead(reader, startPos, sample.eventHeader.Size, eventAttr, formatMap)
 
 	case PERF_RECORD_EXIT:
 		record := new(ExitRecord)
@@ -1082,9 +1130,7 @@ func (sample *Sample) read(reader *bytes.Reader, eventAttr *EventAttr, formatMap
 		}
 
 		sample.Record = record
-		if eventAttr.SampleIDAll {
-			sample.SampleID.read(reader, eventAttr.SampleType)
-		}
+		err = sample.SampleID.maybeRead(reader, startPos, sample.eventHeader.Size, eventAttr, formatMap)
 
 	case PERF_RECORD_COMM:
 		record := new(CommRecord)
@@ -1094,9 +1140,7 @@ func (sample *Sample) read(reader *bytes.Reader, eventAttr *EventAttr, formatMap
 		}
 
 		sample.Record = record
-		if eventAttr.SampleIDAll {
-			sample.SampleID.read(reader, eventAttr.SampleType)
-		}
+		err = sample.SampleID.maybeRead(reader, startPos, sample.eventHeader.Size, eventAttr, formatMap)
 
 	case PERF_RECORD_SAMPLE:
 		record := new(SampleRecord)
@@ -1117,23 +1161,8 @@ func (sample *Sample) read(reader *bytes.Reader, eventAttr *EventAttr, formatMap
 			break
 		}
 
-		if eventAttr == nil && formatMap != nil {
-			// The Id is not guaranteed to be known here.
-			// The kernel seems to be a little wonky about
-			// reporting read_format IDs for lost records.
-			eventAttr = formatMap[record.Id]
-		}
-
-		glog.Infoln("Lost", record.Lost, "events")
 		sample.Record = record
-		if eventAttr == nil {
-			// If we don't have an eventAttr (see above), then just
-			// skip the rest of the record. Nothing we can do about
-			// it
-			reader.Seek((startPos + int64(sample.Size)), os.SEEK_SET)
-		} else if eventAttr.SampleIDAll {
-			sample.SampleID.read(reader, eventAttr.SampleType)
-		}
+		err = sample.SampleID.maybeRead(reader, startPos, sample.eventHeader.Size, eventAttr, formatMap)
 
 	default:
 		//

@@ -2,7 +2,6 @@ package perf
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -41,13 +40,13 @@ type EventMonitor struct {
 	pipe        [2]int
 	groupfds    []int
 	eventfds    map[int]int        // fd : cpu index
-	eventAttrs  map[int]*EventAttr // fd : attr
+	eventIDs    map[int]uint64     // fd : stream id
+	eventAttrs  map[uint64]*EventAttr
 	ringBuffers []*ringBuffer
 	decoders    *TraceEventDecoderMap
 	cgroup      *os.File
 
 	// Used while reading samples from ringbuffers
-	formats map[uint64]*EventAttr
 	samples []*decodedSample
 }
 
@@ -57,7 +56,6 @@ func fixupEventAttr(eventAttr *EventAttr) {
 	eventAttr.Size = sizeofPerfEventAttr
 	eventAttr.SamplePeriod = 1 // SampleFreq not used
 	eventAttr.SampleType |= PERF_SAMPLE_STREAM_ID | PERF_SAMPLE_IDENTIFIER
-	eventAttr.ReadFormat = PERF_FORMAT_ID
 
 	eventAttr.Disabled = true
 	eventAttr.Pinned = false
@@ -128,8 +126,25 @@ func (monitor *EventMonitor) RegisterEvent(name string, fn TraceEventDecoderFn, 
 		return err
 	}
 
+	for _, fd := range newfds {
+		id, err := unix.IoctlGetInt(fd, PERF_EVENT_IOC_ID)
+		if err != nil {
+			for _, fd := range newfds {
+				unix.Close(fd)
+				id, ok := monitor.eventIDs[fd]
+				if ok {
+					delete(monitor.eventAttrs, id)
+					delete(monitor.eventIDs, fd)
+				}
+			}
+			monitor.decoders.RemoveDecoder(name)
+			return err
+		}
+		monitor.eventAttrs[uint64(id)] = &attr
+		monitor.eventIDs[fd] = uint64(id)
+	}
+
 	for i, fd := range newfds {
-		monitor.eventAttrs[fd] = &attr
 		monitor.eventfds[fd] = i
 	}
 
@@ -159,8 +174,12 @@ func (monitor *EventMonitor) UnregisterEvent(name string, filter string) error {
 	delete(monitor.events, key)
 
 	for _, fd := range event.fds {
-		delete(monitor.eventAttrs, fd)
 		delete(monitor.eventfds, fd)
+		id, ok := monitor.eventIDs[fd]
+		if ok {
+			delete(monitor.eventAttrs, id)
+			delete(monitor.eventIDs, fd)
+		}
 		unix.Close(fd)
 	}
 
@@ -186,7 +205,6 @@ func (monitor *EventMonitor) Close(wait bool) error {
 	monitor.ringBuffers = monitor.ringBuffers[:0]
 	monitor.groupfds = monitor.groupfds[:0]
 	monitor.eventfds = make(map[int]int)
-	monitor.eventAttrs = make(map[int]*EventAttr)
 
 	if monitor.cgroup != nil {
 		monitor.cgroup.Close()
@@ -251,7 +269,7 @@ func (monitor *EventMonitor) readSamples(data []byte) {
 	reader := bytes.NewReader(data)
 	for reader.Len() > 0 {
 		sample := Sample{}
-		err := sample.read(reader, nil, monitor.formats)
+		err := sample.read(reader, nil, monitor.eventAttrs)
 		monitor.recordSample(&sample, err)
 	}
 }
@@ -282,21 +300,6 @@ func (monitor *EventMonitor) readRingBuffers(readyfds []int, fn func(interface{}
 				}
 			} else {
 				more = false
-			}
-
-			reader := bytes.NewReader(data[:n])
-			for reader.Len() > 0 {
-				type read_format struct {
-					Value uint64
-					Id    uint64
-				}
-				var format read_format
-
-				err := binary.Read(reader, binary.LittleEndian, &format)
-				if err != nil {
-					break
-				}
-				monitor.formats[format.Id] = monitor.eventAttrs[fd]
 			}
 		}
 	}
@@ -477,9 +480,9 @@ func NewEventMonitor(pid int, flags uintptr, ringBufferNumPages int, defaultAttr
 		defaultAttr:        eventAttr,
 		events:             make(map[string]*registeredEvent),
 		eventfds:           make(map[int]int),
-		eventAttrs:         make(map[int]*EventAttr),
+		eventIDs:           make(map[int]uint64),
 		decoders:           NewTraceEventDecoderMap(),
-		formats:            make(map[uint64]*EventAttr),
+		eventAttrs:         make(map[uint64]*EventAttr),
 	}
 	monitor.lock = &sync.Mutex{}
 	monitor.cond = sync.NewCond(monitor.lock)
