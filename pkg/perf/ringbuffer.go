@@ -22,7 +22,7 @@ func newRingBuffer(fd int, pageCount int) (*ringBuffer, error) {
 	pageSize := os.Getpagesize()
 
 	if pageCount <= 0 {
-		pageCount = config.Sensor.RingBufferNumPages
+		pageCount = config.Sensor.RingBufferPages
 	}
 
 	memory, err := unix.Mmap(fd, 0, (pageCount+1)*pageSize, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)

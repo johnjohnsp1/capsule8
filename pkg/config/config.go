@@ -46,7 +46,7 @@ var Sensor struct {
 
 	// The default size of ring buffers used for kernel perf_event
 	// monitors. The size is defined in units of pages.
-	RingBufferNumPages int `default:"8"`
+	RingBufferPages int `split_words:"true" default:"8"`
 }
 
 var ApiServer struct {
