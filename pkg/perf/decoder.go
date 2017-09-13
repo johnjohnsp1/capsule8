@@ -21,19 +21,19 @@ func decodeDataType(dataType int, rawData []byte) (interface{}, error) {
 	case dtString:
 		return nil, errors.New("internal error; got unexpected dtString")
 	case dtS8:
-		return uint64(rawData[0]), nil
+		return int8(rawData[0]), nil
 	case dtS16:
-		return uint64(binary.LittleEndian.Uint16(rawData)), nil
+		return int16(binary.LittleEndian.Uint16(rawData)), nil
 	case dtS32:
-		return uint64(binary.LittleEndian.Uint32(rawData)), nil
+		return int32(binary.LittleEndian.Uint32(rawData)), nil
 	case dtS64:
-		return binary.LittleEndian.Uint64(rawData), nil
+		return int64(binary.LittleEndian.Uint64(rawData)), nil
 	case dtU8:
-		return uint64(rawData[0]), nil
+		return uint8(rawData[0]), nil
 	case dtU16:
-		return uint64(binary.LittleEndian.Uint16(rawData)), nil
+		return binary.LittleEndian.Uint16(rawData), nil
 	case dtU32:
-		return uint64(binary.LittleEndian.Uint32(rawData)), nil
+		return binary.LittleEndian.Uint32(rawData), nil
 	case dtU64:
 		return binary.LittleEndian.Uint64(rawData), nil
 	}
