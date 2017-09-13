@@ -33,7 +33,7 @@ var Sensor struct {
 	//   unix:/path/to/socket
 	//   127.0.0.1:8484
 	//   :8484
-	ListenAddr string `split_words:"true" default:"unix:/var/run/capsule8-sensor.sock"`
+	ListenAddr string `split_words:"true" default:"unix:/var/run/capsule8/sensor.sock"`
 
 	MonitoringPort int `default:"8083"`
 
@@ -64,7 +64,7 @@ var Backplane struct {
 }
 
 var Recorder struct {
-	APIServer      string `default:"unix:/var/run/capsule8-sensor.sock"`
+	APIServer      string `default:"unix:/var/run/capsule8/sensor.sock"`
 	DbPath         string `default:"/var/lib/capsule8/recorder"`
 	DbFileName     string `default:"recorder.db"`
 	DbSizeLimit    string `default:"100mb"`
