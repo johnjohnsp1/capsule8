@@ -13,7 +13,7 @@ func decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampl
 	// Notify pidmap of fork event
 	pidMapOnFork(parentPid, childPid)
 
-	ev := newEventFromFieldData(data)
+	ev := newEventFromSample(sample, data)
 	ev.Event = &api.Event_Process{
 		Process: &api.ProcessEvent{
 			Type:         api.ProcessEventType_PROCESS_EVENT_TYPE_FORK,
@@ -25,7 +25,7 @@ func decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampl
 }
 
 func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	ev := newEventFromFieldData(data)
+	ev := newEventFromSample(sample, data)
 
 	processEvent := &api.ProcessEvent{
 		Type:         api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
@@ -46,7 +46,7 @@ func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampl
 }
 
 func decodeSysEnterExitGroup(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	ev := newEventFromFieldData(data)
+	ev := newEventFromSample(sample, data)
 	ev.Event = &api.Event_Process{
 		Process: &api.ProcessEvent{
 			Type:     api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT,
@@ -57,25 +57,37 @@ func decodeSysEnterExitGroup(sample *perf.SampleRecord, data perf.TraceEventSamp
 	return ev, nil
 }
 
-// -----------------------------------------------------------------------------
+type processFilterSet struct {
+	events map[api.ProcessEventType]struct{}
+}
 
-func init() {
-	sensor := getSensor()
+func (pes *processFilterSet) add(pef *api.ProcessEventFilter) {
+	if pes.events == nil {
+		pes.events = make(map[api.ProcessEventType]struct{})
+	}
 
+	pes.events[pef.Type] = struct{}{}
+}
+
+func (pes *processFilterSet) len() int {
+	return len(pes.events)
+}
+
+func (pes *processFilterSet) registerEvents(monitor *perf.EventMonitor) {
 	eventName := "sched/sched_process_fork"
-	err := sensor.registerDecoder(eventName, decodeSchedProcessFork)
+	err := monitor.RegisterEvent(eventName, decodeSchedProcessFork, "", nil)
 	if err != nil {
 		glog.Infof("Couldn't get %s event id: %v", eventName, err)
 	}
 
 	eventName = "sched/sched_process_exec"
-	err = sensor.registerDecoder(eventName, decodeSchedProcessExec)
+	err = monitor.RegisterEvent(eventName, decodeSchedProcessExec, "", nil)
 	if err != nil {
 		glog.Infof("Couldn't get %s event id: %v", eventName, err)
 	}
 
 	eventName = "syscalls/sys_enter_exit_group"
-	err = sensor.registerDecoder(eventName, decodeSysEnterExitGroup)
+	err = monitor.RegisterEvent(eventName, decodeSysEnterExitGroup, "", nil)
 	if err != nil {
 		glog.Infof("Couldn't get %s event id: %v", eventName, err)
 	}

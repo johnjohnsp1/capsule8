@@ -2,11 +2,11 @@ package main
 
 import (
 	"net"
+	"strings"
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/config"
 	pbsensor "github.com/capsule8/reactive8/pkg/sensor"
-	telemetry "github.com/capsule8/reactive8/pkg/sensor/telemetry"
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
 )
@@ -16,12 +16,22 @@ func startTelemetryService(s *sensor) {
 	t := &telemetryServiceServer{
 		s: s,
 	}
-	telemetry.RegisterTelemetryServiceServer(g, t)
+	api.RegisterTelemetryServiceServer(g, t)
+
 	var err error
-	lis, err := net.Listen("tcp", config.Sensor.TelemetryServiceBindAddress)
+	var lis net.Listener
+
+	parts := strings.Split(config.Sensor.ListenAddr, ":")
+	if len(parts) > 1 && parts[0] == "unix" {
+		lis, err = net.Listen("unix", parts[1])
+	} else {
+		lis, err = net.Listen("tcp", config.Sensor.ListenAddr)
+	}
+
 	if err != nil {
 		// We should probably give up if we can't start this.
-		glog.Fatal("Failed to start local telemetry service:", err)
+		glog.Fatalf("Failed to start local telemetry service on %s: %s",
+			config.Sensor.ListenAddr, err)
 	}
 
 	go func() {
@@ -41,7 +51,8 @@ type telemetryServiceServer struct {
 	s *sensor
 }
 
-func (t *telemetryServiceServer) GetEvents(sub *api.Subscription, stream telemetry.TelemetryService_GetEventsServer) error {
+func (t *telemetryServiceServer) GetEvents(req *api.GetEventsRequest, stream api.TelemetryService_GetEventsServer) error {
+	sub := req.Subscription
 	eventStream, err := pbsensor.NewSensor(sub)
 	if err != nil {
 		glog.Errorf("failed to get events: %s\n", err.Error())
@@ -54,12 +65,18 @@ sendLoop:
 		if !ok {
 			return err
 		}
+
 		// Send back events right away
-		err = stream.Send(&telemetry.GetEventsResponse{
-			Events: []*api.Event{
-				ev.(*api.Event),
+		te := &api.TelemetryEvent{
+			Event: ev.(*api.Event),
+		}
+
+		err = stream.Send(&api.GetEventsResponse{
+			Events: []*api.TelemetryEvent{
+				te,
 			},
 		})
+
 		// Client d/c'ed
 		if err != nil {
 			pbsensor.Remove(sub)
