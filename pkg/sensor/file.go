@@ -118,14 +118,16 @@ func (ffs *fileFilterSet) registerEvents(monitor *perf.EventMonitor) {
 	if err != nil {
 		glog.Infof("Tracepoint fs/do_sys_open not found, adding a kprobe to emulate")
 
-		_, err := perf.AddKprobe(FS_DO_SYS_OPEN_KPROBE_NAME, FS_DO_SYS_OPEN_KPROBE_ADDRESS, false, FS_DO_SYS_OPEN_KPROBE_FETCHARGS)
+		_, err = monitor.RegisterKprobe(
+			FS_DO_SYS_OPEN_KPROBE_NAME,
+			FS_DO_SYS_OPEN_KPROBE_ADDRESS,
+			false,
+			FS_DO_SYS_OPEN_KPROBE_FETCHARGS,
+			decodeDoSysOpen,
+			filter,
+			nil)
 		if err != nil {
-			glog.Infof("Couldn't add do_sys_open kprobe: %s", err)
-			return
-		}
-		err = monitor.RegisterEvent("fs/do_sys_open", decodeDoSysOpen, filter, nil)
-		if err != nil {
-			glog.Infof("Couldn't get trace event ID for kprobe fs/do_sys_open")
+			glog.Infof("Couldn't register kprobe fs/do_sys_open")
 			return
 		}
 	}

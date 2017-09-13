@@ -14,6 +14,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const (
+	EVENT_TYPE_TRACEPOINT int = iota
+	EVENT_TYPE_KPROBE
+)
+
 func getCgroupFs() string {
 	return config.Sensor.CgroupFs
 }
@@ -24,6 +29,7 @@ type registeredEvent struct {
 	decoderfn TraceEventDecoderFn
 	fds       []int
 	eventAttr *EventAttr
+	eventType int
 }
 
 type EventMonitor struct {
@@ -39,8 +45,8 @@ type EventMonitor struct {
 	isRunning   bool
 	pipe        [2]int
 	groupfds    []int
-	eventfds    map[int]int        // fd : cpu index
-	eventIDs    map[int]uint64     // fd : stream id
+	eventfds    map[int]int    // fd : cpu index
+	eventIDs    map[int]uint64 // fd : stream id
 	eventAttrs  map[uint64]*EventAttr
 	ringBuffers []*ringBuffer
 	decoders    *TraceEventDecoderMap
@@ -93,20 +99,10 @@ func perfEventOpen(eventAttr *EventAttr, pid int, groupfds []int, flags uintptr,
 	return newfds, nil
 }
 
-func (monitor *EventMonitor) RegisterEvent(name string, fn TraceEventDecoderFn, filter string, eventAttr *EventAttr) error {
-	if monitor.isRunning {
-		return errors.New("monitor is already running")
-	}
-
-	key := fmt.Sprintf("%s %s", name, filter)
-	_, ok := monitor.events[key]
-	if ok {
-		return fmt.Errorf("event \"%s\" is already registered", name)
-	}
-
+func (monitor *EventMonitor) newRegisteredEvent(name string, fn TraceEventDecoderFn, filter string, eventAttr *EventAttr, eventType int) (*registeredEvent, error) {
 	id, err := monitor.decoders.AddDecoder(name, fn)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	var attr EventAttr
@@ -123,7 +119,7 @@ func (monitor *EventMonitor) RegisterEvent(name string, fn TraceEventDecoderFn, 
 	newfds, err := perfEventOpen(&attr, monitor.pid, monitor.groupfds, flags, filter)
 	if err != nil {
 		monitor.decoders.RemoveDecoder(name)
-		return err
+		return nil, err
 	}
 
 	for _, fd := range newfds {
@@ -138,7 +134,7 @@ func (monitor *EventMonitor) RegisterEvent(name string, fn TraceEventDecoderFn, 
 				}
 			}
 			monitor.decoders.RemoveDecoder(name)
-			return err
+			return nil, err
 		}
 		monitor.eventAttrs[uint64(id)] = &attr
 		monitor.eventIDs[fd] = uint64(id)
@@ -154,10 +150,79 @@ func (monitor *EventMonitor) RegisterEvent(name string, fn TraceEventDecoderFn, 
 		decoderfn: fn,
 		fds:       newfds,
 		eventAttr: &attr,
+		eventType: eventType,
 	}
-	monitor.events[key] = event
 
+	return event, nil
+}
+
+func (monitor *EventMonitor) RegisterEvent(name string, fn TraceEventDecoderFn, filter string, eventAttr *EventAttr) error {
+	if monitor.isRunning {
+		return errors.New("monitor is already running")
+	}
+
+	key := fmt.Sprintf("%s %s", name, filter)
+	_, ok := monitor.events[key]
+	if ok {
+		return fmt.Errorf("event \"%s\" is already registered", name)
+	}
+
+	event, err := monitor.newRegisteredEvent(name, fn, filter, eventAttr, EVENT_TYPE_TRACEPOINT)
+	if err != nil {
+		return err
+	}
+
+	monitor.events[key] = event
 	return nil
+}
+
+func (monitor *EventMonitor) RegisterKprobe(name string, address string, onReturn bool, output string,
+	fn TraceEventDecoderFn, filter string, eventAttr *EventAttr) (string, error) {
+
+	if monitor.isRunning {
+		return "", errors.New("monitor is already running")
+	}
+
+	key := fmt.Sprintf("%s %s", name, filter)
+	_, ok := monitor.events[key]
+	if ok {
+		return "", fmt.Errorf("event \"%s\" is already registered", name)
+	}
+
+	name, err := AddKprobe(name, address, onReturn, output)
+	if err != nil {
+		return "", nil
+	}
+
+	event, err := monitor.newRegisteredEvent(name, fn, filter, eventAttr, EVENT_TYPE_KPROBE)
+	if err != nil {
+		RemoveKprobe(name)
+		return "", err
+	}
+
+	monitor.events[key] = event
+	return name, nil
+}
+
+func (monitor *EventMonitor) removeRegisteredEvent(event *registeredEvent) {
+	for _, fd := range event.fds {
+		delete(monitor.eventfds, fd)
+		id, ok := monitor.eventIDs[fd]
+		if ok {
+			delete(monitor.eventAttrs, id)
+			delete(monitor.eventIDs, fd)
+		}
+		unix.Close(fd)
+	}
+
+	switch event.eventType {
+	case EVENT_TYPE_TRACEPOINT:
+		break
+	case EVENT_TYPE_KPROBE:
+		RemoveKprobe(event.name)
+	}
+
+	monitor.decoders.RemoveDecoder(event.name)
 }
 
 func (monitor *EventMonitor) UnregisterEvent(name string, filter string) error {
@@ -170,20 +235,8 @@ func (monitor *EventMonitor) UnregisterEvent(name string, filter string) error {
 	if !ok {
 		return errors.New("event is not registered")
 	}
-
 	delete(monitor.events, key)
-
-	for _, fd := range event.fds {
-		delete(monitor.eventfds, fd)
-		id, ok := monitor.eventIDs[fd]
-		if ok {
-			delete(monitor.eventAttrs, id)
-			delete(monitor.eventIDs, fd)
-		}
-		unix.Close(fd)
-	}
-
-	monitor.decoders.RemoveDecoder(name)
+	monitor.removeRegisteredEvent(event)
 
 	return nil
 }
@@ -192,19 +245,35 @@ func (monitor *EventMonitor) Close(wait bool) error {
 	// if the monitor is running, stop it and wait for it to stop
 	monitor.Stop(wait)
 
-	for fd := range monitor.eventfds {
-		unix.Close(fd)
+	for _, event := range monitor.events {
+		monitor.removeRegisteredEvent(event)
 	}
+	monitor.events = nil
+
+	if len(monitor.eventfds) != 0 {
+		panic("internal error: stray event fds left after monitor Close")
+	}
+	monitor.eventfds = nil
+
+	if len(monitor.eventIDs) != 0 {
+		panic("internal error: stray event ids left after monitor Close")
+	}
+	monitor.eventIDs = nil
+
+	if len(monitor.eventAttrs) != 0 {
+		panic("internal error: stray event attrs left after monitor Close")
+	}
+	monitor.eventAttrs = nil
+
 	for _, rb := range monitor.ringBuffers {
 		rb.unmap()
 	}
+	monitor.ringBuffers = nil
+
 	for _, fd := range monitor.groupfds {
 		unix.Close(fd)
 	}
-
-	monitor.ringBuffers = monitor.ringBuffers[:0]
-	monitor.groupfds = monitor.groupfds[:0]
-	monitor.eventfds = make(map[int]int)
+	monitor.groupfds = nil
 
 	if monitor.cgroup != nil {
 		monitor.cgroup.Close()
