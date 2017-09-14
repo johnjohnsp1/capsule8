@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"hash/crc64"
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/capsule8/reactive8/pkg/config"
 	"github.com/golang/glog"
@@ -30,6 +32,9 @@ var (
 	errInvalidFileFormat = func(filename string) error {
 		return errors.New(fmt.Sprintf("File %s does not have the expected format", filename))
 	}
+
+	// Hash table used to create process IDs.
+	hashTbl *crc64.Table
 )
 
 // Note: go array indices start at 0, which is why these stat field indices are
@@ -47,10 +52,6 @@ const (
 
 // The cached data for a process
 type procCacheEntry struct {
-	// Lock used to guard those fields in this struct that can change after
-	// the creation of this structure.
-	lock sync.Mutex
-
 	// The process ID for the process;
 	// This does NOT change after creation.
 	processId string
@@ -59,13 +60,16 @@ type procCacheEntry struct {
 	// This does NOT change after creation.
 	containerId string
 
-	// The command for the process.
-	// This can be changed via a execve() call.
-	command string
+	// The command for the process, as an atomic string value.
+	// This can be changed via a execve() call, hence it is kept as an atomic
+	// string value.
+	command atomic.Value
 }
 
 func init() {
 	pidMap = make(map[int32]*procCacheEntry)
+
+	hashTbl = crc64.MakeTable(crc64.ISO)
 }
 
 func getProcFs() string {
@@ -100,7 +104,15 @@ func getProcessId(stat []string) string {
 	if err != nil {
 		glog.Warning("Failed to get boot ID", err)
 	}
-	return fmt.Sprintf("%s/%s/%s", bId, stat[STAT_FIELD_PID], stat[STAT_FIELD_STARTTIME])
+
+	// Compute the raw process ID from process info
+	rawId := fmt.Sprintf("%s/%s/%s", bId, stat[STAT_FIELD_PID], stat[STAT_FIELD_STARTTIME])
+
+	// Now hash the raw ID
+	hasher := crc64.New(hashTbl)
+	hasher.Write([]byte(rawId))
+	hashedId := hasher.Sum([]byte{})
+	return fmt.Sprintf("%X", hashedId)
 }
 
 // Creates a new process cache entry.
@@ -122,13 +134,12 @@ func newProcCacheEntry(pid int32) (*procCacheEntry, error) {
 		containerId = pathParts[2]
 	}
 
-	command := stat[STAT_FIELD_COMMAND]
-
 	proc := &procCacheEntry{
 		processId:   processId,
 		containerId: containerId,
-		command:     command,
 	}
+	proc.command.Store(stat[STAT_FIELD_COMMAND])
+
 	return proc, nil
 }
 
@@ -234,9 +245,7 @@ func pidMapOnFork(parentPid int32, childPid int32) {
 func pidMapOnExec(hostPid int32, command string) {
 	procEntry, _ := getProcCacheEntry(hostPid)
 
-	procEntry.lock.Lock()
-	procEntry.command = command
-	procEntry.lock.Unlock()
+	procEntry.command.Store(command)
 }
 
 func pidMapGetContainerID(hostPid int32) (string, error) {
