@@ -37,6 +37,15 @@ func BenchmarkNewProcCacheEntry(b *testing.B) {
 	}
 }
 
+func BenchmarkGetProcCacheEntry(b *testing.B) {
+	pid := int32(os.Getpid())
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			getProcCacheEntry(pid)
+		}
+	})
+}
+
 func BenchmarkGetProcCacheEntry1(b *testing.B) {
 	pid := int32(os.Getpid())
 
