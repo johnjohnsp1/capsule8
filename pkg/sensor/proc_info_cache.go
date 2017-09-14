@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 
+	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/config"
 	"github.com/golang/glog"
 )
@@ -43,9 +45,16 @@ const (
 	// Index of /proc/PID/stat field for the process command
 	STAT_FIELD_COMMAND = 1
 
+	// Index of /proc/PID/stat field for the parent process PID
+	STAT_FIELD_PPID = 3
+
 	// Index of /proc/PID/stat field for the process start time
 	STAT_FIELD_STARTTIME = 21
 )
+
+// PID value indicating that the process PID is unknown;
+// must be different from any valid process PID
+const PID_UNKNOWN int32 = -1
 
 // The cached data for a process
 type procCacheEntry struct {
@@ -61,6 +70,18 @@ type procCacheEntry struct {
 	// This can be changed via a execve() call, hence it is kept as an atomic
 	// string value.
 	command atomic.Value
+
+	// The parent process PID; may be PID_UNKNOWN.
+	// This will be changed whenever the process is orphaned.
+	ppid int32
+
+	// The children of this process, used to maintain the ppid field.
+	// Only children in the same container as this are maintained here.
+	// This will be changed by fork and exit events.
+	children map[int32]*procCacheEntry
+
+	// Lock used to guard the children map.
+	lock sync.Mutex
 }
 
 func init() {
@@ -116,28 +137,25 @@ func newProcCacheEntry(pid int32) (*procCacheEntry, error) {
 	}
 
 	processId := getProcessId(stat)
-
-	var containerId string = ""
-	perfEventPath, err := readCgroup(pid)
+	containerId, err := getContainerIdFromCgroup(pid)
 	if err != nil {
 		return nil, err
 	}
-	if strings.HasPrefix(perfEventPath, "/docker") {
-		pathParts := strings.Split(perfEventPath, "/")
-		containerId = pathParts[2]
-	}
+
+	ppid, _ := strconv.ParseInt(stat[STAT_FIELD_PPID], 0, 32)
 
 	proc := &procCacheEntry{
 		processId:   processId,
 		containerId: containerId,
+		ppid:        int32(ppid),
+		children:    make(map[int32]*procCacheEntry),
 	}
 	proc.command.Store(stat[STAT_FIELD_COMMAND])
-
 	return proc, nil
 }
 
-// Gets the cache entry for a given process, creating that entry if necessary
-func getProcCacheEntry(pid int32) (*procCacheEntry, error) {
+// Gets the cache entry for a given process, creating that entry if necessary.
+func getProcCacheEntry(pid int32) (procEntry *procCacheEntry, err error) {
 	mu.Lock()
 	procEntry, ok := pidMap[pid]
 	mu.Unlock()
@@ -159,6 +177,20 @@ func getProcCacheEntry(pid int32) (*procCacheEntry, error) {
 	}
 
 	return procEntry, nil
+}
+
+// Gets the container ID from the /proc/PID/cgroup file.
+func getContainerIdFromCgroup(hostPid int32) (string, error) {
+	perfEventPath, err := readCgroup(hostPid)
+	if err != nil {
+		return "", err
+	}
+	if strings.HasPrefix(perfEventPath, "/docker") {
+		pathParts := strings.Split(perfEventPath, "/")
+		return pathParts[2], nil
+	} else {
+		return "", nil
+	}
 }
 
 // Gets the `perf_event` control group in the hierarchy to which the process
@@ -216,6 +248,30 @@ func readStat(hostPid int32) ([]string, error) {
 	return stat, nil
 }
 
+// Adds the given process to its parent's children map, if the parent and child
+// are in the same container.
+func procInfoAddChildToParent(parentPid int32, childPid int32, childEntry *procCacheEntry) error {
+	// Only add to the parent's children map when the child and parent are in
+	// the same container.
+	parentContainerId, err := getContainerIdFromCgroup(parentPid)
+	if err != nil {
+		return err
+	}
+
+	if parentContainerId == childEntry.containerId {
+		parentEntry, err := getProcCacheEntry(parentPid)
+		if err != nil {
+			return err
+		}
+
+		parentEntry.lock.Lock()
+		parentEntry.children[childPid] = childEntry
+		parentEntry.lock.Unlock()
+	}
+
+	return nil
+}
+
 func procInfoOnFork(parentPid int32, childPid int32) {
 	parentEntry, _ := getProcCacheEntry(parentPid)
 
@@ -227,18 +283,85 @@ func procInfoOnFork(parentPid int32, childPid int32) {
 	childEntry := &procCacheEntry{
 		processId:   getProcessId(childStat),
 		containerId: parentEntry.containerId,
+		ppid:        parentPid,
+		children:    make(map[int32]*procCacheEntry),
 	}
 	command := parentEntry.command.Load().(string)
 	childEntry.command.Store(command)
+
 	mu.Lock()
 	pidMap[childPid] = childEntry
 	mu.Unlock()
+
+	err = procInfoAddChildToParent(parentPid, childPid, childEntry)
+	if err != nil {
+		glog.Errorln("Cannot get data for parent process", err)
+	}
 }
 
 func procInfoOnExec(hostPid int32, command string) {
 	procEntry, _ := getProcCacheEntry(hostPid)
 
 	procEntry.command.Store(command)
+}
+
+func procInfoOnExit(hostPid int32) {
+	mu.Lock()
+	procEntry, ok := pidMap[hostPid]
+	mu.Unlock()
+	if !ok {
+		// This process is not in the cache, nothing to do.
+		return
+	}
+
+	ppid := atomic.LoadInt32(&procEntry.ppid)
+	if ppid != PID_UNKNOWN {
+		mu.Lock()
+		parentEntry, ok := pidMap[ppid]
+		mu.Unlock()
+
+		if ok {
+			parentEntry.lock.Lock()
+			delete(parentEntry.children, hostPid)
+			parentEntry.lock.Unlock()
+		}
+	}
+
+	procEntry.lock.Lock()
+	defer procEntry.lock.Unlock()
+
+	// Now mark all the children as not having a known parent.
+	for _, childEntry := range procEntry.children {
+		atomic.StoreInt32(&childEntry.ppid, PID_UNKNOWN)
+	}
+}
+
+func procInfoGetPpid(pid int32) (int32, error) {
+	mu.Lock()
+	procEntry, err := getProcCacheEntry(pid)
+	mu.Unlock()
+	if err != nil {
+		return PID_UNKNOWN, err
+	}
+
+	ppid := atomic.LoadInt32(&procEntry.ppid)
+
+	if ppid == PID_UNKNOWN {
+		stat, err := readStat(pid)
+		if err != nil {
+			return PID_UNKNOWN, err
+		}
+		new_ppid, _ := strconv.ParseInt(stat[STAT_FIELD_PPID], 0, 32)
+		ppid = int32(new_ppid)
+		atomic.StoreInt32(&procEntry.ppid, ppid)
+
+		err = procInfoAddChildToParent(ppid, pid, procEntry)
+		if err != nil {
+			return ppid, err
+		}
+	}
+
+	return ppid, nil
 }
 
 func procInfoGetContainerId(hostPid int32) (string, error) {
@@ -295,4 +418,59 @@ func procInfoGetCommandLine(hostPid int32) ([]string, error) {
 	}
 
 	return commandLine, nil
+}
+
+func newProcLineageItem(pid int32, procEntry *procCacheEntry) *api.Process {
+	command := procEntry.command.Load().(string)
+
+	return &api.Process{
+		Pid:     pid,
+		Command: command,
+	}
+}
+
+func GetProcLineage(pid int32) (lineage []*api.Process, err error) {
+	procEntry, err := getProcCacheEntry(pid)
+	if err != nil {
+		return
+	}
+
+	var parentEntry *procCacheEntry
+	var ppid int32
+	lineage = []*api.Process{}
+	cId := procEntry.containerId
+	for ; procEntry != nil && procEntry.containerId == cId; pid, procEntry = ppid, parentEntry {
+		lineage = append(lineage, newProcLineageItem(pid, procEntry))
+
+		ppid = atomic.LoadInt32(&procEntry.ppid)
+
+		if ppid == PID_UNKNOWN {
+			ppid, err = procInfoGetPpid(pid)
+			if err != nil {
+				return
+			}
+		}
+
+		mu.Lock()
+		parentEntry = pidMap[ppid]
+		mu.Unlock()
+	}
+
+	return
+}
+
+// stream.Do() function for marking an event as needing lineage
+func markEventAsNeedingLineage(i interface{}) {
+	e := i.(*api.Event)
+	// We indicate the need for lineage by giving it a dummy api.Process
+	e.ProcessLineage = []*api.Process{&api.Process{}}
+}
+
+// Sets the event process lineage if the subscription calls for it.
+func setProcLineage(e *api.Event) (err error) {
+	if len(e.ProcessLineage) == 1 {
+		e.ProcessLineage, err = GetProcLineage(e.ProcessPid)
+	}
+
+	return
 }

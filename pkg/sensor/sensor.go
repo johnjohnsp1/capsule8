@@ -16,6 +16,7 @@ func (s *Sensor) onSampleEvent(sample interface{}, err error) {
 	if sample != nil {
 		event := sample.(*api.Event)
 
+		err = setProcLineage(event)
 		for _, c := range s.eventStreams {
 			c <- event
 		}
@@ -366,6 +367,14 @@ func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 
 	if sub.Modifier != nil {
 		eventStream = applyModifiers(eventStream, *sub.Modifier)
+	}
+
+	//
+	// If adding process lineage to events, do so after event filtering.
+	// (No point in adding lineage to an event that is going to be filtered).
+	//
+	if sub.ProcessView == api.ProcessView_PROCESS_VIEW_FULL {
+		eventStream = stream.Do(eventStream, markEventAsNeedingLineage)
 	}
 
 	joiner.On()

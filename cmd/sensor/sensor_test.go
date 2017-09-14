@@ -43,6 +43,8 @@ func TestCreateSubscription(t *testing.T) {
 				IntervalType: 0,
 			},
 		},
+
+		ProcessView: api.ProcessView_PROCESS_VIEW_FULL,
 	}
 	mock.SetMockReturn("subscription.*", sub)
 
