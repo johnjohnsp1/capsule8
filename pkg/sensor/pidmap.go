@@ -23,6 +23,9 @@ var (
 	// Boot ID taken from /proc/sys/kernel/random/boot_id
 	bootId string
 
+	// "Once" control for getting the boot ID
+	bootIdOnce sync.Once
+
 	// Error returned when a file does not have the expected format.
 	errInvalidFileFormat = func(filename string) error {
 		return errors.New(fmt.Sprintf("File %s does not have the expected format", filename))
@@ -63,12 +66,6 @@ type procCacheEntry struct {
 
 func init() {
 	pidMap = make(map[int32]*procCacheEntry)
-
-	var err error
-	bootId, err = getBootId()
-	if err != nil {
-		glog.Fatal("Failed to get boot ID", err)
-	}
 }
 
 func getProcFs() string {
@@ -77,24 +74,33 @@ func getProcFs() string {
 
 // Gets the Host system boot ID.
 func getBootId() (string, error) {
-	filename := getProcFs() + "/sys/kernel/random/boot_id"
-	file, err := os.Open(filename)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
+	var err error = nil
+	bootIdOnce.Do(func() {
+		filename := getProcFs() + "/sys/kernel/random/boot_id"
+		file, err := os.Open(filename)
+		if err != nil {
+			return
+		}
+		defer file.Close()
 
-	scanner := bufio.NewScanner(file)
-	if scanner.Scan() {
-		return scanner.Text(), nil
-	} else {
-		return "", scanner.Err()
-	}
+		scanner := bufio.NewScanner(file)
+		if scanner.Scan() {
+			bootId = scanner.Text()
+		} else {
+			err = scanner.Err()
+		}
+	})
+
+	return bootId, err
 }
 
 // Computes the process ID for a current process, given its /proc/pid/stat data
 func getProcessId(stat []string) string {
-	return fmt.Sprintf("%s/%s/%s", bootId, stat[STAT_FIELD_PID], stat[STAT_FIELD_STARTTIME])
+	bId, err := getBootId()
+	if err != nil {
+		glog.Warning("Failed to get boot ID", err)
+	}
+	return fmt.Sprintf("%s/%s/%s", bId, stat[STAT_FIELD_PID], stat[STAT_FIELD_STARTTIME])
 }
 
 // Creates a new process cache entry.
@@ -129,15 +135,23 @@ func newProcCacheEntry(pid int32) (*procCacheEntry, error) {
 // Gets the cache entry for a given process, creating that entry if necessary
 func getProcCacheEntry(pid int32) (*procCacheEntry, error) {
 	mu.Lock()
-	defer mu.Unlock()
-
 	procEntry, ok := pidMap[pid]
+	mu.Unlock()
+
 	if !ok {
 		procEntry, err := newProcCacheEntry(pid)
 		if err != nil {
 			return nil, err
 		}
-		pidMap[pid] = procEntry
+
+		mu.Lock()
+		// Check if some other go routine has added an entry for this process.
+		if currEntry, ok := pidMap[pid]; ok {
+			procEntry = currEntry
+		} else {
+			pidMap[pid] = procEntry
+		}
+		mu.Unlock()
 	}
 
 	return procEntry, nil
@@ -213,21 +227,16 @@ func pidMapOnFork(parentPid int32, childPid int32) {
 	}
 
 	mu.Lock()
-	defer mu.Unlock()
 	pidMap[childPid] = childEntry
+	mu.Unlock()
 }
 
-func pidMapOnExec(hostPid int32) {
+func pidMapOnExec(hostPid int32, command string) {
 	procEntry, _ := getProcCacheEntry(hostPid)
 
-	stat, err := readStat(hostPid)
-	if err != nil {
-		glog.Errorln("Cannot get stat data for exec process", err)
-		return
-	}
 	procEntry.lock.Lock()
-	defer procEntry.lock.Unlock()
-	procEntry.command = stat[STAT_FIELD_COMMAND]
+	procEntry.command = command
+	procEntry.lock.Unlock()
 }
 
 func pidMapGetContainerID(hostPid int32) (string, error) {

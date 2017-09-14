@@ -1,6 +1,8 @@
 package sensor
 
 import (
+	"path"
+
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/perf"
 	"github.com/golang/glog"
@@ -28,11 +30,13 @@ func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampl
 	ev := newEventFromSample(sample, data)
 
 	// Notify pidmap of exec event
-	pidMapOnExec(ev.ProcessPid)
+	filename := data["filename"].(string)
+	command := path.Base(filename)
+	pidMapOnExec(ev.ProcessPid, command)
 
 	processEvent := &api.ProcessEvent{
 		Type:         api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
-		ExecFilename: data["filename"].(string),
+		ExecFilename: filename,
 	}
 
 	var err error
