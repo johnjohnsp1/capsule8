@@ -28,7 +28,7 @@ func startTelemetryService(s *sensor) {
 		socketPath := parts[1]
 		socketDir := path.Dir(socketPath)
 
-		err := os.MkdirAll(socketDir, 0600)
+		err = os.MkdirAll(socketDir, 0600)
 		if err != nil {
 			glog.Fatalf("Couldn't create socket directory: %s",
 				socketDir)
