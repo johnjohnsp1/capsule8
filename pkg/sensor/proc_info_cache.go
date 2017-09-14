@@ -470,10 +470,32 @@ func markEventAsNeedingLineage(i interface{}) {
 }
 
 // Sets the event process lineage if the subscription calls for it.
-func setProcLineage(e *api.Event) (err error) {
-	if len(e.ProcessLineage) == 1 {
-		e.ProcessLineage, err = GetProcLineage(e.ProcessPid)
+func procInfoUpdEvent(e *api.Event) error {
+	procEntry, err := getProcCacheEntry(e.ProcessPid)
+	if err != nil {
+		return err
 	}
 
-	return
+	e.ProcessId = procEntry.processId
+
+	if e.ContainerId == "" {
+		e.ContainerId = procEntry.containerId
+
+		ce, err := getContainerEvent(e.ContainerId)
+		if err != nil {
+			return err
+		}
+		e.ContainerName = ce.Name
+		e.ImageId = ce.ImageId
+		e.ImageName = ce.Name
+	}
+
+	if len(e.ProcessLineage) == 1 {
+		e.ProcessLineage, err = GetProcLineage(e.ProcessPid)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

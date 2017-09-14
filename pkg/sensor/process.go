@@ -9,8 +9,8 @@ import (
 )
 
 func decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	parentPid := int32(data["parent_pid"].(uint64))
-	childPid := int32(data["child_pid"].(uint64))
+	parentPid := data["parent_pid"].(int32)
+	childPid := data["child_pid"].(int32)
 
 	// Notify pidmap of fork event
 	procInfoOnFork(parentPid, childPid)
@@ -36,7 +36,7 @@ func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampl
 
 	processEvent := &api.ProcessEvent{
 		Type:         api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
-		ExecFilename: data["filename"].(string),
+		ExecFilename: filename,
 	}
 
 	var err error
@@ -53,6 +53,11 @@ func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampl
 }
 
 func decodeSysEnterExitGroup(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+	// For "error_code", the value coming from the kernel is uint64, but
+	// as far as I can tell, the kernel internally only ever really deals
+	// in int for the process exit code. So, I'm going to just convert it
+	// to sint32 here just like the kernel does.
+
 	ev := newEventFromSample(sample, data)
 	ev.Event = &api.Event_Process{
 		Process: &api.ProcessEvent{

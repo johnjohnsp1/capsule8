@@ -63,7 +63,7 @@ func getDockerContainerDir() string {
 // Docker container configuration file format V2
 // ----------------------------------------------------------------------------
 
-type dockerConfigState struct {
+type DockerConfigState struct {
 	Running           bool      `json:"Running"`
 	Paused            bool      `json:"Paused"`
 	Restarting        bool      `json:"Restarting"`
@@ -77,7 +77,7 @@ type dockerConfigState struct {
 	ExitCode          int       `json:"ExitCode"`
 }
 
-type dockerConfigConfig struct {
+type DockerConfigConfig struct {
 	Hostname   string `json:"Hostname"`
 	Domainname string `json:"Domainname"`
 	User       string `json:"User"`
@@ -87,12 +87,12 @@ type dockerConfigConfig struct {
 	// XXX: ...
 }
 
-type dockerConfigV2 struct {
+type DockerConfigV2 struct {
 	// XXX: Fill in as needed...
 	ID     string             `json:"ID"`
 	Image  string             `json:"Image"`
-	State  dockerConfigState  `json:"State"`
-	Config dockerConfigConfig `json:"Config"`
+	State  DockerConfigState  `json:"State"`
+	Config DockerConfigConfig `json:"Config"`
 	// ...
 	Name string `json:"Name"`
 }
@@ -102,7 +102,7 @@ type dockerConfigV2 struct {
 // ----------------------------------------------------------------------------
 
 func newDockerEventFromConfigData(configV2Json []byte) (*dockerEvent, error) {
-	config := dockerConfigV2{}
+	config := DockerConfigV2{}
 	err := json.Unmarshal(configV2Json, &config)
 	if err != nil {
 		return nil, err
@@ -386,4 +386,40 @@ func NewDockerEventStream() (*stream.Stream, error) {
 	}
 
 	return nil, errors.New("Sensor not available")
+}
+
+// GetDockerConfig() gets Docker configuration for a given container ID.
+func GetDockerConfig(ID string) (*DockerConfigV2, error) {
+	configV2Path := filepath.Join(getDockerContainerDir(), ID, "config.v2.json")
+	configV2Json, err := ioutil.ReadFile(configV2Path)
+	if err != nil {
+		return nil, err
+	}
+	configV2 := &DockerConfigV2{}
+	err = json.Unmarshal(configV2Json, configV2)
+	if err != nil {
+		return nil, err
+	}
+	return configV2, nil
+}
+
+// GetDockerConfigList() gets list of Docker configurations for all existing containers.
+func GetDockerConfigList() ([]*DockerConfigV2, error) {
+	dockContDirList, err := ioutil.ReadDir(getDockerContainerDir())
+	if err != nil {
+		return nil, err
+	}
+
+	var configList []*DockerConfigV2
+	for _, contDir := range dockContDirList {
+		configV2, derr := GetDockerConfig(contDir.Name())
+		if derr != nil {
+			// contDir was not really a container directory, just continue
+			continue
+		}
+
+		configList = append(configList, configV2)
+	}
+
+	return configList, nil
 }

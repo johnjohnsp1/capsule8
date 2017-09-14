@@ -16,7 +16,6 @@ func (s *Sensor) onSampleEvent(sample interface{}, err error) {
 	if sample != nil {
 		event := sample.(*api.Event)
 
-		err = setProcLineage(event)
 		for _, c := range s.eventStreams {
 			c <- event
 		}
