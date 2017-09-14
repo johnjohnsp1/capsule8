@@ -73,7 +73,7 @@ func (j *joiner) controlHandler(m interface{}) {
 		j.enable = m
 
 	default:
-		glog.Fatalf("Unknown control message: %V", m)
+		glog.Fatalf("Unknown control message: %v", m)
 	}
 
 }
