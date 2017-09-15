@@ -3,9 +3,9 @@ package sensor
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
-	"hash/crc64"
 	"os"
 	"strings"
 	"sync"
@@ -32,9 +32,6 @@ var (
 	errInvalidFileFormat = func(filename string) error {
 		return errors.New(fmt.Sprintf("File %s does not have the expected format", filename))
 	}
-
-	// Hash table used to create process IDs.
-	hashTbl *crc64.Table
 )
 
 // Note: go array indices start at 0, which is why these stat field indices are
@@ -68,8 +65,6 @@ type procCacheEntry struct {
 
 func init() {
 	pidMap = make(map[int32]*procCacheEntry)
-
-	hashTbl = crc64.MakeTable(crc64.ISO)
 }
 
 func getProcFs() string {
@@ -109,9 +104,7 @@ func getProcessId(stat []string) string {
 	rawId := fmt.Sprintf("%s/%s/%s", bId, stat[STAT_FIELD_PID], stat[STAT_FIELD_STARTTIME])
 
 	// Now hash the raw ID
-	hasher := crc64.New(hashTbl)
-	hasher.Write([]byte(rawId))
-	hashedId := hasher.Sum([]byte{})
+	hashedId := sha256.Sum256([]byte(rawId))
 	return fmt.Sprintf("%X", hashedId)
 }
 
