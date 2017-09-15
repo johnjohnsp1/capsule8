@@ -23,7 +23,7 @@ func main() {
 	flag.Parse()
 
 	// Log version and build at start up for debugging
-	version.InitialBuildLog("Sensor")
+	version.InitialBuildLog("sensor")
 
 	configureHealthChecks()
 	http.HandleFunc("/healthz", healthChecker.ServeHTTP)
