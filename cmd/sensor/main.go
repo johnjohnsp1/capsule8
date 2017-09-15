@@ -23,7 +23,7 @@ func main() {
 	flag.Parse()
 
 	// Log version and build at start up for debugging
-	glog.Infof("Capsule8 Sensor Version: %s Build: %s", version.Version, version.Build)
+	version.InitialBuildLog("Sensor")
 
 	configureHealthChecks()
 	http.HandleFunc("/healthz", healthChecker.ServeHTTP)
