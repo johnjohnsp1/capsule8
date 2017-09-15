@@ -104,8 +104,8 @@ func newEventFromSample(sample *perf.SampleRecord, data map[string]interface{}) 
 	e.ProcessPid = int32(sample.Pid)
 	e.ProcessTid = int32(sample.Tid)
 	e.Cpu = int32(sample.CPU)
-	e.ContainerId, _ = pidMapGetContainerID(e.ProcessPid)
-	e.ProcessId, _ = pidMapGetProcessID(e.ProcessPid)
+	e.ContainerId, _ = procInfoGetContainerId(e.ProcessPid)
+	e.ProcessId, _ = procInfoGetProcessId(e.ProcessPid)
 
 	return e
 }

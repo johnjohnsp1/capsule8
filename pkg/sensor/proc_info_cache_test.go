@@ -28,7 +28,7 @@ func BenchmarkGetCommandLine(b *testing.B) {
 	pid := int32(os.Getpid())
 
 	for n := 0; n < b.N; n++ {
-		pidMapGetCommandLine(pid)
+		procInfoGetCommandLine(pid)
 	}
 }
 

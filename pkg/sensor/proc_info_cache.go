@@ -216,7 +216,7 @@ func readStat(hostPid int32) ([]string, error) {
 	return stat, nil
 }
 
-func pidMapOnFork(parentPid int32, childPid int32) {
+func procInfoOnFork(parentPid int32, childPid int32) {
 	parentEntry, _ := getProcCacheEntry(parentPid)
 
 	childStat, err := readStat(childPid)
@@ -235,13 +235,13 @@ func pidMapOnFork(parentPid int32, childPid int32) {
 	mu.Unlock()
 }
 
-func pidMapOnExec(hostPid int32, command string) {
+func procInfoOnExec(hostPid int32, command string) {
 	procEntry, _ := getProcCacheEntry(hostPid)
 
 	procEntry.command.Store(command)
 }
 
-func pidMapGetContainerID(hostPid int32) (string, error) {
+func procInfoGetContainerId(hostPid int32) (string, error) {
 	procEntry, err := getProcCacheEntry(hostPid)
 	if err != nil {
 		return "", err
@@ -250,7 +250,7 @@ func pidMapGetContainerID(hostPid int32) (string, error) {
 	return procEntry.containerId, nil
 }
 
-func pidMapGetProcessID(hostPid int32) (string, error) {
+func procInfoGetProcessId(hostPid int32) (string, error) {
 	procEntry, err := getProcCacheEntry(hostPid)
 	if err != nil {
 		return "", err
@@ -259,7 +259,7 @@ func pidMapGetProcessID(hostPid int32) (string, error) {
 	return procEntry.processId, nil
 }
 
-func pidMapGetCommandLine(hostPid int32) ([]string, error) {
+func procInfoGetCommandLine(hostPid int32) ([]string, error) {
 	//
 	// This misses the command-line arguments for short-lived processes,
 	// which is clearly not ideal.

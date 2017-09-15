@@ -13,7 +13,7 @@ func decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampl
 	childPid := data["child_pid"].(int32)
 
 	// Notify pidmap of fork event
-	pidMapOnFork(parentPid, childPid)
+	procInfoOnFork(parentPid, childPid)
 
 	ev := newEventFromSample(sample, data)
 	ev.Event = &api.Event_Process{
@@ -32,7 +32,7 @@ func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampl
 	// Notify pidmap of exec event
 	filename := data["filename"].(string)
 	command := path.Base(filename)
-	pidMapOnExec(ev.ProcessPid, command)
+	procInfoOnExec(ev.ProcessPid, command)
 
 	processEvent := &api.ProcessEvent{
 		Type:         api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
@@ -40,7 +40,7 @@ func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampl
 	}
 
 	var err error
-	processEvent.ExecCommandLine, err = pidMapGetCommandLine(ev.ProcessPid)
+	processEvent.ExecCommandLine, err = procInfoGetCommandLine(ev.ProcessPid)
 	if err != nil {
 		return nil, err
 	}
