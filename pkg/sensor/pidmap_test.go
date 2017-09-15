@@ -111,6 +111,7 @@ func BenchmarkGetProcCacheEntryB(b *testing.B) {
 
 func BenchmarkGetProcessIDCRC64(b *testing.B) {
 	pid := int32(os.Getpid())
+	hashTbl := crc64.MakeTable(crc64.ISO)
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -128,6 +129,7 @@ func BenchmarkGetProcessIDCRC64(b *testing.B) {
 			rawId := fmt.Sprintf("%s/%s/%s", bId, stat[STAT_FIELD_PID], stat[STAT_FIELD_STARTTIME])
 
 			// Now hash the raw ID
+
 			hasher := crc64.New(hashTbl)
 			hasher.Write([]byte(rawId))
 			hashedId := hasher.Sum([]byte{})
