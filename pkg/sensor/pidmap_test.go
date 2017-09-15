@@ -1,6 +1,9 @@
 package sensor
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"hash/crc64"
 	"os"
 	"testing"
 )
@@ -46,7 +49,7 @@ func BenchmarkGetProcCacheEntry(b *testing.B) {
 	})
 }
 
-func BenchmarkGetProcCacheEntry1(b *testing.B) {
+func BenchmarkGetProcCacheEntryA(b *testing.B) {
 	pid := int32(os.Getpid())
 
 	b.RunParallel(func(pb *testing.PB) {
@@ -73,7 +76,7 @@ func BenchmarkGetProcCacheEntry1(b *testing.B) {
 	})
 }
 
-func BenchmarkGetProcCacheEntry2(b *testing.B) {
+func BenchmarkGetProcCacheEntryB(b *testing.B) {
 	pid := int32(os.Getpid())
 
 	b.RunParallel(func(pb *testing.PB) {
@@ -102,6 +105,60 @@ func BenchmarkGetProcCacheEntry2(b *testing.B) {
 
 				mu.Unlock()
 			}
+		}
+	})
+}
+
+func BenchmarkGetProcessIDCRC64(b *testing.B) {
+	pid := int32(os.Getpid())
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			bId, err := getBootId()
+			if err != nil {
+				b.Fatal(err)
+			}
+
+			// Compute the raw process ID from process info
+			stat, err := readStat(pid)
+			if err != nil {
+				b.Fatal(err)
+			}
+
+			rawId := fmt.Sprintf("%s/%s/%s", bId, stat[STAT_FIELD_PID], stat[STAT_FIELD_STARTTIME])
+
+			// Now hash the raw ID
+			hasher := crc64.New(hashTbl)
+			hasher.Write([]byte(rawId))
+			hashedId := hasher.Sum([]byte{})
+			_ = fmt.Sprintf("%X", hashedId)
+		}
+	})
+}
+
+func BenchmarkGetProcessIDSHA256(b *testing.B) {
+	pid := int32(os.Getpid())
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			bId, err := getBootId()
+			if err != nil {
+				b.Fatal(err)
+			}
+
+			// Compute the raw process ID from process info
+			stat, err := readStat(pid)
+			if err != nil {
+				b.Fatal(err)
+			}
+
+			rawId := fmt.Sprintf("%s/%s/%s", bId, stat[STAT_FIELD_PID], stat[STAT_FIELD_STARTTIME])
+
+			// Now hash the raw ID
+			hasher := sha256.New()
+			hasher.Write([]byte(rawId))
+			hashedId := hasher.Sum([]byte{})
+			_ = fmt.Sprintf("%X", hashedId)
 		}
 	})
 }
