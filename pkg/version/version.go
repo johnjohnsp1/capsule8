@@ -2,7 +2,6 @@
 package version
 
 import (
-	"bytes"
 	"fmt"
 
 	"github.com/golang/glog"
@@ -13,19 +12,16 @@ var (
 	Version string
 
 	// Build is an opaque string identifying the automated build job
-	Build  string
-	buffer bytes.Buffer
+	Build string
 )
 
 // InitialBuildLog uses glog.Info to log version information
 // On an initial creation event all components should announce their creation, version and build information
 func InitialBuildLog(componentName string) {
-	buffer.WriteString(fmt.Sprintf("Started Capsule8 %s Version: %s", componentName, Version))
-
-	// If the Build string is empty we only log the version information
+	var buildLog string
 	if Build != "" {
-		buffer.WriteString(fmt.Sprintf(" Build: %s", Build))
+		buildLog = fmt.Sprintf(" [%s]", Build)
 	}
 
-	glog.Infof(buffer.String())
+	glog.Infof("Starting %s (%s)%s", componentName, Version, buildLog)
 }
