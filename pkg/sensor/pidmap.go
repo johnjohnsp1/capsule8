@@ -227,9 +227,9 @@ func pidMapOnFork(parentPid int32, childPid int32) {
 	childEntry := &procCacheEntry{
 		processId:   getProcessId(childStat),
 		containerId: parentEntry.containerId,
-		command:     parentEntry.command,
 	}
-
+	command := parentEntry.command.Load().(string)
+	childEntry.command.Store(command)
 	mu.Lock()
 	pidMap[childPid] = childEntry
 	mu.Unlock()
