@@ -99,9 +99,11 @@ func newEventFromSample(sample *perf.SampleRecord, data map[string]interface{}) 
 	e.SensorMonotimeNanos = HostMonotimeNanosToSensor(int64(sample.Time))
 
 	// Even when the Sensor is running in a container and the event
-	// occurs within a different container, the "common_pid" field
-	// is present and contains the host pid.
-	e.ProcessPid = data["common_pid"].(int32)
+	// occurs within a different container, the sample.Pid contains
+	// the host pid.
+	e.ProcessPid = int32(sample.Pid)
+	e.ProcessTid = int32(sample.Tid)
+	e.Cpu = int32(sample.CPU)
 	e.ContainerId, _ = pidMapGetContainerID(e.ProcessPid)
 
 	return e
