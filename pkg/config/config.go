@@ -23,8 +23,8 @@ var Sensor struct {
 	// (i.e. /var/run/docker/libcontainerd)
 	OciContainerDir string `split_words:"true" default:"/var/run/docker/libcontainerd"`
 
-	// Pubsub backend implementation to use
-	Pubsub string `default:"stan"`
+	// Sensor backend implementation to use
+	Backend string `default:"stan"`
 
 	// Subscription timeout in seconds
 	SubscriptionTimeout int64 `default:"5"`

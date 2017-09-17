@@ -64,7 +64,7 @@ type telemetryServiceServer struct {
 
 func (t *telemetryServiceServer) GetEvents(req *api.GetEventsRequest, stream api.TelemetryService_GetEventsServer) error {
 	sub := req.Subscription
-	eventStream, err := pbsensor.NewSensor(sub)
+	eventStream, err := pbsensor.NewSubscription(sub)
 	if err != nil {
 		glog.Errorf("failed to get events: %s\n", err.Error())
 		return err
@@ -90,7 +90,6 @@ sendLoop:
 
 		// Client d/c'ed
 		if err != nil {
-			pbsensor.Remove(sub)
 			eventStream.Close()
 			break sendLoop
 		}

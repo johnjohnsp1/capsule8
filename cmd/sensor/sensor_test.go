@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/capsule8/reactive8/pkg/pubsub/mock"
+	"github.com/capsule8/reactive8/pkg/backend/mock"
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/config"
@@ -20,7 +20,7 @@ import (
 
 func TestMain(m *testing.M) {
 	flag.Parse()
-	config.Sensor.Pubsub = "mock"
+	config.Sensor.Backend = "mock"
 
 	os.Exit(m.Run())
 }

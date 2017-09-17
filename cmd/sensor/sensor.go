@@ -9,10 +9,10 @@ import (
 	"time"
 
 	api "github.com/capsule8/api/v0"
+	"github.com/capsule8/reactive8/pkg/backend"
+	pbmock "github.com/capsule8/reactive8/pkg/backend/mock"
+	pbstan "github.com/capsule8/reactive8/pkg/backend/stan"
 	"github.com/capsule8/reactive8/pkg/config"
-	backend "github.com/capsule8/reactive8/pkg/pubsub"
-	pbmock "github.com/capsule8/reactive8/pkg/pubsub/mock"
-	pbstan "github.com/capsule8/reactive8/pkg/pubsub/stan"
 	pbsensor "github.com/capsule8/reactive8/pkg/sensor"
 	"github.com/capsule8/reactive8/pkg/sysinfo"
 	"github.com/golang/glog"
@@ -47,13 +47,13 @@ func CreateSensor() (Sensor, error) {
 	}
 
 	// Connect pubsub backend
-	switch config.Sensor.Pubsub {
+	switch config.Sensor.Backend {
 	case "stan":
 		s.pubsub = &pbstan.Backend{}
 	case "mock":
 		s.pubsub = &pbmock.Backend{}
 	default:
-		return nil, ErrInvalidPubsub(config.Sensor.Pubsub)
+		return nil, ErrInvalidPubsub(config.Sensor.Backend)
 	}
 	if err := s.pubsub.Connect(); err != nil {
 		return nil, err
@@ -135,7 +135,7 @@ func (s *sensor) Start() error {
 						lastSeen:     time.Now().Add(time.Duration(config.Sensor.SubscriptionTimeout) * time.Second).Unix(),
 						subscription: sub,
 					}
-					s.subscriptions[subID].stopChan = s.newSensor(sub, subID)
+					s.subscriptions[subID].stopChan = s.newSubscription(sub, subID)
 				} else {
 					// Existing subscription? Update unix ts
 					s.subscriptions[subID].lastSeen = time.Now().Unix()
@@ -230,14 +230,14 @@ staleRemovalLoop:
 	}
 }
 
-func (s *sensor) newSensor(sub *api.Subscription, subscriptionID string) chan interface{} {
+func (s *sensor) newSubscription(sub *api.Subscription, subscriptionID string) chan interface{} {
 	stopChan := make(chan interface{})
 	// Handle optional subscription arguments
 	modifier := sub.Modifier
 	if modifier == nil {
 		modifier = &api.Modifier{}
 	}
-	stream, err := pbsensor.NewSensor(sub)
+	stream, err := pbsensor.NewSubscription(sub)
 	if err != nil {
 		glog.Errorf("couldn't start Sensor: %s\n", err.Error())
 	}
@@ -249,7 +249,6 @@ func (s *sensor) newSensor(sub *api.Subscription, subscriptionID string) chan in
 			select {
 			// Stop the send loop
 			case <-stopChan:
-				pbsensor.Remove(sub)
 				stream.Close()
 				break sendLoop
 			case ev, ok := <-stream.Data:
