@@ -8,7 +8,7 @@ import (
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/config"
-	pbsensor "github.com/capsule8/reactive8/pkg/sensor"
+	"github.com/capsule8/reactive8/pkg/subscription"
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
 )
@@ -64,7 +64,7 @@ type telemetryServiceServer struct {
 
 func (t *telemetryServiceServer) GetEvents(req *api.GetEventsRequest, stream api.TelemetryService_GetEventsServer) error {
 	sub := req.Subscription
-	eventStream, err := pbsensor.NewSubscription(sub)
+	eventStream, err := subscription.NewSubscription(sub)
 	if err != nil {
 		glog.Errorf("failed to get events: %s\n", err.Error())
 		return err

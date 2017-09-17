@@ -13,7 +13,7 @@ import (
 	pbmock "github.com/capsule8/reactive8/pkg/backend/mock"
 	pbstan "github.com/capsule8/reactive8/pkg/backend/stan"
 	"github.com/capsule8/reactive8/pkg/config"
-	pbsensor "github.com/capsule8/reactive8/pkg/sensor"
+	"github.com/capsule8/reactive8/pkg/subscription"
 	"github.com/capsule8/reactive8/pkg/sysinfo"
 	"github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
@@ -42,7 +42,7 @@ var (
 // CreateSensor creates a new node sensor
 func CreateSensor() (Sensor, error) {
 	s := &sensor{
-		id:            pbsensor.SensorID,
+		id:            subscription.SensorID,
 		subscriptions: make(map[string]*subscriptionMetadata),
 	}
 
@@ -237,7 +237,7 @@ func (s *sensor) newSubscription(sub *api.Subscription, subscriptionID string) c
 	if modifier == nil {
 		modifier = &api.Modifier{}
 	}
-	stream, err := pbsensor.NewSubscription(sub)
+	stream, err := subscription.NewSubscription(sub)
 	if err != nil {
 		glog.Errorf("couldn't start Sensor: %s\n", err.Error())
 	}
