@@ -12,16 +12,6 @@ import (
 	"github.com/golang/glog"
 )
 
-func (s *Sensor) onSampleEvent(sample interface{}, err error) {
-	if sample != nil {
-		event := sample.(*api.Event)
-
-		for _, c := range s.eventStreams {
-			c <- event
-		}
-	}
-}
-
 //
 // FilterSet represents the union of all requested events for a
 // subscription. It consists of sub-event sets for each supported type of
@@ -110,34 +100,44 @@ func (fs *filterSet) registerEvents(monitor *perf.EventMonitor) {
 
 // ---------------------------------------------------------------------
 
-type Sensor struct {
+//
+// subscriptionBroker is a singleton
+//
+
+type subscriptionBroker struct {
 	mu                     sync.Mutex
 	containerEventRepeater *stream.Repeater
 	monitor                *perf.EventMonitor
 	eventStreams           map[*api.Subscription]chan interface{}
 }
 
-//
-// Sensor is a singleton
-//
-
 var (
-	sensor     *Sensor
-	sensorOnce sync.Once
+	broker     *subscriptionBroker
+	brokerOnce sync.Once
 )
 
-func getSensor() *Sensor {
-	sensorOnce.Do(func() {
-		sensor = &Sensor{}
+func getSubscriptionBroker() *subscriptionBroker {
+	brokerOnce.Do(func() {
+		broker = &subscriptionBroker{}
 	})
 
-	return sensor
+	return broker
 }
 
-func (s *Sensor) update() error {
+func (sb *subscriptionBroker) onSampleEvent(sample interface{}, err error) {
+	if sample != nil {
+		event := sample.(*api.Event)
+
+		for _, c := range sb.eventStreams {
+			c <- event
+		}
+	}
+}
+
+func (sb *subscriptionBroker) update() error {
 	fs := &filterSet{}
 
-	for s := range s.eventStreams {
+	for s := range sb.eventStreams {
 		if s.EventFilter != nil {
 			ef := s.EventFilter
 			for _, sef := range ef.SyscallEvents {
@@ -163,10 +163,10 @@ func (s *Sensor) update() error {
 	//
 
 	// Stop old perf session
-	if s.monitor != nil {
+	if sb.monitor != nil {
 		glog.Info("Disabling existing perf session")
-		s.monitor.Close(false)
-		s.monitor = nil
+		sb.monitor.Close(false)
+		sb.monitor = nil
 	}
 
 	// Create a new perf session only if we have perf event config info
@@ -194,12 +194,12 @@ func (s *Sensor) update() error {
 		}
 
 		fs.registerEvents(monitor)
-		s.monitor = monitor
+		sb.monitor = monitor
 
 		go func() {
-			s.monitor.Enable()
+			sb.monitor.Enable()
 
-			s.monitor.Run(s.onSampleEvent)
+			sb.monitor.Run(sb.onSampleEvent)
 			glog.Infof("perf.Run() returned, exiting goroutine")
 		}()
 	}
@@ -207,7 +207,7 @@ func (s *Sensor) update() error {
 	return nil
 }
 
-func (s *Sensor) createPerfEventStream(sub *api.Subscription) (*stream.Stream, error) {
+func (sb *subscriptionBroker) createPerfEventStream(sub *api.Subscription) (*stream.Stream, error) {
 	ctrl := make(chan interface{})
 	data := make(chan interface{})
 
@@ -227,13 +227,13 @@ func (s *Sensor) createPerfEventStream(sub *api.Subscription) (*stream.Stream, e
 	//
 	// We only need to save the data channel
 	//
-	if s.eventStreams == nil {
-		s.eventStreams = make(map[*api.Subscription]chan interface{})
+	if sb.eventStreams == nil {
+		sb.eventStreams = make(map[*api.Subscription]chan interface{})
 	}
 
-	s.eventStreams[sub] = data
+	sb.eventStreams[sub] = data
 
-	err := s.update()
+	err := sb.update()
 	if err != nil {
 		return nil, err
 	}
@@ -244,8 +244,8 @@ func (s *Sensor) createPerfEventStream(sub *api.Subscription) (*stream.Stream, e
 	}, nil
 }
 
-func (s *Sensor) getContainerEventStream() (*stream.Stream, error) {
-	if s.containerEventRepeater == nil {
+func (sb *subscriptionBroker) getContainerEventStream() (*stream.Stream, error) {
+	if sb.containerEventRepeater == nil {
 		ces, err := container.NewEventStream()
 		if err != nil {
 			return nil, err
@@ -255,10 +255,10 @@ func (s *Sensor) getContainerEventStream() (*stream.Stream, error) {
 		ces = stream.Map(ces, translateContainerEvents)
 		ces = stream.Filter(ces, filterNils)
 
-		s.containerEventRepeater = stream.NewRepeater(ces)
+		sb.containerEventRepeater = stream.NewRepeater(ces)
 	}
 
-	return s.containerEventRepeater.NewStream(), nil
+	return sb.containerEventRepeater.NewStream(), nil
 }
 
 func applyModifiers(strm *stream.Stream, modifier api.Modifier) *stream.Stream {
@@ -282,13 +282,13 @@ func filterNils(e interface{}) bool {
 	return e != nil
 }
 
-// Add returns a stream
-func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
+// Subscribe creates a new telemetry subscription
+func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, error) {
 	glog.Infof("Enter Add(%v)", sub)
 	defer glog.Infof("Exit Add(%v)", sub)
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
 
 	eventStream, joiner := stream.NewJoiner()
 	joiner.Off()
@@ -301,7 +301,7 @@ func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 		//
 		// Create a perf event stream
 		//
-		pes, err := s.createPerfEventStream(sub)
+		pes, err := sb.createPerfEventStream(sub)
 		if err != nil {
 			joiner.Close()
 			return nil, err
@@ -313,7 +313,7 @@ func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 	}
 
 	if len(sub.EventFilter.ContainerEvents) > 0 {
-		ces, err := s.getContainerEventStream()
+		ces, err := sb.getContainerEventStream()
 		if err != nil {
 			joiner.Close()
 			return nil, err
@@ -380,36 +380,56 @@ func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 	return eventStream, nil
 }
 
-func Remove(subscription *api.Subscription) bool {
-	glog.Infof("Removing subscription %v", subscription)
-	defer glog.Infof("Removed subscription %v", subscription)
+// Cancel cancels an active telemetry subscription and returns a boolean
+// indicating whether the specified subscription was found and
+// canceled or not.
+func (sb *subscriptionBroker) Cancel(subscription *api.Subscription) bool {
+	glog.Infof("Canceling subscription %v", subscription)
+	defer glog.Infof("Canceling subscription %v", subscription)
 
-	s := getSensor()
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
 
-	_, ok := s.eventStreams[subscription]
+	_, ok := sb.eventStreams[subscription]
 	if ok {
-		delete(s.eventStreams, subscription)
-		s.update()
+		delete(sb.eventStreams, subscription)
+		sb.update()
 	}
 
 	return ok
 }
 
-// Receives a Subscription
-// If Node filter doesn't match self, bail
-// Configure Process Monitor based on the Process Filter
-// Configure Sensors based on the Selectors
+// NewSubscription creates a new telemetry subscription from the given
+// api.Subscription descriptor. NewSubscription returns a stream.Stream of
+// api.Events matching the specified filters. Closing the Stream cancels the
+// subscription.
+func NewSubscription(sub *api.Subscription) (*stream.Stream, error) {
+	sb := getSubscriptionBroker()
 
-func NewSensor(sub *api.Subscription) (*stream.Stream, error) {
-	s := getSensor()
-
-	eventStream, err := s.Add(sub)
+	eventStream, err := sb.Subscribe(sub)
 	if err != nil {
 		glog.Errorf("Couldn't add subscription %v: %v", sub, err)
 		return nil, err
 	}
 
-	return eventStream, nil
+	ctrl := make(chan interface{})
+
+	go func() {
+		for {
+			select {
+			case _, ok := <-ctrl:
+				if !ok {
+					return
+				}
+
+				eventStream.Close()
+				sb.Cancel(sub)
+			}
+		}
+	}()
+
+	return &stream.Stream{
+		Ctrl: ctrl,
+		Data: eventStream.Data,
+	}, nil
 }
