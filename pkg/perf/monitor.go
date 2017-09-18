@@ -464,6 +464,9 @@ runloop:
 }
 
 func (monitor *EventMonitor) Stop(wait bool) {
+	monitor.lock.Lock()
+	defer monitor.lock.Unlock()
+
 	if !monitor.isRunning {
 		return
 	}
@@ -475,8 +478,6 @@ func (monitor *EventMonitor) Stop(wait bool) {
 	}
 
 	if wait {
-		monitor.lock.Lock()
-		defer monitor.lock.Unlock()
 		for monitor.isRunning {
 			monitor.cond.Wait()
 		}

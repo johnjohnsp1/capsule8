@@ -147,6 +147,8 @@ func createStream(monitor *perf.EventMonitor) (*stream.Stream, error) {
 		// This consumes everything in the loop
 		monitor.Run(ps.onSample)
 
+		monitor.Close(true)
+
 		// Perf loop terminated, we won't be sending any more events
 		close(ps.data)
 	}()

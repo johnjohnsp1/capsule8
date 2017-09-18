@@ -36,6 +36,7 @@ type filterSet struct {
 	syscalls  *syscallFilterSet
 	processes *processFilterSet
 	files     *fileFilterSet
+	kprobes   *kprobeFilterSet
 }
 
 func (fs *filterSet) addSyscallEventFilter(sef *api.SyscallEventFilter) {
@@ -62,6 +63,14 @@ func (fs *filterSet) addFileEventFilter(fef *api.FileEventFilter) {
 	fs.files.add(fef)
 }
 
+func (fs *filterSet) addKprobeEventFilter(kef *api.KernelFunctionCallFilter) {
+	if fs.kprobes == nil {
+		fs.kprobes = new(kprobeFilterSet)
+	}
+
+	fs.kprobes.add(kef)
+}
+
 func (fs *filterSet) len() int {
 	length := 0
 
@@ -77,6 +86,10 @@ func (fs *filterSet) len() int {
 		length += fs.files.len()
 	}
 
+	if fs.kprobes != nil {
+		length += fs.kprobes.len()
+	}
+
 	return length
 }
 
@@ -89,6 +102,9 @@ func (fs *filterSet) registerEvents(monitor *perf.EventMonitor) {
 	}
 	if fs.files != nil {
 		fs.files.registerEvents(monitor)
+	}
+	if fs.kprobes != nil {
+		fs.kprobes.registerEvents(monitor)
 	}
 }
 
@@ -134,6 +150,10 @@ func (s *Sensor) update() error {
 
 			for _, fef := range ef.FileEvents {
 				fs.addFileEventFilter(fef)
+			}
+
+			for _, kef := range ef.KernelEvents {
+				fs.addKprobeEventFilter(kef)
 			}
 		}
 	}
@@ -275,7 +295,8 @@ func (s *Sensor) Add(sub *api.Subscription) (*stream.Stream, error) {
 
 	if len(sub.EventFilter.SyscallEvents) > 0 ||
 		len(sub.EventFilter.ProcessEvents) > 0 ||
-		len(sub.EventFilter.FileEvents) > 0 {
+		len(sub.EventFilter.FileEvents) > 0 ||
+		len(sub.EventFilter.KernelEvents) > 0 {
 
 		//
 		// Create a perf event stream
