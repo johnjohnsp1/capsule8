@@ -4,59 +4,54 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/capsule8/reactive8/pkg/config"
-	checks "github.com/capsule8/reactive8/pkg/health"
-	"github.com/capsule8/reactive8/pkg/version"
-	"github.com/coreos/pkg/health"
 	"github.com/golang/glog"
 )
 
-var healthChecker health.Checker
+var (
+	standalone bool
+)
 
-func main() {
-	flag.Parse()
-
-	// Log version and build at start up for debugging
-	version.InitialBuildLog("sensor")
-
-	configureHealthChecks()
-	http.HandleFunc("/healthz", healthChecker.ServeHTTP)
-	go http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", config.Sensor.MonitoringPort), nil)
-
-	glog.Infoln("starting up")
-	s, err := CreateSensor()
-	if err != nil {
-		glog.Fatalf("error creating sensor: %s\n", err.Error())
-	}
-	err = s.Start()
-	if err != nil {
-		glog.Fatalf("error starting sensor: %s\n", err.Error())
-	}
-	glog.Infoln("started")
-
-	sigChan := make(chan os.Signal)
-	signal.Notify(sigChan, syscall.SIGTERM)
-	go func() {
-		<-sigChan
-		s.Shutdown()
-	}()
-
-	// Blocking call to remove stale subscriptions on a 5 second interval
-	s.RemoveStaleSubscriptions()
-	s.Wait()
+func init() {
+	flag.BoolVar(&standalone, "standalone", false,
+		"run sensor in standalone mode")
 }
 
-// configure and initialize all Checkable variables required by the health checker
-func configureHealthChecks() {
-	stanChecker := checks.ConnectionURL(fmt.Sprintf("%s/streaming/serverz", config.Backplane.NatsMonitoringURL))
+func main() {
+	// Set "alsologtostderr" flag so that glog messages go stderr as well as /tmp.
+	flag.Set("alsologtostderr", "true")
+	flag.Parse()
 
-	healthChecker.Checks = []health.Checkable{
-		stanChecker,
+	if standalone {
+		config.Sensor.Backend = "none"
+		config.Sensor.MonitoringPort = 0
 	}
+
+	glog.Infoln("Starting up")
+	s, err := GetSensor()
+	if err != nil {
+		glog.Fatalf("Couldn't create Sensor: %s", err)
+	}
+
+	sigChan := make(chan os.Signal)
+	signal.Notify(sigChan, os.Interrupt)
+	signal.Notify(sigChan, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigChan
+		glog.Infof("Caught signal %v, stopping Sensor", sig)
+		s.Stop()
+	}()
+
+	glog.Infoln("Listening for subscriptions")
+	err = s.Serve()
+	if err != nil {
+		glog.Error(err)
+	}
+
+	glog.Info("Exiting...")
 }

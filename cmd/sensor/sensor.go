@@ -5,32 +5,34 @@ package main
 import (
 	"crypto/sha256"
 	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"path"
+	"strings"
 	"sync"
 	"time"
+
+	"google.golang.org/grpc"
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/backend"
 	pbmock "github.com/capsule8/reactive8/pkg/backend/mock"
 	pbstan "github.com/capsule8/reactive8/pkg/backend/stan"
 	"github.com/capsule8/reactive8/pkg/config"
+	checks "github.com/capsule8/reactive8/pkg/health"
 	"github.com/capsule8/reactive8/pkg/subscription"
 	"github.com/capsule8/reactive8/pkg/sysinfo"
+	"github.com/coreos/pkg/health"
 	"github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 )
 
-// Sensor represents a node sensor which manages various sensors subsensors and subscriptions.
-type Sensor interface {
-	// Start listening for subscriptions
-	Start() error
-	// Shut down the sensor
-	Shutdown()
-	// Wait until shutdown completes
-	Wait()
-	// RemoveStaleSubscriptions is a blocking call that removes
-	// stale subscriptions @ `SubscriptionTimeout` interval
-	RemoveStaleSubscriptions()
-}
+// Globals
+var (
+	sensorOnce     sync.Once
+	sensorInstance *Sensor
+)
 
 // Errors
 var (
@@ -39,15 +41,79 @@ var (
 	ErrInvalidPubsub = func(err string) error { return fmt.Errorf("invalid pubsub backend %s", err) }
 )
 
-// CreateSensor creates a new node sensor
-func CreateSensor() (Sensor, error) {
-	s := &sensor{
+type Sensor struct {
+	sync.Mutex
+
+	id           string
+	grpcListener net.Listener
+	grpcServer   *grpc.Server
+	pubsub       backend.Backend
+	running      bool
+
+	healthChecker health.Checker
+
+	// Map of subscription ID -> Subscription metadata
+	subscriptions map[string]*subscriptionMetadata
+
+	// Wait Group for the sensor goroutines
+	wg sync.WaitGroup
+
+	// Channel that signals stopping the sensor
+	stopChan chan struct{}
+}
+
+type subscriptionMetadata struct {
+	lastSeen     int64 // Unix timestamp w/ second level precision of when sub was last seen
+	subscription *api.Subscription
+	stopChan     chan struct{}
+}
+
+func createSensor() (*Sensor, error) {
+	var err error
+	var lis net.Listener
+
+	s := &Sensor{
 		id:            subscription.SensorID,
 		subscriptions: make(map[string]*subscriptionMetadata),
 	}
 
-	// Connect pubsub backend
+	//
+	// Create local listener
+	//
+	parts := strings.Split(config.Sensor.ListenAddr, ":")
+	if len(parts) > 1 && parts[0] == "unix" {
+		socketPath := parts[1]
+		socketDir := path.Dir(socketPath)
+
+		err = os.MkdirAll(socketDir, 0600)
+		if err != nil {
+			return nil, err
+		}
+
+		lis, err = net.Listen("unix", parts[1])
+	} else {
+		lis, err = net.Listen("tcp", config.Sensor.ListenAddr)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Start local gRPC service on listener
+	s.grpcListener = lis
+	s.grpcServer = grpc.NewServer()
+
+	t := &telemetryServiceServer{
+		s: s,
+	}
+	api.RegisterTelemetryServiceServer(s.grpcServer, t)
+
+	//
+	// Connect configured pubsub backend
+	//
 	switch config.Sensor.Backend {
+	case "none":
+		s.pubsub = nil
 	case "stan":
 		s.pubsub = &pbstan.Backend{}
 	case "mock":
@@ -55,157 +121,145 @@ func CreateSensor() (Sensor, error) {
 	default:
 		return nil, ErrInvalidPubsub(config.Sensor.Backend)
 	}
-	if err := s.pubsub.Connect(); err != nil {
-		return nil, err
+
+	if s.pubsub != nil {
+		if err := s.pubsub.Connect(); err != nil {
+			return nil, err
+		}
 	}
+
 	return s, nil
 }
 
-type sensor struct {
-	sync.Mutex
-	id     string
-	pubsub backend.Backend
+// GetSensor returns the singleton instance of the Sensor, creating it if
+// necessary.
+func GetSensor() (*Sensor, error) {
+	var err error
 
-	// Map of subscription ID -> Subscription metadata
-	subscriptions map[string]*subscriptionMetadata
-	// Wait Group for the sensor goroutines
-	wg sync.WaitGroup
-	// Channel that signals stopping the sensor
-	stopChan chan interface{}
+	sensorOnce.Do(func() {
+		sensorInstance, err = createSensor()
+	})
+
+	return sensorInstance, err
 }
 
-type subscriptionMetadata struct {
-	lastSeen     int64 // Unix timestamp w/ second level precision of when sub was last seen
-	subscription *api.Subscription
-	stopChan     chan interface{}
+// configure and initialize all Checkable variables required by the health checker
+func (s *Sensor) configureHealthChecks() {
+	if config.Sensor.Backend == "stan" {
+		stanChecker := checks.ConnectionURL(fmt.Sprintf("%s/streaming/serverz",
+			config.Backplane.NatsMonitoringURL))
+
+		s.healthChecker.Checks = []health.Checkable{
+			stanChecker,
+		}
+	}
 }
 
-// StartSensor starts the async subscription listener
-func (s *sensor) Start() error {
+func (s *Sensor) listenForSubscriptions() error {
 	sub, messages, err := s.pubsub.Pull("subscription.*")
 	if err != nil {
 		return err
 	}
 
-	s.stopChan = make(chan interface{})
-
-	// Start local telemetry service
-	startTelemetryService(s)
-
-	// Handle subscriptions
-	go func() {
-		s.wg.Add(1)
-		defer s.wg.Done()
-	sendLoop:
-		for {
-			select {
-			case <-s.stopChan:
+sendLoop:
+	for {
+		select {
+		case <-s.stopChan:
+			break sendLoop
+		case msg, ok := <-messages:
+			if !ok {
+				glog.Errorln("failed receiving events")
 				break sendLoop
-			case msg, ok := <-messages:
-				if !ok {
-					glog.Errorln("failed receiving events")
-					break sendLoop
-				}
-				sub := &api.Subscription{}
-				if err = proto.Unmarshal(msg.Payload, sub); err != nil {
-					glog.Errorf("no selector specified in subscription.%s\n", err.Error())
-					continue sendLoop
-				}
-				// Ignore subscriptions that have specified a time range
-				if sub.SinceDuration != nil || sub.ForDuration != nil {
-					continue sendLoop
-				}
-
-				// TODO: Filter subscriptions based on cluster/node information
-
-				// Check if there is actually an EventFilter in the request. If not, ignore.
-				if sub.EventFilter == nil {
-					glog.Errorln("no EventFilter specified in subscription")
-					continue sendLoop
-				}
-
-				// New subscription?
-				b, _ := proto.Marshal(sub)
-				h := sha256.New()
-				h.Write(b)
-				subID := fmt.Sprintf("%x", h.Sum(nil))
-				s.Lock()
-				if _, ok := s.subscriptions[subID]; !ok {
-					s.subscriptions[subID] = &subscriptionMetadata{
-						lastSeen:     time.Now().Add(time.Duration(config.Sensor.SubscriptionTimeout) * time.Second).Unix(),
-						subscription: sub,
-					}
-					s.subscriptions[subID].stopChan = s.newSubscription(sub, subID)
-				} else {
-					// Existing subscription? Update unix ts
-					s.subscriptions[subID].lastSeen = time.Now().Unix()
-				}
-				s.Unlock()
-
 			}
-		}
-		sub.Close()
-	}()
-
-	// Broadcast over discovery topic
-	go func() {
-		s.wg.Add(1)
-		defer s.wg.Done()
-
-		discoveryTimer := time.NewTimer(0)
-		defer discoveryTimer.Stop()
-	discoveryLoop:
-		for {
-			select {
-			case <-s.stopChan:
-				break discoveryLoop
-			case <-discoveryTimer.C:
-				uname, err := sysinfo.Uname()
-				if err != nil {
-					glog.Errorf("failed to get uname info: %s\n", err.Error())
-					continue discoveryLoop
-				}
-				nodename := string(uname.Nodename[:])
-				// Override nodename if envconfig sets it
-				if len(config.Sensor.NodeName) > 0 {
-					nodename = config.Sensor.NodeName
-				}
-				s.pubsub.Publish("discover.sensor", &api.Discover{
-					Info: &api.Discover_Sensor{
-						Sensor: &api.Sensor{
-							Id:       s.id,
-							Sysname:  string(uname.Sysname[:]),
-							Nodename: nodename,
-							Release:  string(uname.Release[:]),
-							Version:  string(uname.Version[:]),
-						},
-					},
-				})
-				discoveryTimer.Reset(10 * time.Second)
+			sub := &api.Subscription{}
+			if err = proto.Unmarshal(msg.Payload, sub); err != nil {
+				glog.Errorf("no selector specified in subscription.%s\n", err.Error())
+				continue sendLoop
 			}
+			// Ignore subscriptions that have specified a time range
+			if sub.SinceDuration != nil || sub.ForDuration != nil {
+				continue sendLoop
+			}
+
+			// TODO: Filter subscriptions based on cluster/node information
+
+			// Check if there is actually an EventFilter in the request. If not, ignore.
+			if sub.EventFilter == nil {
+				glog.Errorln("no EventFilter specified in subscription")
+				continue sendLoop
+			}
+
+			// New subscription?
+			b, _ := proto.Marshal(sub)
+			h := sha256.New()
+			h.Write(b)
+			subID := fmt.Sprintf("%x", h.Sum(nil))
+			s.Lock()
+			if _, ok := s.subscriptions[subID]; !ok {
+				s.subscriptions[subID] = &subscriptionMetadata{
+					lastSeen:     time.Now().Add(time.Duration(config.Sensor.SubscriptionTimeout) * time.Second).Unix(),
+					subscription: sub,
+				}
+				s.subscriptions[subID].stopChan = s.newSubscription(sub, subID)
+			} else {
+				// Existing subscription? Update unix ts
+				s.subscriptions[subID].lastSeen = time.Now().Unix()
+			}
+			s.Unlock()
 		}
-	}()
+	}
+	sub.Close()
+
 	return nil
 }
 
-// sensor.Shutdown gracefully stops the sensor's telemetry server
-func (s *sensor) Shutdown() {
-	close(s.stopChan)
+func (s *Sensor) broadcastDiscoveryMessages() error {
+	discoveryTimer := time.NewTimer(0)
+	defer discoveryTimer.Stop()
+
+discoveryLoop:
+	for {
+		select {
+		case <-s.stopChan:
+			break discoveryLoop
+
+		case <-discoveryTimer.C:
+			uname, err := sysinfo.Uname()
+			if err != nil {
+				glog.Errorf("failed to get uname info: %s\n", err.Error())
+				continue discoveryLoop
+			}
+
+			nodename := string(uname.Nodename[:])
+
+			// Override nodename if envconfig sets it
+			if len(config.Sensor.NodeName) > 0 {
+				nodename = config.Sensor.NodeName
+			}
+
+			s.pubsub.Publish("discover.sensor", &api.Discover{
+				Info: &api.Discover_Sensor{
+					Sensor: &api.Sensor{
+						Id:       s.id,
+						Sysname:  string(uname.Sysname[:]),
+						Nodename: nodename,
+						Release:  string(uname.Release[:]),
+						Version:  string(uname.Version[:]),
+					},
+				},
+			})
+
+			discoveryTimer.Reset(10 * time.Second)
+		}
+	}
+
+	return nil
 }
 
-// sensor.Shutdown gracefully stops the sensor's telemetry server
-func (s *sensor) Wait() {
-	s.wg.Wait()
-	s.pubsub.Close()
-}
-
-func (s *sensor) RemoveStaleSubscriptions() {
+func (s *Sensor) removeStaleSubscriptions() {
 	timeout := time.Duration(config.Sensor.SubscriptionTimeout) * time.Second
 	timeoutTimer := time.NewTimer(timeout)
 	defer timeoutTimer.Stop()
-
-	s.wg.Add(1)
-	defer s.wg.Done()
 
 staleRemovalLoop:
 	for {
@@ -230,8 +284,114 @@ staleRemovalLoop:
 	}
 }
 
-func (s *sensor) newSubscription(sub *api.Subscription, subscriptionID string) chan interface{} {
-	stopChan := make(chan interface{})
+// Serve listens for subscriptions over configured interfaces (i.e. gRPC, STAN).
+// Serve always returns non-nill error.
+func (s *Sensor) Serve() error {
+	var err error
+
+	s.Lock()
+	s.running = true
+	s.stopChan = make(chan struct{})
+	s.Unlock()
+
+	//
+	// Start default HTTP endpoint
+	//
+	s.configureHealthChecks()
+	http.HandleFunc("/healthz", s.healthChecker.ServeHTTP)
+	if config.Sensor.MonitoringPort > 0 {
+		// Don't increment WaitGroup because we don't exit on s.stopChan
+
+		go func() {
+			err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d",
+				config.Sensor.MonitoringPort), nil)
+			glog.Fatal(err)
+		}()
+	}
+
+	//
+	// Start local gRPC API endpoint
+	//
+	if s.grpcServer != nil {
+		s.wg.Add(1)
+
+		go func() {
+			<-s.stopChan
+			s.grpcServer.GracefulStop()
+		}()
+
+		go func() {
+			// grpc.Serve always returns with non-nil error, so
+			// don't return it. Instead we log it if V >= 1.
+			serveErr := s.grpcServer.Serve(s.grpcListener)
+			glog.V(1).Info(serveErr)
+
+			s.Stop()
+			s.wg.Done()
+		}()
+	}
+
+	//
+	// If we have a pubsub backend configured, startup async services on it
+	//
+	if s.pubsub != nil {
+		// Broadcast sensor identity over discovery topic
+		s.wg.Add(1)
+		go func() {
+			err = s.broadcastDiscoveryMessages()
+			if err != nil {
+				s.Stop()
+			}
+
+			s.wg.Done()
+		}()
+
+		// Listen for telemetry subscriptions
+		s.wg.Add(1)
+		go func() {
+			err = s.listenForSubscriptions()
+			if err != nil {
+				s.Stop()
+			}
+
+			s.wg.Done()
+		}()
+
+		// Reap stale subscriptions
+		s.wg.Add(1)
+		go func() {
+			s.removeStaleSubscriptions()
+			s.wg.Done()
+		}()
+	}
+
+	// Block until goroutines have exited and then clean up after ourselves
+	s.wg.Wait()
+
+	if s.pubsub != nil {
+		s.pubsub.Close()
+	}
+
+	return err
+}
+
+// Stop signals for the Sensor to stop listening for subscriptions and shut down
+func (s *Sensor) Stop() {
+	s.Lock()
+	defer s.Unlock()
+
+	//
+	// It's ok to call Stop multiple times, so only close the stopChan if
+	// the Sensor is running.
+	//
+	if s.running {
+		close(s.stopChan)
+		s.running = false
+	}
+}
+
+func (s *Sensor) newSubscription(sub *api.Subscription, subscriptionID string) chan struct{} {
+	stopChan := make(chan struct{})
 	// Handle optional subscription arguments
 	modifier := sub.Modifier
 	if modifier == nil {
