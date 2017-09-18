@@ -16,6 +16,9 @@
 # Ignore vscode workspace settings.
 .vscode/
 
+# Ignore emacs backup files
+*~
+
 # Ignore vim swap files
 *.swp
 
