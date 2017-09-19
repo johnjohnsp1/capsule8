@@ -37,30 +37,7 @@ type fileOpenFilter struct {
 	createModeMask  int32
 }
 
-func newFileOpenFilter(fef *api.FileEventFilter) *fileOpenFilter {
-	if fef.Type != api.FileEventType_FILE_EVENT_TYPE_OPEN {
-		return nil
-	}
-
-	filter := &fileOpenFilter{}
-
-	if fef.Filename != nil {
-		filter.filename = fef.Filename.Value
-	}
-	if fef.FilenamePattern != nil {
-		filter.filenamePattern = fef.FilenamePattern.Value
-	}
-	if fef.OpenFlagsMask != nil {
-		filter.openFlagsMask = fef.OpenFlagsMask.Value
-	}
-	if fef.CreateModeMask != nil {
-		filter.createModeMask = fef.CreateModeMask.Value
-	}
-
-	return filter
-}
-
-func (f *fileOpenFilter) String() string {
+func (f *fileOpenFilter) filterString() string {
 	var parts []string
 
 	if len(f.filename) > 0 {
@@ -80,37 +57,72 @@ func (f *fileOpenFilter) String() string {
 }
 
 type fileFilterSet struct {
-	filters []*fileOpenFilter
+	filters  []*fileOpenFilter
+	wildcard bool
 }
 
-func (fes *fileFilterSet) add(fef *api.FileEventFilter) {
-	filter := newFileOpenFilter(fef)
-	if filter == nil {
+func (ffs *fileFilterSet) add(fef *api.FileEventFilter) {
+	if fef.Type != api.FileEventType_FILE_EVENT_TYPE_OPEN {
 		return
 	}
 
-	for _, v := range fes.filters {
+	wildcard := true
+	filter := &fileOpenFilter{}
+
+	if fef.Filename != nil {
+		filter.filename = fef.Filename.Value
+		wildcard = false
+	}
+	if fef.FilenamePattern != nil {
+		filter.filenamePattern = fef.FilenamePattern.Value
+		wildcard = false
+	}
+	if fef.OpenFlagsMask != nil {
+		filter.openFlagsMask = fef.OpenFlagsMask.Value
+		wildcard = false
+	}
+	if fef.CreateModeMask != nil {
+		filter.createModeMask = fef.CreateModeMask.Value
+		wildcard = false
+	}
+
+	if wildcard {
+		ffs.wildcard = true
+		return
+	}
+
+	for _, v := range ffs.filters {
 		if reflect.DeepEqual(filter, v) {
 			return
 		}
 	}
 
-	fes.filters = append(fes.filters, filter)
+	ffs.filters = append(ffs.filters, filter)
 }
 
-func (fes *fileFilterSet) len() int {
-	return len(fes.filters)
+func (ffs *fileFilterSet) len() int {
+	if ffs.wildcard {
+		return 1
+	}
+	return len(ffs.filters)
 }
 
 func (ffs *fileFilterSet) registerEvents(monitor *perf.EventMonitor) {
-	var filters []string
-	for _, f := range ffs.filters {
-		s := f.String()
-		if len(s) > 0 {
-			filters = append(filters, fmt.Sprintf("(%s)", s))
+	var filter string
+
+	if !ffs.wildcard {
+		if len(ffs.filters) == 0 {
+			return
 		}
+		var filters []string
+		for _, f := range ffs.filters {
+			s := f.filterString()
+			if len(s) > 0 {
+				filters = append(filters, fmt.Sprintf("(%s)", s))
+			}
+		}
+		filter = strings.Join(filters, " || ")
 	}
-	filter := strings.Join(filters, " || ")
 
 	err := monitor.RegisterEvent("fs/do_sys_open", decodeDoSysOpen, filter, nil)
 	if err != nil {
