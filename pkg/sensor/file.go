@@ -67,9 +67,7 @@ func (f *fileOpenFilter) String() string {
 		parts = append(parts, fmt.Sprintf("filename == %s", f.filename))
 	}
 	if len(f.filenamePattern) > 0 {
-		// Shouldn't we be taking any filename and do the filtering
-		// ourselves using the pattern?
-		parts = append(parts, fmt.Sprintf("filename == %s", f.filenamePattern))
+		parts = append(parts, fmt.Sprintf("filename ~ %s", f.filenamePattern))
 	}
 	if f.openFlagsMask != 0 {
 		parts = append(parts, fmt.Sprintf("flags & %d", f.openFlagsMask))
