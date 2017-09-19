@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 )
 
 type TraceEventSampleData map[string]interface{}
@@ -14,6 +15,20 @@ type TraceEventDecoderFn func(*SampleRecord, TraceEventSampleData) (interface{},
 type traceEventDecoder struct {
 	fields    map[string]TraceEventField
 	decoderfn TraceEventDecoderFn
+}
+
+func newTraceEventDecoder(name string, fn TraceEventDecoderFn) (*traceEventDecoder, uint16, error) {
+	id, fields, err := GetTraceEventFormat(name)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	decoder := &traceEventDecoder{
+		fields:    fields,
+		decoderfn: fn,
+	}
+
+	return decoder, id, err
 }
 
 func decodeDataType(dataType int, rawData []byte) (interface{}, error) {
@@ -92,69 +107,146 @@ func (d *traceEventDecoder) decodeRawData(rawData []byte) (TraceEventSampleData,
 	return data, nil
 }
 
-type TraceEventDecoderMap struct {
-	sync.Mutex
+type decoderMap struct {
 	decoders map[uint16]*traceEventDecoder
-	nameMap  map[string]uint16
+	names    map[string]uint16
 }
 
-func NewTraceEventDecoderMap() *TraceEventDecoderMap {
-	return &TraceEventDecoderMap{
+func newDecoderMap() *decoderMap {
+	return &decoderMap{
 		decoders: make(map[uint16]*traceEventDecoder),
+		names:    make(map[string]uint16),
 	}
 }
 
-func (l *TraceEventDecoderMap) AddDecoder(name string, fn TraceEventDecoderFn) (uint16, error) {
-	id, fields, err := GetTraceEventFormat(name)
+func (dm *decoderMap) add(name string, id uint16, decoder *traceEventDecoder) {
+	dm.decoders[id] = decoder
+	dm.names[name] = id
+}
+
+type TraceEventDecoderMap struct {
+	sync.Mutex              // used only by writers
+	active     atomic.Value // *decoderMap
+}
+
+func (m *TraceEventDecoderMap) getDecoderMap() *decoderMap {
+	value := m.active.Load()
+	if value == nil {
+		return nil
+	}
+	return value.(*decoderMap)
+}
+
+func NewTraceEventDecoderMap() *TraceEventDecoderMap {
+	return &TraceEventDecoderMap{}
+}
+
+// Add a decoder "in-place". i.e., don't copy the decoder map before update
+// No synchronization is used. Assumes the caller has adequate protection
+func (m *TraceEventDecoderMap) addDecoderInPlace(name string, fn TraceEventDecoderFn) (uint16, error) {
+	decoder, id, err := newTraceEventDecoder(name, fn)
 	if err != nil {
 		return 0, err
 	}
 
-	l.Lock()
-	defer l.Unlock()
-
-	if l.decoders == nil {
-		l.decoders = make(map[uint16]*traceEventDecoder)
+	dm := m.getDecoderMap()
+	if dm == nil {
+		dm = newDecoderMap()
+		m.active.Store(dm)
 	}
-	l.decoders[id] = &traceEventDecoder{
-		fields:    fields,
-		decoderfn: fn,
-	}
-
-	if l.nameMap == nil {
-		l.nameMap = make(map[string]uint16)
-	}
-	l.nameMap[name] = id
+	dm.add(name, id, decoder)
 
 	return id, nil
 }
 
-func (l *TraceEventDecoderMap) RemoveDecoder(name string) {
-	l.Lock()
-	defer l.Unlock()
+// Add a decoder safely. Proper synchronization is used to prevent multiple
+// writers from stomping on each other while allowing readers to always
+// operate without locking
+func (m *TraceEventDecoderMap) AddDecoder(name string, fn TraceEventDecoderFn) (uint16, error) {
+	decoder, id, err := newTraceEventDecoder(name, fn)
+	if err != nil {
+		return 0, err
+	}
 
-	if l.decoders != nil && l.nameMap != nil {
-		id, ok := l.nameMap[name]
-		if ok {
-			delete(l.decoders, id)
-			delete(l.nameMap, name)
+	m.Lock()
+	defer m.Unlock()
+
+	odm := m.getDecoderMap()
+	ndm := newDecoderMap()
+	if odm != nil {
+		for k, v := range odm.decoders {
+			ndm.decoders[k] = v
+		}
+		for k, v := range odm.names {
+			ndm.names[k] = v
+		}
+	}
+	ndm.add(name, id, decoder)
+
+	m.active.Store(ndm)
+
+	return id, nil
+}
+
+// Remove a decoder "in-place". i.e., don't copy the decoder map before update
+// No synchronization is used. Assumes the caller has adequate protection
+func (m *TraceEventDecoderMap) removeDecoderInPlace(name string) {
+	dm := m.getDecoderMap()
+	if dm == nil {
+		return
+	}
+
+	id, ok := dm.names[name]
+	if ok {
+		delete(dm.names, name)
+		delete(dm.decoders, id)
+	}
+}
+
+// Remove a decoder safely. Proper synchronization is used to prevent multiple
+// writers from stomping on each other while allowing readers to always
+// operate without locking
+func (m *TraceEventDecoderMap) RemoveDecoder(name string) {
+	dm := m.getDecoderMap()
+	if dm == nil {
+		return
+	}
+
+	id, ok := dm.names[name]
+	if ok {
+		m.Lock()
+		defer m.Unlock()
+
+		odm := m.getDecoderMap()
+		if odm != nil {
+			ndm := newDecoderMap()
+			for k, v := range odm.decoders {
+				if k != id {
+					ndm.decoders[k] = v
+				}
+			}
+			for k, v := range odm.names {
+				if k != name {
+					ndm.names[k] = v
+				}
+			}
+
+			m.active.Store(ndm)
 		}
 	}
 }
 
-func (l *TraceEventDecoderMap) getDecoder(eventType uint16) *traceEventDecoder {
-	l.Lock()
-	defer l.Unlock()
-
-	if l.decoders == nil {
+func (m *TraceEventDecoderMap) getDecoder(eventType uint16) *traceEventDecoder {
+	dm := m.getDecoderMap()
+	if dm == nil {
 		return nil
 	}
-	return l.decoders[eventType]
+	return dm.decoders[eventType]
 }
 
-func (l *TraceEventDecoderMap) DecodeSample(sample *SampleRecord) (interface{}, error) {
+func (m *TraceEventDecoderMap) DecodeSample(sample *SampleRecord) (interface{}, error) {
 	eventType := uint16(binary.LittleEndian.Uint64(sample.RawData))
-	decoder := l.getDecoder(eventType)
+	decoder := m.getDecoder(eventType)
 	if decoder == nil {
 		// Not an error. There just isn't a decoder for this sample
 		return nil, nil
