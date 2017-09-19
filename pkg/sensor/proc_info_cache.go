@@ -308,6 +308,9 @@ func procInfoOnExec(hostPid int32, command string) {
 func procInfoOnExit(hostPid int32) {
 	mu.Lock()
 	procEntry, ok := pidMap[hostPid]
+	if ok {
+		delete(pidMap, hostPid)
+	}
 	mu.Unlock()
 	if !ok {
 		// This process is not in the cache, nothing to do.
