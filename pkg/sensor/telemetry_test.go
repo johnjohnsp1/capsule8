@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc"
 
 	api "github.com/capsule8/api/v0"
+	"github.com/capsule8/reactive8/pkg/backend/mock"
 	"github.com/capsule8/reactive8/pkg/config"
 	"github.com/golang/glog"
 )
@@ -36,10 +37,7 @@ func TestGetEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal("Error creating sensor: ", err)
 	}
-
-	defer func() {
-		s.Stop()
-	}()
+	defer s.Stop()
 
 	go func() {
 		err = s.Serve()
@@ -53,6 +51,7 @@ func TestGetEvents(t *testing.T) {
 	glog.V(1).Infof("Dialing %s", config.Sensor.ListenAddr)
 	conn, err := grpc.Dial(config.Sensor.ListenAddr,
 		grpc.WithDialer(dialer),
+		grpc.WithDefaultCallOptions(grpc.FailFast(false)),
 		grpc.WithInsecure())
 
 	if err != nil {
@@ -120,7 +119,7 @@ func TestGetEvents(t *testing.T) {
 
 	glog.Info("Selecting on events")
 	select {
-	case <-time.After(3 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Error("Receive msg timeout")
 	case ev := <-events:
 		t.Log("Recevied message:", ev)
@@ -128,4 +127,8 @@ func TestGetEvents(t *testing.T) {
 
 	glog.Info("Closing stopSignal")
 	close(stopSignal)
+	s.Stop()
+
+	// Clear mock values after we're done
+	mock.ClearMockValues()
 }

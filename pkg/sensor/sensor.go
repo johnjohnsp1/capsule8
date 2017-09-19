@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/net/context"
+
 	"google.golang.org/grpc"
 
 	api "github.com/capsule8/api/v0"
@@ -48,15 +50,12 @@ type Sensor struct {
 	grpcListener net.Listener
 	grpcServer   *grpc.Server
 	pubsub       backend.Backend
-	running      bool
+	stopped      bool
 
 	healthChecker health.Checker
 
 	// Map of subscription ID -> Subscription metadata
 	subscriptions map[string]*subscriptionMetadata
-
-	// Wait Group for the sensor goroutines
-	wg sync.WaitGroup
 
 	// Channel that signals stopping the sensor
 	stopChan chan struct{}
@@ -86,20 +85,6 @@ func createSensor() (*Sensor, error) {
 		s.pubsub = &pbmock.Backend{}
 	default:
 		return nil, ErrInvalidPubsub(config.Sensor.Backend)
-	}
-
-	//
-	// Start healthchecks HTTP endpoint
-	//
-	if config.Sensor.MonitoringPort > 0 {
-		s.configureHealthChecks()
-		http.HandleFunc("/healthz", s.healthChecker.ServeHTTP)
-
-		go func() {
-			err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d",
-				config.Sensor.MonitoringPort), nil)
-			glog.Fatal(err)
-		}()
 	}
 
 	return s, nil
@@ -301,9 +286,47 @@ func (s *Sensor) Serve() error {
 	var err error
 
 	s.Lock()
-	s.running = true
 	s.stopChan = make(chan struct{})
+	s.stopped = false
 	s.Unlock()
+
+	wg := sync.WaitGroup{}
+
+	//
+	// Start healthchecks HTTP endpoint
+	//
+	if config.Sensor.MonitoringPort > 0 {
+		s.configureHealthChecks()
+
+		mux := http.NewServeMux()
+		mux.HandleFunc("/healthz", s.healthChecker.ServeHTTP)
+		httpServer := &http.Server{
+			Addr:    fmt.Sprintf("0.0.0.0:%d", config.Sensor.MonitoringPort),
+			Handler: mux,
+		}
+
+		var lis net.Listener
+		lis, err = net.Listen("tcp", httpServer.Addr)
+		if err != nil {
+			s.Stop()
+		} else {
+			wg.Add(1)
+
+			go func() {
+				<-s.stopChan
+				httpServer.Shutdown(context.Background())
+			}()
+
+			go func() {
+				serveErr := httpServer.Serve(lis)
+				glog.V(1).Info(serveErr)
+
+				lis.Close()
+
+				wg.Done()
+			}()
+		}
+	}
 
 	//
 	// If we have a ListenAddr configured, start local gRPC Server on it
@@ -313,24 +336,25 @@ func (s *Sensor) Serve() error {
 		if err != nil {
 			s.Stop()
 		} else {
-			s.wg.Add(1)
+			wg.Add(1)
 
 			go func() {
 				<-s.stopChan
+				glog.V(1).Info("stopChan closed, stopping gRPC Server")
 				s.grpcServer.GracefulStop()
 			}()
 
 			go func() {
 				// grpc.Serve always returns with non-nil error,
 				// so don't return it. Instead we log it w/ V(1).
-				glog.V(1).Info("Starting gRPC Server on %s",
+				glog.V(1).Info("Starting gRPC Server on ",
 					s.grpcListener)
 
 				serveErr := s.grpcServer.Serve(s.grpcListener)
 				glog.V(1).Info(serveErr)
 
 				s.grpcListener.Close()
-				s.wg.Done()
+				wg.Done()
 			}()
 		}
 	}
@@ -343,38 +367,38 @@ func (s *Sensor) Serve() error {
 			s.Stop()
 		} else {
 			// Broadcast sensor identity over discovery topic
-			s.wg.Add(1)
+			wg.Add(1)
 			go func() {
 				err = s.broadcastDiscoveryMessages()
 				if err != nil {
 					s.Stop()
 				}
 
-				s.wg.Done()
+				wg.Done()
 			}()
 
 			// Listen for telemetry subscriptions
-			s.wg.Add(1)
+			wg.Add(1)
 			go func() {
 				err = s.listenForSubscriptions()
 				if err != nil {
 					s.Stop()
 				}
 
-				s.wg.Done()
+				wg.Done()
 			}()
 
 			// Reap stale subscriptions
-			s.wg.Add(1)
+			wg.Add(1)
 			go func() {
 				s.removeStaleSubscriptions()
-				s.wg.Done()
+				wg.Done()
 			}()
 		}
 	}
 
 	// Block until goroutines have exited and then clean up after ourselves
-	s.wg.Wait()
+	wg.Wait()
 
 	if s.pubsub != nil {
 		s.pubsub.Close()
@@ -392,9 +416,9 @@ func (s *Sensor) Stop() {
 	// It's ok to call Stop multiple times, so only close the stopChan if
 	// the Sensor is running.
 	//
-	if s.running {
+	if !s.stopped {
 		close(s.stopChan)
-		s.running = false
+		s.stopped = true
 	}
 }
 

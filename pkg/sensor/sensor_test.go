@@ -68,6 +68,7 @@ func TestCreateSubscription(t *testing.T) {
 	if err != nil {
 		glog.Fatal("Error creating sensor:", err)
 	}
+	defer s.Stop()
 
 	go func() {
 		err = s.Serve()
@@ -98,7 +99,7 @@ func TestCreateSubscription(t *testing.T) {
 	}()
 
 	select {
-	case <-time.After(3 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Error("Receive msg timeout")
 	case ev := <-msgs:
 		t.Log(ev.Topic)
@@ -106,7 +107,6 @@ func TestCreateSubscription(t *testing.T) {
 	}
 
 	close(stopSignal)
-	s.Stop()
 
 	// Clear mock values after we're done
 	mock.ClearMockValues()
@@ -118,6 +118,7 @@ func TestDiscover(t *testing.T) {
 	if err != nil {
 		glog.Fatal("Error creating sensor:", err)
 	}
+	defer s.Stop()
 
 	go func() {
 		err = s.Serve()
@@ -144,7 +145,6 @@ func TestDiscover(t *testing.T) {
 				timer.Reset(10 * time.Millisecond)
 			}
 		}
-
 	}()
 
 	select {
@@ -155,7 +155,7 @@ func TestDiscover(t *testing.T) {
 	}
 
 	close(stopSignal)
-	s.Stop()
+
 	// Clear mock values after we're done
 	mock.ClearMockValues()
 }
