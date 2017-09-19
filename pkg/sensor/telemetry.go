@@ -1,4 +1,4 @@
-package main
+package sensor
 
 import (
 	api "github.com/capsule8/api/v0"
@@ -12,6 +12,9 @@ type telemetryServiceServer struct {
 
 func (t *telemetryServiceServer) GetEvents(req *api.GetEventsRequest, stream api.TelemetryService_GetEventsServer) error {
 	sub := req.Subscription
+
+	glog.V(1).Infof("GetEvents(%v)", sub)
+
 	eventStream, err := subscription.NewSubscription(sub)
 	if err != nil {
 		glog.Errorf("failed to get events: %s\n", err.Error())

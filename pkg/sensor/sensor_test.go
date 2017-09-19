@@ -1,4 +1,4 @@
-package main
+package sensor
 
 import (
 	"crypto/sha256"
@@ -20,7 +20,18 @@ import (
 
 func TestMain(m *testing.M) {
 	flag.Parse()
+
 	config.Sensor.Backend = "mock"
+
+	tempDir, err := ioutil.TempDir("", "sensor_test")
+	if err != nil {
+		glog.Fatal("Couldn't create temporary directory:", err)
+	}
+
+	config.Sensor.ListenAddr = fmt.Sprintf("unix:%s",
+		filepath.Join(tempDir, "sensor.sock"))
+
+	glog.V(1).Info("Listening on ", config.Sensor.ListenAddr)
 
 	os.Exit(m.Run())
 }
@@ -53,22 +64,18 @@ func TestCreateSubscription(t *testing.T) {
 	h.Write(b)
 	subID := fmt.Sprintf("%x", h.Sum(nil))
 
-	tempDir, err := ioutil.TempDir("", "TestGetEvents")
-	if err != nil {
-		t.Fatal("Couldn't create temporary directory:", err)
-	}
-
-	config.Sensor.ListenAddr = fmt.Sprintf("unix:%s",
-		filepath.Join(tempDir, "sensor.sock"))
-
-	s, err := CreateSensor()
+	s, err := GetSensor()
 	if err != nil {
 		glog.Fatal("Error creating sensor:", err)
 	}
-	err = s.Start()
-	if err != nil {
-		glog.Fatal("Error starting sensor:", err)
-	}
+
+	go func() {
+		err = s.Serve()
+		if err != nil {
+			glog.Fatal("Error starting sensor:", err)
+		}
+	}()
+
 	stopSignal := make(chan interface{})
 
 	msgs := make(chan *mock.OutboundMessage)
@@ -99,22 +106,25 @@ func TestCreateSubscription(t *testing.T) {
 	}
 
 	close(stopSignal)
-	s.Shutdown()
+	s.Stop()
+
 	// Clear mock values after we're done
 	mock.ClearMockValues()
-	s.Wait()
 }
 
 // TestDiscover tests the discovery broadcast functionality in the sensor
 func TestDiscover(t *testing.T) {
-	s, err := CreateSensor()
+	s, err := GetSensor()
 	if err != nil {
 		glog.Fatal("Error creating sensor:", err)
 	}
-	err = s.Start()
-	if err != nil {
-		glog.Fatal("Error starting sensor:", err)
-	}
+
+	go func() {
+		err = s.Serve()
+		if err != nil {
+			glog.Fatal("Error starting sensor:", err)
+		}
+	}()
 
 	msgs := make(chan *mock.OutboundMessage)
 	stopSignal := make(chan interface{})
@@ -145,8 +155,7 @@ func TestDiscover(t *testing.T) {
 	}
 
 	close(stopSignal)
-	s.Shutdown()
+	s.Stop()
 	// Clear mock values after we're done
 	mock.ClearMockValues()
-	s.Wait()
 }

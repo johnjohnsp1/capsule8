@@ -1,6 +1,6 @@
 // Copyright 2017 Capsule8 Inc. All rights reserved.
 
-package main
+package sensor
 
 import (
 	"crypto/sha256"
@@ -69,44 +69,10 @@ type subscriptionMetadata struct {
 }
 
 func createSensor() (*Sensor, error) {
-	var err error
-	var lis net.Listener
-
 	s := &Sensor{
 		id:            subscription.SensorID,
 		subscriptions: make(map[string]*subscriptionMetadata),
 	}
-
-	//
-	// Create local listener
-	//
-	parts := strings.Split(config.Sensor.ListenAddr, ":")
-	if len(parts) > 1 && parts[0] == "unix" {
-		socketPath := parts[1]
-		socketDir := path.Dir(socketPath)
-
-		err = os.MkdirAll(socketDir, 0600)
-		if err != nil {
-			return nil, err
-		}
-
-		lis, err = net.Listen("unix", parts[1])
-	} else {
-		lis, err = net.Listen("tcp", config.Sensor.ListenAddr)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	// Start local gRPC service on listener
-	s.grpcListener = lis
-	s.grpcServer = grpc.NewServer()
-
-	t := &telemetryServiceServer{
-		s: s,
-	}
-	api.RegisterTelemetryServiceServer(s.grpcServer, t)
 
 	//
 	// Connect configured pubsub backend
@@ -122,10 +88,18 @@ func createSensor() (*Sensor, error) {
 		return nil, ErrInvalidPubsub(config.Sensor.Backend)
 	}
 
-	if s.pubsub != nil {
-		if err := s.pubsub.Connect(); err != nil {
-			return nil, err
-		}
+	//
+	// Start healthchecks HTTP endpoint
+	//
+	if config.Sensor.MonitoringPort > 0 {
+		s.configureHealthChecks()
+		http.HandleFunc("/healthz", s.healthChecker.ServeHTTP)
+
+		go func() {
+			err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d",
+				config.Sensor.MonitoringPort), nil)
+			glog.Fatal(err)
+		}()
 	}
 
 	return s, nil
@@ -165,6 +139,7 @@ sendLoop:
 	for {
 		select {
 		case <-s.stopChan:
+			glog.V(1).Info("stopChan closed, breaking out of sendLoop")
 			break sendLoop
 		case msg, ok := <-messages:
 			if !ok {
@@ -284,6 +259,42 @@ staleRemovalLoop:
 	}
 }
 
+func (s *Sensor) startLocalRPCServer() error {
+	var err error
+	var lis net.Listener
+
+	parts := strings.Split(config.Sensor.ListenAddr, ":")
+	if len(parts) > 1 && parts[0] == "unix" {
+		socketPath := parts[1]
+		socketDir := path.Dir(socketPath)
+
+		err = os.MkdirAll(socketDir, 0600)
+		if err != nil {
+			return err
+		}
+
+		lis, err = net.Listen("unix", parts[1])
+	} else {
+		lis, err = net.Listen("tcp", config.Sensor.ListenAddr)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	s.grpcListener = lis
+
+	// Start local gRPC service on listener
+	s.grpcServer = grpc.NewServer()
+
+	t := &telemetryServiceServer{
+		s: s,
+	}
+	api.RegisterTelemetryServiceServer(s.grpcServer, t)
+
+	return nil
+}
+
 // Serve listens for subscriptions over configured interfaces (i.e. gRPC, STAN).
 // Serve always returns non-nill error.
 func (s *Sensor) Serve() error {
@@ -295,74 +306,71 @@ func (s *Sensor) Serve() error {
 	s.Unlock()
 
 	//
-	// Start default HTTP endpoint
+	// If we have a ListenAddr configured, start local gRPC Server on it
 	//
-	s.configureHealthChecks()
-	http.HandleFunc("/healthz", s.healthChecker.ServeHTTP)
-	if config.Sensor.MonitoringPort > 0 {
-		// Don't increment WaitGroup because we don't exit on s.stopChan
-
-		go func() {
-			err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d",
-				config.Sensor.MonitoringPort), nil)
-			glog.Fatal(err)
-		}()
-	}
-
-	//
-	// Start local gRPC API endpoint
-	//
-	if s.grpcServer != nil {
-		s.wg.Add(1)
-
-		go func() {
-			<-s.stopChan
-			s.grpcServer.GracefulStop()
-		}()
-
-		go func() {
-			// grpc.Serve always returns with non-nil error, so
-			// don't return it. Instead we log it if V >= 1.
-			serveErr := s.grpcServer.Serve(s.grpcListener)
-			glog.V(1).Info(serveErr)
-
+	if len(config.Sensor.ListenAddr) > 0 {
+		err = s.startLocalRPCServer()
+		if err != nil {
 			s.Stop()
-			s.wg.Done()
-		}()
+		} else {
+			s.wg.Add(1)
+
+			go func() {
+				<-s.stopChan
+				s.grpcServer.GracefulStop()
+			}()
+
+			go func() {
+				// grpc.Serve always returns with non-nil error,
+				// so don't return it. Instead we log it w/ V(1).
+				glog.V(1).Info("Starting gRPC Server on %s",
+					s.grpcListener)
+
+				serveErr := s.grpcServer.Serve(s.grpcListener)
+				glog.V(1).Info(serveErr)
+
+				s.grpcListener.Close()
+				s.wg.Done()
+			}()
+		}
 	}
 
 	//
 	// If we have a pubsub backend configured, startup async services on it
 	//
 	if s.pubsub != nil {
-		// Broadcast sensor identity over discovery topic
-		s.wg.Add(1)
-		go func() {
-			err = s.broadcastDiscoveryMessages()
-			if err != nil {
-				s.Stop()
-			}
+		if err := s.pubsub.Connect(); err != nil {
+			s.Stop()
+		} else {
+			// Broadcast sensor identity over discovery topic
+			s.wg.Add(1)
+			go func() {
+				err = s.broadcastDiscoveryMessages()
+				if err != nil {
+					s.Stop()
+				}
 
-			s.wg.Done()
-		}()
+				s.wg.Done()
+			}()
 
-		// Listen for telemetry subscriptions
-		s.wg.Add(1)
-		go func() {
-			err = s.listenForSubscriptions()
-			if err != nil {
-				s.Stop()
-			}
+			// Listen for telemetry subscriptions
+			s.wg.Add(1)
+			go func() {
+				err = s.listenForSubscriptions()
+				if err != nil {
+					s.Stop()
+				}
 
-			s.wg.Done()
-		}()
+				s.wg.Done()
+			}()
 
-		// Reap stale subscriptions
-		s.wg.Add(1)
-		go func() {
-			s.removeStaleSubscriptions()
-			s.wg.Done()
-		}()
+			// Reap stale subscriptions
+			s.wg.Add(1)
+			go func() {
+				s.removeStaleSubscriptions()
+				s.wg.Done()
+			}()
+		}
 	}
 
 	// Block until goroutines have exited and then clean up after ourselves

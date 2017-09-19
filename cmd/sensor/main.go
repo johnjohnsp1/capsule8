@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/capsule8/reactive8/pkg/config"
+	"github.com/capsule8/reactive8/pkg/sensor"
 	"github.com/golang/glog"
 )
 
@@ -32,7 +33,7 @@ func main() {
 	}
 
 	glog.Infoln("Starting up")
-	s, err := GetSensor()
+	s, err := sensor.GetSensor()
 	if err != nil {
 		glog.Fatalf("Couldn't create Sensor: %s", err)
 	}

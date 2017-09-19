@@ -1,10 +1,7 @@
-package main
+package sensor
 
 import (
-	"fmt"
-	"io/ioutil"
 	"net"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -35,28 +32,25 @@ func dialer(addr string, timeout time.Duration) (net.Conn, error) {
 }
 
 func TestGetEvents(t *testing.T) {
-	tempDir, err := ioutil.TempDir("", "TestGetEvents")
+	s, err := GetSensor()
 	if err != nil {
-		t.Fatal("Couldn't create temporary directory:", err)
+		t.Fatal("Error creating sensor: ", err)
 	}
 
-	config.Sensor.ListenAddr = fmt.Sprintf("unix:%s",
-		filepath.Join(tempDir, "sensor.sock"))
-
-	s, err := CreateSensor()
-	if err != nil {
-		glog.Fatal("Error creating sensor:", err)
-	}
-	err = s.Start()
-	if err != nil {
-		glog.Fatal("Error starting sensor:", err)
-	}
 	defer func() {
-		s.Shutdown()
-		s.Wait()
+		s.Stop()
 	}()
+
+	go func() {
+		err = s.Serve()
+		if err != nil {
+			t.Fatal("Error starting sensor: ", err)
+		}
+	}()
+
 	stopSignal := make(chan interface{})
 
+	glog.V(1).Infof("Dialing %s", config.Sensor.ListenAddr)
 	conn, err := grpc.Dial(config.Sensor.ListenAddr,
 		grpc.WithDialer(dialer),
 		grpc.WithInsecure())
@@ -69,36 +63,38 @@ func TestGetEvents(t *testing.T) {
 		<-stopSignal
 		conn.Close()
 	}()
+
 	c := api.NewTelemetryServiceClient(conn)
 
 	var stream api.TelemetryService_GetEventsClient
-	for {
-		sub := &api.Subscription{
-			EventFilter: &api.EventFilter{
-				ChargenEvents: []*api.ChargenEventFilter{
-					&api.ChargenEventFilter{
-						Length: 1,
-					},
+	sub := &api.Subscription{
+		EventFilter: &api.EventFilter{
+			ChargenEvents: []*api.ChargenEventFilter{
+				&api.ChargenEventFilter{
+					Length: 1,
 				},
 			},
+		},
 
-			Modifier: &api.Modifier{
-				Throttle: &api.ThrottleModifier{
-					Interval:     1,
-					IntervalType: 0,
-				},
+		Modifier: &api.Modifier{
+			Throttle: &api.ThrottleModifier{
+				Interval:     1,
+				IntervalType: 0,
 			},
-		}
-
-		stream, err = c.GetEvents(context.Background(),
-			&api.GetEventsRequest{
-				Subscription: sub,
-			})
-
-		if err == nil {
-			break
-		}
+		},
 	}
+
+	glog.V(1).Info("Calling GetEvents")
+	stream, err = c.GetEvents(context.Background(),
+		&api.GetEventsRequest{
+			Subscription: sub,
+		})
+
+	if err != nil {
+		t.Fatal("Couldn't call GetEvents RPC: ", err)
+	}
+
+	glog.Info("Receiving events")
 
 	events := make(chan *api.TelemetryEvent)
 	go func() {
@@ -110,6 +106,7 @@ func TestGetEvents(t *testing.T) {
 			default:
 				resp, err := stream.Recv()
 				if err != nil {
+					t.Fatal("stream.Recv(): ", err)
 					break getMessageLoop
 				}
 				for _, ev := range resp.Events {
@@ -118,8 +115,10 @@ func TestGetEvents(t *testing.T) {
 			}
 		}
 
+		glog.V(1).Info("Exiting getMessageLoop goroutine")
 	}()
 
+	glog.Info("Selecting on events")
 	select {
 	case <-time.After(3 * time.Second):
 		t.Error("Receive msg timeout")
@@ -127,5 +126,6 @@ func TestGetEvents(t *testing.T) {
 		t.Log("Recevied message:", ev)
 	}
 
+	glog.Info("Closing stopSignal")
 	close(stopSignal)
 }
