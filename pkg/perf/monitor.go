@@ -48,7 +48,7 @@ type EventMonitor struct {
 	eventfds    map[int]int    // fd : cpu index
 	eventIDs    map[int]uint64 // fd : stream id
 	eventAttrs  map[uint64]*EventAttr
-	ringBuffers []*ringBuffer
+	ringBuffers map[int]*ringBuffer
 	decoders    *TraceEventDecoderMap
 	cgroup      *os.File
 
@@ -319,38 +319,13 @@ func (monitor *EventMonitor) readSamples(data []byte) {
 }
 
 func (monitor *EventMonitor) readRingBuffers(readyfds []int, fn func(interface{}, error)) {
-	// Read all of the data from each ready fd so that we can match up
-	// format ids with the right EventAttr
+	// Group fds are created with a read_format of 0, which means that the
+	// data read from each fd will never be anything but 8 bytes. We don't
+	// care what the data is, and due to the way that the interface works,
+	// we don't even have to read it as long as we empty the associated
+	// ring buffer.
 	for _, fd := range readyfds {
-		var data [1024]byte
-
-		for more := true; more; {
-			n, err := unix.Read(fd, data[:])
-			if err != nil {
-				continue
-			}
-
-			if n == cap(data) {
-				pollfds := make([]unix.PollFd, 1)
-				pollfds[0] = unix.PollFd{
-					Fd:     int32(fd),
-					Events: unix.POLLIN,
-				}
-				_, err := unix.Poll(pollfds, 0)
-				if err != nil {
-					more = false
-				} else {
-					more = (pollfds[0].Revents & unix.POLLIN) != 0
-				}
-			} else {
-				more = false
-			}
-		}
-	}
-
-	for _, fd := range readyfds {
-		ringBuffer := monitor.ringBuffers[monitor.eventfds[fd]]
-		ringBuffer.read(monitor.readSamples)
+		monitor.ringBuffers[fd].read(monitor.readSamples)
 	}
 
 	go func(samples []*decodedSample) {
@@ -400,9 +375,9 @@ func (monitor *EventMonitor) Run(fn func(interface{}, error)) error {
 	// notifications there will prevent notifications on the eventfds,
 	// which are the ones we really want, because they give us the format
 	// information we need to decode the raw samples.
-	pollfds := make([]unix.PollFd, 0, len(monitor.eventfds)+1)
+	pollfds := make([]unix.PollFd, 0, len(monitor.groupfds)+1)
 	pollfds = addPollFd(pollfds, monitor.pipe[0])
-	for fd := range monitor.eventfds {
+	for _, fd := range monitor.groupfds {
 		pollfds = addPollFd(pollfds, fd)
 	}
 
@@ -476,7 +451,7 @@ func (monitor *EventMonitor) initializeGroupLeaders() error {
 
 	ncpu := runtime.NumCPU()
 	newfds := make([]int, ncpu)
-	ringBuffers := make([]*ringBuffer, ncpu)
+	ringBuffers := make(map[int]*ringBuffer, ncpu)
 
 	for i := 0; i < ncpu; i++ {
 		fd, err := open(eventAttr, monitor.pid, i, -1, monitor.flags)
@@ -492,12 +467,12 @@ func (monitor *EventMonitor) initializeGroupLeaders() error {
 		if err != nil {
 			unix.Close(newfds[i])
 			for j := i - 1; j >= 0; j-- {
-				ringBuffers[j].unmap()
+				ringBuffers[newfds[j]].unmap()
 				unix.Close(newfds[j])
 			}
 			return err
 		}
-		ringBuffers[i] = rb
+		ringBuffers[fd] = rb
 	}
 
 	monitor.groupfds = newfds
