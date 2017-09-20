@@ -70,12 +70,15 @@ func decodeSysEnterExitGroup(sample *perf.SampleRecord, data perf.TraceEventSamp
 func (ps *processStream) onSample(event interface{}, err error) {
 	if err != nil {
 		ps.data <- err
-		return
-	}
-
-	procEv := event.(*Event)
-	if procEv != nil && procEv.State != 0 {
-		ps.data <- procEv
+	} else if event != nil {
+		switch e := event.(type) {
+		case *Event:
+			if e.State != 0 {
+				ps.data <- e
+			}
+		default:
+			glog.Infof("Unexpected event: %v", e)
+		}
 	}
 }
 
