@@ -305,41 +305,16 @@ func (monitor *EventMonitor) stopWithSignal() {
 }
 
 type decodedSample struct {
-	timestamp uint64
-	sampleIn  interface{}
-	sampleOut interface{}
-	err       error
-}
-
-// TODO Add Len(), Less(), and Swap() functions to make decodedSamples sortable
-
-func (monitor *EventMonitor) recordSample(sampleIn *Sample, err error) {
-	sample := &decodedSample{
-		sampleIn: sampleIn,
-		err:      err,
-	}
-
-	if err == nil && sampleIn != nil {
-		sample.timestamp = sampleIn.Time
-
-		switch record := sampleIn.Record.(type) {
-		case *SampleRecord:
-			sample.sampleOut, sample.err = monitor.decoders.DecodeSample(record)
-		default:
-			// unknown sample type; pass the raw record up
-			break
-		}
-	}
-
-	monitor.samples = append(monitor.samples, sample)
+	sample Sample
+	err    error
 }
 
 func (monitor *EventMonitor) readSamples(data []byte) {
 	reader := bytes.NewReader(data)
 	for reader.Len() > 0 {
-		sample := Sample{}
-		err := sample.read(reader, nil, monitor.eventAttrs)
-		monitor.recordSample(&sample, err)
+		ds := &decodedSample{}
+		ds.err = ds.sample.read(reader, nil, monitor.eventAttrs)
+		monitor.samples = append(monitor.samples, ds)
 	}
 }
 
@@ -381,9 +356,14 @@ func (monitor *EventMonitor) readRingBuffers(readyfds []int, fn func(interface{}
 	go func(samples []*decodedSample) {
 		// TODO Sort the data read from the ringbuffers
 
-		// Pass the sorted data to the callback function, which is as yet undefined
-		for _, sample := range samples {
-			fn(sample.sampleOut, sample.err)
+		for _, ds := range samples {
+			switch record := ds.sample.Record.(type) {
+			case *SampleRecord:
+				s, err := monitor.decoders.DecodeSample(record)
+				fn(s, err)
+			default:
+				fn(&ds.sample, ds.err)
+			}
 		}
 
 	}(monitor.samples)

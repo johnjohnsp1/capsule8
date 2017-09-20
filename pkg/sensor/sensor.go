@@ -12,12 +12,17 @@ import (
 	"github.com/golang/glog"
 )
 
-func (s *Sensor) onSampleEvent(sample interface{}, err error) {
-	if sample != nil {
-		event := sample.(*api.Event)
-
-		for _, c := range s.eventStreams {
-			c <- event
+func (s *Sensor) onSampleEvent(event interface{}, err error) {
+	if err != nil {
+		glog.Infof("onSampleEvent error: %v", err)
+	} else if event != nil {
+		switch e := event.(type) {
+		case *api.Event:
+			for _, c := range s.eventStreams {
+				c <- e
+			}
+		default:
+			glog.Infof("Unexpected event: %v", e)
 		}
 	}
 }
