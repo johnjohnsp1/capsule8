@@ -10,6 +10,7 @@ import (
 
 	"github.com/capsule8/reactive8/pkg/config"
 	"github.com/capsule8/reactive8/pkg/sensor"
+	"github.com/capsule8/reactive8/pkg/version"
 	"github.com/golang/glog"
 )
 
@@ -32,7 +33,9 @@ func main() {
 		config.Sensor.MonitoringPort = 0
 	}
 
-	glog.Infoln("Starting up")
+	// Log version and build at "Starting ..." for debugging
+	version.InitialBuildLog("sensor")
+
 	s, err := sensor.GetSensor()
 	if err != nil {
 		glog.Fatalf("Couldn't create Sensor: %s", err)
