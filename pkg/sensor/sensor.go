@@ -25,6 +25,7 @@ import (
 	checks "github.com/capsule8/reactive8/pkg/health"
 	"github.com/capsule8/reactive8/pkg/subscription"
 	"github.com/capsule8/reactive8/pkg/sysinfo"
+	"github.com/capsule8/reactive8/pkg/version"
 	"github.com/coreos/pkg/health"
 	"github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
@@ -293,13 +294,14 @@ func (s *Sensor) Serve() error {
 	wg := sync.WaitGroup{}
 
 	//
-	// Start healthchecks HTTP endpoint
+	// Start monitoring HTTP endpoint
 	//
 	if config.Sensor.MonitoringPort > 0 {
 		s.configureHealthChecks()
 
 		mux := http.NewServeMux()
 		mux.HandleFunc("/healthz", s.healthChecker.ServeHTTP)
+		mux.HandleFunc("/version", version.HTTPHandler)
 		httpServer := &http.Server{
 			Addr:    fmt.Sprintf("0.0.0.0:%d", config.Sensor.MonitoringPort),
 			Handler: mux,
