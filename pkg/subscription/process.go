@@ -5,6 +5,7 @@ import (
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/perf"
+	"github.com/capsule8/reactive8/pkg/sys"
 	"github.com/golang/glog"
 )
 
@@ -40,7 +41,7 @@ func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampl
 	}
 
 	var err error
-	processEvent.ExecCommandLine, err = procInfoGetCommandLine(ev.ProcessPid)
+	processEvent.ExecCommandLine = sys.GetProcessCommandLine(ev.ProcessPid)
 	if err != nil {
 		return nil, err
 	}

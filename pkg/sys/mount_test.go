@@ -46,10 +46,7 @@ func TestMountPrivateTracingFs(t *testing.T) {
 }
 
 func TestGetPerfEventCgroupFs(t *testing.T) {
-	perfEventCgroupFs, err := GetPerfEventCgroupFs()
-	if err != nil {
-		t.Fatal(err)
-	}
+	perfEventCgroupFs := GetPerfEventCgroupFs()
 
 	if len(perfEventCgroupFs) == 0 {
 		t.Fatal("Couldn't find a mounted perf_event cgroup filesystem")
