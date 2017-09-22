@@ -137,7 +137,9 @@ func unmountPrivateTracingFs(dir string) error {
 	return unix.Unmount(dir, 0)
 }
 
-func getTraceFs() string {
+// GetTraceFs returns the mountpoint of the linux kernel tracing subsystem
+// pseudo-filesystem (a replacement for the older debugfs).
+func GetTraceFs() string {
 	// Allow configuration to override
 	if len(config.Sensor.TraceFs) > 0 {
 		return config.Sensor.TraceFs
@@ -164,7 +166,9 @@ func getTraceFs() string {
 	return mountPoint
 }
 
-func getProcFs() string {
+// GetProcFs returns the mountpoint of the proc pseudo-filesystem or the empty
+// string if it wasn't found.
+func GetProcFs() string {
 	// Allow configuration to override
 	if len(config.Sensor.ProcFs) > 0 {
 		return config.Sensor.ProcFs
@@ -186,11 +190,11 @@ func getProcFs() string {
 	return ""
 }
 
-// getHostProcFs returns the underlying host's procfs when it has been mounted
+// GetHostProcFs returns the underlying host's procfs when it has been mounted
 // into a running container. It identifies a mounted-in host procfs by it being
 // mounted on a directory that isn't /proc and /proc/self linking to a host
-// namespace PID.
-func getHostProcFs() (string, error) {
+// namespace PID. It returns the empty string if it wasn't found.
+func GetHostProcFs() (string, error) {
 	mountInfo, err := discoverMounts()
 	if err != nil {
 		return "", err
@@ -221,23 +225,25 @@ func getHostProcFs() (string, error) {
 	return "", err
 }
 
-func getPerfEventCgroupFs() (string, error) {
+// GetPerfEventCgroupFs returns the mountpoint of the perf_event cgroup
+// pseudo-filesystem or an empty string if it wasn't found.
+func GetPerfEventCgroupFs() string {
 	mountInfo, err := discoverMounts()
 	if err != nil {
-		return "", err
+		return ""
 	}
 
 	for _, mi := range mountInfo {
 		if mi.FilesystemType == "cgroup" {
 			for option := range mi.SuperOptions {
 				if option == "perf_event" {
-					return mi.MountPoint, nil
+					return mi.MountPoint
 				}
 			}
 		}
 	}
 
-	return "", err
+	return ""
 }
 
 func init() {

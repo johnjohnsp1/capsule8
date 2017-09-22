@@ -46,7 +46,7 @@ func TestMountPrivateTracingFs(t *testing.T) {
 }
 
 func TestGetPerfEventCgroupFs(t *testing.T) {
-	perfEventCgroupFs, err := getPerfEventCgroupFs()
+	perfEventCgroupFs, err := GetPerfEventCgroupFs()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestGetPerfEventCgroupFs(t *testing.T) {
 func TestGetProcFs(t *testing.T) {
 	oldProcFs := config.Sensor.ProcFs
 	config.Sensor.ProcFs = ""
-	procFs := getProcFs()
+	procFs := GetProcFs()
 	config.Sensor.ProcFs = oldProcFs
 
 	if len(procFs) == 0 {
@@ -74,7 +74,7 @@ func TestGetTraceFs(t *testing.T) {
 	oldTraceFs := config.Sensor.TraceFs
 	config.Sensor.TraceFs = ""
 
-	traceFs := getTraceFs()
+	traceFs := GetTraceFs()
 	config.Sensor.TraceFs = oldTraceFs
 
 	if len(traceFs) == 0 {

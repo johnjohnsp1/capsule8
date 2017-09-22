@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/capsule8/reactive8/pkg/config"
+	"github.com/capsule8/reactive8/pkg/sys"
 
 	"golang.org/x/sys/unix"
 )
@@ -18,10 +18,6 @@ const (
 	EVENT_TYPE_TRACEPOINT int = iota
 	EVENT_TYPE_KPROBE
 )
-
-func getCgroupFs() string {
-	return config.Sensor.CgroupFs
-}
 
 type registeredEvent struct {
 	name      string
@@ -566,7 +562,7 @@ func NewEventMonitor(pid int, flags uintptr, ringBufferNumPages int, defaultAttr
 }
 
 func NewEventMonitorWithCgroup(cgroup string, flags uintptr, ringBufferNumPages int, defaultAttr *EventAttr) (*EventMonitor, error) {
-	path := filepath.Join(getCgroupFs(), "perf_event", cgroup)
+	path := filepath.Join(sys.GetPerfEventCgroupFs(), cgroup)
 	f, err := os.OpenFile(path, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/capsule8/reactive8/pkg/config"
+	"github.com/capsule8/reactive8/pkg/sys"
 	"github.com/golang/glog"
 )
 
@@ -40,12 +40,8 @@ type TraceEventField struct {
 	arraySize    int // 0 == [] array, >0 == # elements
 }
 
-func getTraceFs() string {
-	return config.Sensor.TraceFs
-}
-
 func writeTraceCommand(name string, cmd string) error {
-	filename := filepath.Join(getTraceFs(), name)
+	filename := filepath.Join(sys.GetTraceFs(), name)
 	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		return err
@@ -101,7 +97,7 @@ func AddKprobe(name string, address string, onReturn bool, output string) (strin
 	// This isn't ideal: what if something else has added the same probe
 	// as us, and so we match that one, now assuming that it's ours?
 	//
-	filename := filepath.Join(getTraceFs(), "kprobe_events")
+	filename := filepath.Join(sys.GetTraceFs(), "kprobe_events")
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	defer file.Close()
 
@@ -149,7 +145,7 @@ func RemoveKprobe(name string) error {
 func GetAvailableTraceEvents() ([]string, error) {
 	var events []string
 
-	filename := filepath.Join(getTraceFs(), "available_events")
+	filename := filepath.Join(sys.GetTraceFs(), "available_events")
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
@@ -169,7 +165,7 @@ func GetAvailableTraceEvents() ([]string, error) {
 }
 
 func GetTraceEventID(name string) (uint16, error) {
-	filename := filepath.Join(getTraceFs(), "events", name, "id")
+	filename := filepath.Join(sys.GetTraceFs(), "events", name, "id")
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	if err != nil {
 		glog.Infof("Couldn't open trace event %s: %v",
@@ -544,7 +540,7 @@ func parseTraceEventField(line string) (*TraceEventField, error) {
 }
 
 func GetTraceEventFormat(name string) (uint16, map[string]TraceEventField, error) {
-	filename := filepath.Join(getTraceFs(), "events", name, "format")
+	filename := filepath.Join(sys.GetTraceFs(), "events", name, "format")
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	if err != nil {
 		glog.Infof("Couldn't open trace event %s: %v",

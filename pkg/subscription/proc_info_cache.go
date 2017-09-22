@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 
 	api "github.com/capsule8/api/v0"
-	"github.com/capsule8/reactive8/pkg/config"
+	"github.com/capsule8/reactive8/pkg/sys"
 	"github.com/golang/glog"
 )
 
@@ -88,15 +88,11 @@ func init() {
 	pidMap = make(map[int32]*procCacheEntry)
 }
 
-func getProcFs() string {
-	return config.Sensor.ProcFs
-}
-
 // Gets the Host system boot ID.
 func getBootId() (string, error) {
 	var err error = nil
 	bootIdOnce.Do(func() {
-		filename := getProcFs() + "/sys/kernel/random/boot_id"
+		filename := sys.GetProcFs() + "/sys/kernel/random/boot_id"
 		file, err := os.Open(filename)
 		if err != nil {
 			return
@@ -200,7 +196,7 @@ func getContainerIdFromCgroup(hostPid int32) (string, error) {
 // belongs.
 // Returns "" if the process is not in the `perf_event` control group.
 func readCgroup(hostPid int32) (string, error) {
-	filename := fmt.Sprintf("%s/%d/cgroup", getProcFs(), hostPid)
+	filename := fmt.Sprintf("%s/%d/cgroup", sys.GetProcFs(), hostPid)
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 
 	if err != nil {
@@ -224,7 +220,7 @@ func readCgroup(hostPid int32) (string, error) {
 
 // Returns the list of fields from a process's stat file.
 func readStat(hostPid int32) ([]string, error) {
-	filename := fmt.Sprintf("%s/%d/stat", getProcFs(), hostPid)
+	filename := fmt.Sprintf("%s/%d/stat", sys.GetProcFs(), hostPid)
 	file, err := os.Open(filename)
 	if err != nil {
 		return nil, err
@@ -393,7 +389,7 @@ func procInfoGetCommandLine(hostPid int32) ([]string, error) {
 	// This misses the command-line arguments for short-lived processes,
 	// which is clearly not ideal.
 	//
-	filename := fmt.Sprintf("%s/%d/cmdline", getProcFs(), hostPid)
+	filename := fmt.Sprintf("%s/%d/cmdline", sys.GetProcFs(), hostPid)
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	defer file.Close()
 
