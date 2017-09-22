@@ -155,13 +155,16 @@ func newProcCacheEntry(pid int32) (*procCacheEntry, error) {
 }
 
 // Gets the cache entry for a given process, creating that entry if necessary.
-func getProcCacheEntry(pid int32) (procEntry *procCacheEntry, err error) {
+func getProcCacheEntry(pid int32) (*procCacheEntry, error) {
+	var procEntry *procCacheEntry
+	var err error
+
 	mu.Lock()
 	procEntry, ok := pidMap[pid]
 	mu.Unlock()
 
 	if !ok {
-		procEntry, err := newProcCacheEntry(pid)
+		procEntry, err = newProcCacheEntry(pid)
 		if err != nil {
 			return nil, err
 		}
