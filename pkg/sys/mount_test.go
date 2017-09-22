@@ -1,7 +1,6 @@
 package sys
 
 import (
-	"os"
 	"testing"
 
 	"github.com/capsule8/reactive8/pkg/config"
@@ -19,30 +18,6 @@ func TestDiscoverMounts(t *testing.T) {
 	}
 
 	glog.V(1).Infof("Discovered %v mounts", len(mountInfo))
-}
-
-func TestMountPrivateTracingFs(t *testing.T) {
-	// TODO: Check for CAP_SYS_ADMIN instead
-	if os.Getuid() != 0 {
-		t.Skip("Don't have root privileges needed to mount filesystems")
-	}
-
-	mountDir, err := mountPrivateTracingFs()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	mountInfo, err := discoverMounts()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	glog.V(1).Infof("%+v", mountInfo)
-
-	err = unmountPrivateTracingFs(mountDir)
-	if err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestGetPerfEventCgroupFs(t *testing.T) {
@@ -75,7 +50,7 @@ func TestGetTraceFs(t *testing.T) {
 	config.Sensor.TraceFs = oldTraceFs
 
 	if len(traceFs) == 0 {
-		t.Fatal("Could not find tracefs")
+		t.Skip("Could not find tracefs")
 	}
 
 	glog.V(1).Infof("Found tracefs at %s", traceFs)

@@ -8,10 +8,7 @@ import (
 func TestGetProcCacheEntryNew(t *testing.T) {
 	pid := int32(os.Getpid())
 
-	procEntry, err := getProcCacheEntry(pid)
-	if err != nil {
-		t.Error("unexpected err trying to getProcCacheEntry:", err)
-	}
+	procEntry := getProcCacheEntry(pid)
 	if procEntry == nil {
 		t.Error("expected a new getProcCacheEntry to be created, got", procEntry)
 	}
