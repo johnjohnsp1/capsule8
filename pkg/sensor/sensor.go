@@ -5,6 +5,7 @@ package sensor
 import (
 	"crypto/sha256"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"golang.org/x/net/context"
+	"golang.org/x/sys/unix"
 
 	"google.golang.org/grpc"
 
@@ -24,6 +26,7 @@ import (
 	"github.com/capsule8/reactive8/pkg/config"
 	checks "github.com/capsule8/reactive8/pkg/health"
 	"github.com/capsule8/reactive8/pkg/subscription"
+	"github.com/capsule8/reactive8/pkg/sys"
 	"github.com/capsule8/reactive8/pkg/sysinfo"
 	"github.com/capsule8/reactive8/pkg/version"
 	"github.com/coreos/pkg/health"
@@ -42,16 +45,18 @@ var (
 	ErrListeningFor  = func(err string) error { return fmt.Errorf("error listening for %s", err) }
 	ErrConnectingTo  = func(err string) error { return fmt.Errorf("error connecting to %s", err) }
 	ErrInvalidPubsub = func(err string) error { return fmt.Errorf("invalid pubsub backend %s", err) }
+	ErrMountTraceFS  = func(err error) error { return fmt.Errorf("error mounting tracefs: %s", err) }
 )
 
 type Sensor struct {
 	sync.Mutex
 
-	id           string
-	grpcListener net.Listener
-	grpcServer   *grpc.Server
-	pubsub       backend.Backend
-	stopped      bool
+	traceFSMountPoint string
+	id                string
+	grpcListener      net.Listener
+	grpcServer        *grpc.Server
+	pubsub            backend.Backend
+	stopped           bool
 
 	healthChecker health.Checker
 
@@ -286,6 +291,20 @@ func (s *Sensor) startLocalRPCServer() error {
 func (s *Sensor) Serve() error {
 	var err error
 
+	//
+	// If there is no mounted tracefs, the Sensor really can't do anything.
+	// Try mounting our own private mount of it.
+	//
+	if !config.Sensor.NoTraceFS && len(sys.GetTraceFSMountPoint()) == 0 {
+		// If we couldn't find one, try mounting our own private one
+		glog.V(1).Infof("Mounted tracefs not found, mounting our own...")
+		err = s.mountTraceFS()
+		if err != nil {
+			glog.V(1).Info(err)
+			return ErrMountTraceFS(err)
+		}
+	}
+
 	s.Lock()
 	s.stopChan = make(chan struct{})
 	s.stopped = false
@@ -406,7 +425,49 @@ func (s *Sensor) Serve() error {
 		s.pubsub.Close()
 	}
 
+	if len(s.traceFSMountPoint) > 0 {
+		err = s.unmountTraceFS()
+	}
+
 	return err
+}
+
+func (s *Sensor) mountTraceFS() error {
+	dir, err := ioutil.TempDir("", "tracefs")
+	if err != nil {
+		glog.V(1).Infof("Couldn't create temp tracefs mountpoint: %s",
+			err)
+		return err
+	}
+
+	err = unix.Mount("tracefs", dir, "tracefs", 0, "rw")
+	if err != nil {
+		glog.V(1).Infof("Couldn't mount tracefs on %s: %s", dir, err)
+		return err
+	}
+
+	s.traceFSMountPoint = dir
+	return nil
+}
+
+func (s *Sensor) unmountTraceFS() error {
+	err := unix.Unmount(s.traceFSMountPoint, 0)
+	if err != nil {
+		glog.V(1).Infof("Couldn't unmount tracefs at %s: %s",
+			s.traceFSMountPoint, err)
+		return err
+	}
+
+	err = os.Remove(s.traceFSMountPoint)
+	if err != nil {
+		glog.V(1).Infof("Couldn't remove %s: %s",
+			s.traceFSMountPoint, err)
+
+		return err
+	}
+
+	s.traceFSMountPoint = ""
+	return nil
 }
 
 // Stop signals for the Sensor to stop listening for subscriptions and shut down

@@ -2,16 +2,23 @@ package sys
 
 import (
 	"bufio"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
-	"golang.org/x/sys/unix"
-
-	"github.com/capsule8/reactive8/pkg/config"
+	"github.com/capsule8/reactive8/pkg/sys/proc"
 	"github.com/golang/glog"
+)
+
+var (
+	mountOnce sync.Once
+	mountInfo []MountInfo
+
+	// Host procfs mounted into our namespace when running as a container
+	hostProcFSOnce sync.Once
+	hostProcFS     *proc.FileSystem
 )
 
 // MountInfo holds information about a mount in the process's mount namespace.
@@ -29,51 +36,48 @@ type MountInfo struct {
 	SuperOptions   map[string]string
 }
 
-func discoverMounts() ([]MountInfo, error) {
-	//
-	// Open /proc/self/mountinfo to get mounts in our namespace
-	//
-	mountInfo, err := os.OpenFile("/proc/self/mountinfo", os.O_RDONLY, 0)
+func getMounts() ([]MountInfo, error) {
+	data, err := proc.ReadFile("self/mountinfo")
 	if err != nil {
 		return nil, err
 	}
 
 	var mounts []MountInfo
 
-	scanner := bufio.NewScanner(mountInfo)
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		glog.V(2).Infof("Parsing mountinfo line: %s", line)
+		glog.V(3).Infof("Parsing mountinfo line: %s", line)
 
 		fields := strings.Split(line, " ")
 
 		mountID, err := strconv.Atoi(fields[0])
 		if err != nil {
-			glog.V(1).Infof("Couldn't parse mountID %s", fields[0])
+			glog.V(2).Infof("Couldn't parse mountID %s", fields[0])
 			continue
 		}
 
 		parentID, err := strconv.Atoi(fields[1])
 		if err != nil {
-			glog.V(1).Infof("Couldn't parse parentID %s", fields[1])
+			glog.V(2).Infof("Couldn't parse parentID %s", fields[1])
 			continue
 		}
 
 		mm := strings.Split(fields[2], ":")
 		major, err := strconv.Atoi(mm[0])
 		if err != nil {
-			glog.V(1).Infof("Couldn't parse major %s", mm[0])
+			glog.V(2).Infof("Couldn't parse major %s", mm[0])
 			continue
 		}
 
 		minor, err := strconv.Atoi(mm[1])
 		if err != nil {
-			glog.V(1).Infof("Couldn't parse minor %s", mm[1])
+			glog.V(2).Infof("Couldn't parse minor %s", mm[1])
 			continue
 		}
 
-		glog.V(2).Infof("Parsing mountOptions: %s", fields[5])
+		glog.V(3).Infof("Parsing mountOptions: %s", fields[5])
 		mountOptions := strings.Split(fields[5], ",")
 
 		optionalFieldsMap := make(map[string]string)
@@ -87,7 +91,7 @@ func discoverMounts() ([]MountInfo, error) {
 		mountSource := fields[i+2]
 		superOptions := fields[i+3]
 
-		glog.V(2).Infof("Parsing superOptions: %s", superOptions)
+		glog.V(3).Infof("Parsing superOptions: %s", superOptions)
 
 		superOptionsMap := make(map[string]string)
 		for _, option := range strings.Split(superOptions, ",") {
@@ -119,119 +123,113 @@ func discoverMounts() ([]MountInfo, error) {
 	return mounts, nil
 }
 
-func mountPrivateTracingFs() (string, error) {
-	dir, err := ioutil.TempDir("", "tracefs")
-	if err != nil {
-		return "", err
-	}
+// GetMountInfo returns the list of filesystems mounted at process
+// startup time. It does not reflect runtime changes to the list of
+// mounted filesystems.
+func GetMountInfo() []MountInfo {
+	mountOnce.Do(func() {
+		var err error
 
-	err = unix.Mount("tracefs", dir, "tracefs", 0, "rw")
-	if err != nil {
-		return "", err
-	}
+		mountInfo, err = getMounts()
+		if err != nil {
+			panic(err)
+		}
+	})
 
-	return dir, nil
+	return mountInfo
 }
 
-func unmountPrivateTracingFs(dir string) error {
-	return unix.Unmount(dir, 0)
+// GetProcFS creates a proc.FileSystem representing the default procfs
+// mountpoint /proc. When running inside a container, this will
+// contain information from the container's pid namespace.
+func GetProcFS() *proc.FileSystem {
+	return proc.GetProcFS()
 }
 
-// GetTraceFs returns the mountpoint of the linux kernel tracing subsystem
-// pseudo-filesystem (a replacement for the older debugfs).
-func GetTraceFs() string {
-	// Allow configuration to override
-	if len(config.Sensor.TraceFs) > 0 {
-		return config.Sensor.TraceFs
+// GetHostProcFS creates a proc.FileSystem representing the underlying
+// host's procfs. If we are running in the host pid namespace, it uses
+// /proc. Otherwise, it identifies a mounted-in host procfs by it
+// being mounted on a directory that isn't /proc and /proc/self
+// linking to a differing PID than that returned by os.Getpid(). If we
+// are running in a container and no mounted-in host procfs was
+// identified, then it returns nil.
+func GetHostProcFS() *proc.FileSystem {
+	hostProcFSOnce.Do(func() {
+		hostProcFS = getHostProcFS()
+	})
+
+	return hostProcFS
+}
+
+func getHostProcFS() *proc.FileSystem {
+	//
+	// Look at /proc's init to see if it is in one or more root
+	// cgroup paths.
+	//
+	procFS := GetProcFS()
+	initCgroups := procFS.GetCgroups(1)
+	for _, cg := range initCgroups {
+		if cg.Path == "/" {
+			// /proc is a host procfs, return it
+			return procFS
+		}
 	}
 
-	mountInfo, err := discoverMounts()
-	if err != nil {
-		return ""
+	//
+	// /proc isn't a host procfs, so search all mounted filesystems for it
+	//
+	mountInfo := GetMountInfo()
+
+	for _, mi := range mountInfo {
+		if mi.FilesystemType == "proc" {
+			if mi.MountPoint != "/proc" {
+				pid := os.Getpid()
+				procSelf := filepath.Join(mi.MountPoint, "self")
+				ps, err := os.Readlink(procSelf)
+				if err != nil {
+					return nil
+				}
+
+				_, file := filepath.Split(ps)
+				procPid, err := strconv.Atoi(file)
+				if err != nil {
+					return nil
+				}
+
+				if pid != procPid {
+					return &proc.FileSystem{
+						MountPoint: mi.MountPoint,
+					}
+				}
+			}
+		}
 	}
+
+	return nil
+}
+
+// GetTraceFSMountPoint returns the mountpoint of the linux kernel
+// tracing subsystem pseudo-filesystem (a replacement for the older
+// debugfs).
+func GetTraceFSMountPoint() string {
+	mountInfo := GetMountInfo()
 
 	// Look for an existing tracefs
 	for _, mi := range mountInfo {
 		if mi.FilesystemType == "tracefs" {
+			glog.V(1).Infof("Found tracefs at %s", mi.MountPoint)
 			return mi.MountPoint
-		}
-	}
-
-	// If we couldn't find one, try mounting our own private one
-	mountPoint, err := mountPrivateTracingFs()
-	if err != nil {
-		return ""
-	}
-
-	return mountPoint
-}
-
-// GetProcFs returns the mountpoint of the proc pseudo-filesystem or the empty
-// string if it wasn't found.
-func GetProcFs() string {
-	// Allow configuration to override
-	if len(config.Sensor.ProcFs) > 0 {
-		return config.Sensor.ProcFs
-	}
-
-	mountInfo, err := discoverMounts()
-	if err != nil {
-		return ""
-	}
-
-	for _, mi := range mountInfo {
-		if mi.FilesystemType == "proc" {
-			if mi.MountPoint == "/proc" {
-				return mi.MountPoint
-			}
 		}
 	}
 
 	return ""
 }
 
-// GetHostProcFs returns the underlying host's procfs when it has been mounted
-// into a running container. It identifies a mounted-in host procfs by it being
-// mounted on a directory that isn't /proc and /proc/self linking to a host
-// namespace PID. It returns the empty string if it wasn't found.
-func GetHostProcFs() (string, error) {
-	mountInfo, err := discoverMounts()
-	if err != nil {
-		return "", err
-	}
-
-	for _, mi := range mountInfo {
-		if mi.FilesystemType == "proc" {
-			if mi.MountPoint != "/proc" {
-				pid := os.Getpid()
-				ps, err := os.Readlink("/proc/self")
-				if err != nil {
-					return "", err
-				}
-
-				_, file := filepath.Split(ps)
-				psPid, err := strconv.Atoi(file)
-				if err != nil {
-					return "", err
-				}
-
-				if pid != psPid {
-					return mi.MountPoint, nil
-				}
-			}
-		}
-	}
-
-	return "", err
-}
-
-// GetPerfEventCgroupFs returns the mountpoint of the perf_event cgroup
-// pseudo-filesystem or an empty string if it wasn't found.
-func GetPerfEventCgroupFs() string {
-	mountInfo, err := discoverMounts()
-	if err != nil {
-		return ""
-	}
+// GetCgroupPerfEventFSMountPoint returns the mountpoint of the
+// perf_event cgroup pseudo-filesystem or an empty string if it wasn't
+// found.
+func GetCgroupPerfEventFSMountPoint() string {
+	mountInfo := GetMountInfo()
 
 	for _, mi := range mountInfo {
 		if mi.FilesystemType == "cgroup" {
@@ -244,8 +242,4 @@ func GetPerfEventCgroupFs() string {
 	}
 
 	return ""
-}
-
-func init() {
-
 }

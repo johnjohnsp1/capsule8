@@ -3,9 +3,15 @@ package subscription
 import (
 	"os"
 	"testing"
+
+	"github.com/capsule8/reactive8/pkg/sys"
 )
 
 func TestGetProcCacheEntryNew(t *testing.T) {
+	if sys.GetHostProcFS() == nil {
+		t.Skip("Running in a container without a host procfs mounted in its namespace")
+	}
+
 	pid := int32(os.Getpid())
 
 	procEntry := getProcCacheEntry(pid)

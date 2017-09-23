@@ -7,10 +7,6 @@ import (
 
 // Config contains overridable configuration options for the Sensor
 var Sensor struct {
-	ProcFs   string `split_words:"true" default:"/proc"`
-	CgroupFs string `split_words:"true" default:"/sys/fs/cgroup"`
-	TraceFs  string `split_words:"true" default:"/sys/kernel/debug/tracing"`
-
 	// Node name to use if not the value returned from uname(2)
 	NodeName string
 
@@ -38,15 +34,18 @@ var Sensor struct {
 	MonitoringPort int `split_words:"true" default:"8083"`
 
 	// Name of Cgroup to monitor for events. The cgroup specified must
-	// exist within /sys/fs/cgroup/perf_event/. If this is set to "docker",
-	// the Sensor will monitor containers for events and ignore processes
-	// not running in Docker containers. To monitor the entire system,
-	// this can be set to "" or "/".
+	// exist within the perf_event cgroup hierarchy. If this is set to
+	// "docker", the Sensor will monitor containers for events and ignore
+	// processes not running in Docker containers. To monitor the entire
+	// system, this can be set to "" or "/".
 	CgroupName string `split_words:"true" default:"docker"`
 
 	// The default size of ring buffers used for kernel perf_event
 	// monitors. The size is defined in units of pages.
 	RingBufferPages int `split_words:"true" default:"8"`
+
+	// Ignore missing tracefs mount (useful for automated testing)
+	NoTraceFS bool `split_words:"true"`
 }
 
 var ApiServer struct {

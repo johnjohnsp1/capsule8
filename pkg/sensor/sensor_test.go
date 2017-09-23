@@ -22,6 +22,7 @@ func TestMain(m *testing.M) {
 	flag.Parse()
 
 	config.Sensor.Backend = "mock"
+	config.Sensor.NoTraceFS = true
 
 	tempDir, err := ioutil.TempDir("", "sensor_test")
 	if err != nil {

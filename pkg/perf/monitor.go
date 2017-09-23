@@ -562,7 +562,7 @@ func NewEventMonitor(pid int, flags uintptr, ringBufferNumPages int, defaultAttr
 }
 
 func NewEventMonitorWithCgroup(cgroup string, flags uintptr, ringBufferNumPages int, defaultAttr *EventAttr) (*EventMonitor, error) {
-	path := filepath.Join(sys.GetPerfEventCgroupFs(), cgroup)
+	path := filepath.Join(sys.GetCgroupPerfEventFSMountPoint(), cgroup)
 	f, err := os.OpenFile(path, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err

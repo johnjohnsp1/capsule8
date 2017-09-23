@@ -60,14 +60,15 @@ func init() {
 
 // Creates a new process cache entry.
 func newProcCacheEntry(pid int32) *procCacheEntry {
-	ps := sys.GetProcessStatus(pid)
+	procFS := sys.GetHostProcFS()
+	ps := procFS.GetProcessStatus(pid)
 	if ps == nil {
 		return nil
 	}
 
 	proc := &procCacheEntry{
 		processID:   ps.GetUniqueProcessID(),
-		containerID: sys.GetProcessDockerContainerID(pid),
+		containerID: procFS.GetContainerID(pid),
 		ppid:        ps.GetParentPID(),
 		children:    make(map[int32]*procCacheEntry),
 	}
@@ -107,7 +108,7 @@ func getProcCacheEntry(pid int32) *procCacheEntry {
 func procInfoAddChildToParent(parentPid int32, childPid int32, childEntry *procCacheEntry) {
 	// Only add to the parent's children map when the child and parent are in
 	// the same container.
-	parentContainerID := sys.GetProcessDockerContainerID(parentPid)
+	parentContainerID := sys.GetHostProcFS().GetContainerID(parentPid)
 
 	if parentContainerID == childEntry.containerID {
 		parentEntry := getProcCacheEntry(parentPid)
@@ -120,7 +121,7 @@ func procInfoAddChildToParent(parentPid int32, childPid int32, childEntry *procC
 
 func procInfoOnFork(parentPid int32, childPid int32) {
 	parentEntry := getProcCacheEntry(parentPid)
-	ps := sys.GetProcessStatus(childPid)
+	ps := sys.GetHostProcFS().GetProcessStatus(childPid)
 
 	childEntry := &procCacheEntry{
 		processID:   ps.GetUniqueProcessID(),
@@ -188,7 +189,7 @@ func procInfoGetPpid(pid int32) int32 {
 	ppid := atomic.LoadInt32(&procEntry.ppid)
 
 	if ppid == PIDUnknown {
-		ps := sys.GetProcessStatus(pid)
+		ps := sys.GetHostProcFS().GetProcessStatus(pid)
 		if ps == nil {
 			return PIDUnknown
 		}
