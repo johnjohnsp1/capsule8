@@ -79,6 +79,11 @@ func (ef *eventFilter) FilterFunc(i interface{}) bool {
 				continue
 			}
 
+			if cef.View != api.ContainerEventView_FULL {
+				cev.OciConfigJson = ""
+				cev.DockerConfigJson = ""
+			}
+
 			return true
 		}
 
