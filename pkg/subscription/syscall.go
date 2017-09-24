@@ -117,12 +117,12 @@ func newSyscallExitFilter(sef *api.SyscallEventFilter) *syscallExitFilter {
 	return filter
 }
 
-func (f *syscallExitFilter) String() string {
+func (sef *syscallExitFilter) String() string {
 	var parts []string
 
-	parts = append(parts, fmt.Sprintf("id == %d", f.nr))
-	if f.ret != nil {
-		parts = append(parts, fmt.Sprintf("ret == %d", *f.ret))
+	parts = append(parts, fmt.Sprintf("id == %d", sef.nr))
+	if sef.ret != nil {
+		parts = append(parts, fmt.Sprintf("ret == %d", *sef.ret))
 	}
 
 	return strings.Join(parts, " && ")
@@ -133,63 +133,63 @@ type syscallFilterSet struct {
 	exit  []*syscallExitFilter
 }
 
-func (ses *syscallFilterSet) addEnter(sef *api.SyscallEventFilter) {
+func (sfs *syscallFilterSet) addEnter(sef *api.SyscallEventFilter) {
 	filter := newSyscallEnterFilter(sef)
 	if filter == nil {
 		return
 	}
 
-	for _, v := range ses.enter {
+	for _, v := range sfs.enter {
 		if reflect.DeepEqual(filter, v) {
 			return
 		}
 	}
 
-	ses.enter = append(ses.enter, filter)
+	sfs.enter = append(sfs.enter, filter)
 }
 
-func (ses *syscallFilterSet) addExit(sef *api.SyscallEventFilter) {
+func (sfs *syscallFilterSet) addExit(sef *api.SyscallEventFilter) {
 	filter := newSyscallExitFilter(sef)
 	if filter == nil {
 		return
 	}
 
-	for _, v := range ses.exit {
+	for _, v := range sfs.exit {
 		if reflect.DeepEqual(filter, v) {
 			return
 		}
 	}
 
-	ses.exit = append(ses.exit, filter)
+	sfs.exit = append(sfs.exit, filter)
 }
 
-func (ses *syscallFilterSet) add(sef *api.SyscallEventFilter) {
+func (sfs *syscallFilterSet) add(sef *api.SyscallEventFilter) {
 	switch sef.Type {
 	case api.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER:
-		ses.addEnter(sef)
+		sfs.addEnter(sef)
 
 	case api.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT:
-		ses.addExit(sef)
+		sfs.addExit(sef)
 	}
 }
 
-func (ses *syscallFilterSet) len() int {
-	return len(ses.enter) + len(ses.exit)
+func (sfs *syscallFilterSet) len() int {
+	return len(sfs.enter) + len(sfs.exit)
 }
 
 func (sfs *syscallFilterSet) registerEvents(monitor *perf.EventMonitor) {
 	if sfs.enter != nil {
-		var enter_filters []string
+		var enterFilters []string
 		for _, f := range sfs.enter {
 			s := f.String()
 			if len(s) > 0 {
-				enter_filters = append(enter_filters, fmt.Sprintf("(%s)", s))
+				enterFilters = append(enterFilters, fmt.Sprintf("(%s)", s))
 			}
 		}
-		enter_filter := strings.Join(enter_filters, " || ")
+		enterFilter := strings.Join(enterFilters, " || ")
 
 		eventName := "raw_syscalls/sys_enter"
-		err := monitor.RegisterEvent(eventName, decodeSysEnter, enter_filter, nil)
+		err := monitor.RegisterEvent(eventName, decodeSysEnter, enterFilter, nil)
 		if err != nil {
 			glog.Infof("Couldn't get %s event id: %v", eventName, err)
 		}
@@ -197,17 +197,17 @@ func (sfs *syscallFilterSet) registerEvents(monitor *perf.EventMonitor) {
 	}
 
 	if sfs.exit != nil {
-		var exit_filters []string
+		var exitFilters []string
 		for _, f := range sfs.exit {
 			s := f.String()
 			if len(s) > 0 {
-				exit_filters = append(exit_filters, fmt.Sprintf("(%s)", s))
+				exitFilters = append(exitFilters, fmt.Sprintf("(%s)", s))
 			}
 		}
-		exit_filter := strings.Join(exit_filters, " || ")
+		exitFilter := strings.Join(exitFilters, " || ")
 
 		eventName := "raw_syscalls/sys_exit"
-		err := monitor.RegisterEvent(eventName, decodeSysExit, exit_filter, nil)
+		err := monitor.RegisterEvent(eventName, decodeSysExit, exitFilter, nil)
 		if err != nil {
 			glog.Infof("Couldn't get %s event id: %v", eventName, err)
 		}
