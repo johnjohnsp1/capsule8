@@ -178,33 +178,38 @@ func (ses *syscallFilterSet) len() int {
 }
 
 func (sfs *syscallFilterSet) registerEvents(monitor *perf.EventMonitor) {
-	var enter_filters []string
-	for _, f := range sfs.enter {
-		s := f.String()
-		if len(s) > 0 {
-			enter_filters = append(enter_filters, fmt.Sprintf("(%s)", s))
+	if sfs.enter != nil {
+		var enter_filters []string
+		for _, f := range sfs.enter {
+			s := f.String()
+			if len(s) > 0 {
+				enter_filters = append(enter_filters, fmt.Sprintf("(%s)", s))
+			}
 		}
-	}
-	enter_filter := strings.Join(enter_filters, " || ")
+		enter_filter := strings.Join(enter_filters, " || ")
 
-	var exit_filters []string
-	for _, f := range sfs.exit {
-		s := f.String()
-		if len(s) > 0 {
-			exit_filters = append(exit_filters, fmt.Sprintf("(%s)", s))
+		eventName := "raw_syscalls/sys_enter"
+		err := monitor.RegisterEvent(eventName, decodeSysEnter, enter_filter, nil)
+		if err != nil {
+			glog.Infof("Couldn't get %s event id: %v", eventName, err)
 		}
-	}
-	exit_filter := strings.Join(exit_filters, " || ")
 
-	eventName := "raw_syscalls/sys_enter"
-	err := monitor.RegisterEvent(eventName, decodeSysEnter, enter_filter, nil)
-	if err != nil {
-		glog.Infof("Couldn't get %s event id: %v", eventName, err)
 	}
 
-	eventName = "raw_syscalls/sys_exit"
-	err = monitor.RegisterEvent(eventName, decodeSysExit, exit_filter, nil)
-	if err != nil {
-		glog.Infof("Couldn't get %s event id: %v", eventName, err)
+	if sfs.exit != nil {
+		var exit_filters []string
+		for _, f := range sfs.exit {
+			s := f.String()
+			if len(s) > 0 {
+				exit_filters = append(exit_filters, fmt.Sprintf("(%s)", s))
+			}
+		}
+		exit_filter := strings.Join(exit_filters, " || ")
+
+		eventName := "raw_syscalls/sys_exit"
+		err := monitor.RegisterEvent(eventName, decodeSysExit, exit_filter, nil)
+		if err != nil {
+			glog.Infof("Couldn't get %s event id: %v", eventName, err)
+		}
 	}
 }
