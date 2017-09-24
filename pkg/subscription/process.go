@@ -10,8 +10,8 @@ import (
 )
 
 func decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	parentPid := int32(data["parent_pid"].(uint64))
-	childPid := int32(data["child_pid"].(uint64))
+	parentPid := data["parent_pid"].(int32)
+	childPid := data["child_pid"].(int32)
 
 	// Notify pidmap of fork event
 	procInfoOnFork(parentPid, childPid)
