@@ -35,7 +35,7 @@ var Sensor struct {
 	//   :8484
 	ListenAddr string `split_words:"true" default:"unix:/var/run/capsule8/sensor.sock"`
 
-	MonitoringPort int `default:"8083"`
+	MonitoringPort int `split_words:"true" default:"8083"`
 
 	// Name of Cgroup to monitor for events. The cgroup specified must
 	// exist within /sys/fs/cgroup/perf_event/. If this is set to "docker",
@@ -52,23 +52,23 @@ var Sensor struct {
 var ApiServer struct {
 	Pubsub         string `default:"stan"`
 	Port           int    `default:"8080"`
-	ProxyPort      int    `default:"8081"`
-	MonitoringPort int    `default:"8082"`
+	ProxyPort      int    `split_words:"true" default:"8081"`
+	MonitoringPort int    `split_words:"true" default:"8082"`
 }
 
 var Backplane struct {
-	ClusterName       string `default:"c8-backplane"`
-	NatsURL           string `default:"nats://localhost:4222"`
-	NatsMonitoringURL string `default:"http://localhost:8222"`
-	AckWait           int    `default:"1"`
+	ClusterName       string `split_words:"true" default:"c8-backplane"`
+	NatsURL           string `split_words:"true" default:"nats://localhost:4222"`
+	NatsMonitoringURL string `split_words:"true" default:"http://localhost:8222"`
+	AckWait           int    `split_words:"true" default:"1"`
 }
 
 var Recorder struct {
-	APIServer      string `default:"unix:/var/run/capsule8/sensor.sock"`
-	DbPath         string `default:"/var/lib/capsule8/recorder"`
-	DbFileName     string `default:"recorder.db"`
-	DbSizeLimit    string `default:"100mb"`
-	MonitoringPort int    `default:"8084"`
+	APIServer      string `split_words:"true" default:"unix:/var/run/capsule8/sensor.sock"`
+	DbPath         string `split_words:"true" default:"/var/lib/capsule8/recorder"`
+	DbFileName     string `split_words:"true" default:"recorder.db"`
+	DbSizeLimit    string `split_words:"true" default:"100mb"`
+	MonitoringPort int    `split_words:"true" default:"8084"`
 }
 
 func init() {
