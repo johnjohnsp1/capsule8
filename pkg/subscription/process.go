@@ -41,7 +41,7 @@ func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampl
 	}
 
 	var err error
-	processEvent.ExecCommandLine = sys.GetHostProcFS().GetCommandLine(ev.ProcessPid)
+	processEvent.ExecCommandLine = sys.HostProcFS().CommandLine(ev.ProcessPid)
 	if err != nil {
 		return nil, err
 	}

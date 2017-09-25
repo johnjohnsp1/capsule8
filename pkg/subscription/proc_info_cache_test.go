@@ -8,7 +8,7 @@ import (
 )
 
 func TestGetProcCacheEntryNew(t *testing.T) {
-	if sys.GetHostProcFS() == nil {
+	if sys.HostProcFS() == nil {
 		t.Skip("Running in a container without a host procfs mounted in its namespace")
 	}
 

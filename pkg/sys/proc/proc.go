@@ -26,10 +26,10 @@ var (
 	bootIDOnce sync.Once
 )
 
-// GetProcFS creates a FileSystem instance representing the default
+// FS creates a FileSystem instance representing the default
 // procfs mountpoint /proc. When running inside a container, this will
 // contain information from the container's pid namespace.
-func GetProcFS() *FileSystem {
+func FS() *FileSystem {
 	procFSOnce.Do(func() {
 		//
 		// Do some quick sanity checks to make sure /proc is our procfs
@@ -81,7 +81,7 @@ func (fs *FileSystem) Open(relativePath string) (*os.File, error) {
 // ReadFile returns the contents of the procfs file indicated by
 // the given relative path.
 func ReadFile(relativePath string) ([]byte, error) {
-	return GetProcFS().ReadFile(relativePath)
+	return FS().ReadFile(relativePath)
 }
 
 // ReadFile returns the contents of the procfs file indicated by the
@@ -90,15 +90,15 @@ func (fs *FileSystem) ReadFile(relativePath string) ([]byte, error) {
 	return ioutil.ReadFile(filepath.Join(fs.MountPoint, relativePath))
 }
 
-// GetCommandLine gets the full command-line arguments for the process
+// CommandLine gets the full command-line arguments for the process
 // indicated by the given PID.
-func GetCommandLine(pid int32) []string {
-	return GetProcFS().GetCommandLine(pid)
+func CommandLine(pid int32) []string {
+	return FS().CommandLine(pid)
 }
 
-// GetCommandLine gets the full command-line arguments for the process
+// CommandLine gets the full command-line arguments for the process
 // indicated by the given PID.
-func (fs *FileSystem) GetCommandLine(pid int32) []string {
+func (fs *FileSystem) CommandLine(pid int32) []string {
 	//
 	// This misses the command-line arguments for short-lived processes,
 	// which is clearly not ideal.
@@ -128,15 +128,15 @@ func (fs *FileSystem) GetCommandLine(pid int32) []string {
 	return commandLine
 }
 
-// GetCgroups returns the cgroup membership of the process
+// Cgroups returns the cgroup membership of the process
 // indicated by the given PID.
-func GetCgroups(pid int32) []Cgroup {
-	return GetProcFS().GetCgroups(pid)
+func Cgroups(pid int32) []Cgroup {
+	return FS().Cgroups(pid)
 }
 
-// GetCgroups returns the cgroup membership of the process
+// Cgroups returns the cgroup membership of the process
 // indicated by the given PID.
-func (fs *FileSystem) GetCgroups(pid int32) []Cgroup {
+func (fs *FileSystem) Cgroups(pid int32) []Cgroup {
 	filename := fmt.Sprintf("%d/cgroup", pid)
 	cgroup, err := fs.ReadFile(filename)
 	if err != nil {
@@ -179,18 +179,18 @@ type Cgroup struct {
 	Path string
 }
 
-// GetContainerID returns the container ID running the process
+// ContainerID returns the container ID running the process
 // indicated by the given PID. Returns the empty string if the process
 // is not running within a container.
-func GetContainerID(pid int32) string {
-	return GetProcFS().GetContainerID(pid)
+func ContainerID(pid int32) string {
+	return FS().ContainerID(pid)
 }
 
-// GetContainerID returns the container ID running the process
+// ContainerID returns the container ID running the process
 // indicated by the given PID. Returns the empty string if the process
 // is not running within a container.
-func (fs *FileSystem) GetContainerID(pid int32) string {
-	cgroups := fs.GetCgroups(pid)
+func (fs *FileSystem) ContainerID(pid int32) string {
+	cgroups := fs.Cgroups(pid)
 
 	for _, pci := range cgroups {
 		if strings.HasPrefix(pci.Path, "/docker") {
@@ -202,34 +202,34 @@ func (fs *FileSystem) GetContainerID(pid int32) string {
 	return ""
 }
 
-// GetUniqueProcessID returns a reproducible namespace-independent
+// UniqueID returns a reproducible namespace-independent
 // unique identifier for the process indicated by the given PID.
-func GetUniqueProcessID(pid int32) string {
-	return GetProcFS().GetUniqueProcessID(pid)
+func UniqueID(pid int32) string {
+	return FS().UniqueID(pid)
 }
 
-// GetUniqueProcessID returns a reproducible namespace-independent
+// UniqueID returns a reproducible namespace-independent
 // unique identifier for the process indicated by the given PID.
-func (fs *FileSystem) GetUniqueProcessID(pid int32) string {
-	ps := fs.GetProcessStatus(pid)
+func (fs *FileSystem) UniqueID(pid int32) string {
+	ps := fs.Stat(pid)
 	if ps == nil {
 		return ""
 	}
 
-	return ps.GetUniqueProcessID()
+	return ps.UniqueID()
 }
 
-// GetProcessStatus reads the given process's status and returns a
-// ProcessStatus with methods to parse and return information from
-// that status as needed.
-func GetProcessStatus(pid int32) *ProcessStatus {
-	return GetProcFS().GetProcessStatus(pid)
+// Stat reads the given process's status and returns a ProcessStatus
+// with methods to parse and return information from that status as
+// needed.
+func Stat(pid int32) *ProcessStatus {
+	return FS().Stat(pid)
 }
 
-// GetProcessStatus reads the given process's status from the ProcFS
-// receiver and returns a ProcessStatus with methods to parse and
-// return information from that status as needed.
-func (fs *FileSystem) GetProcessStatus(pid int32) *ProcessStatus {
+// Stat reads the given process's status from the ProcFS receiver and
+// returns a ProcessStatus with methods to parse and return
+// information from that status as needed.
+func (fs *FileSystem) Stat(pid int32) *ProcessStatus {
 	stat, err := fs.ReadFile(fmt.Sprintf("%d/stat", pid))
 	if err != nil {
 		return nil
@@ -251,8 +251,8 @@ type ProcessStatus struct {
 	uniqueID   string
 }
 
-// GetPID returns the PID of the process.
-func (ps *ProcessStatus) GetPID() int32 {
+// PID returns the PID of the process.
+func (ps *ProcessStatus) PID() int32 {
 	if ps.pid == 0 {
 		pid := ps.statFields[0]
 		i, err := strconv.ParseInt(pid, 0, 32)
@@ -266,9 +266,9 @@ func (ps *ProcessStatus) GetPID() int32 {
 	return ps.pid
 }
 
-// GetCommand returns the command name associated with the process (this is
+// Command returns the command name associated with the process (this is
 // typically referred to as the comm value in Linux kernel interfaces).
-func (ps *ProcessStatus) GetCommand() string {
+func (ps *ProcessStatus) Command() string {
 	if len(ps.comm) == 0 {
 		ps.comm = strings.Trim(ps.statFields[1], "()")
 	}
@@ -276,8 +276,8 @@ func (ps *ProcessStatus) GetCommand() string {
 	return ps.comm
 }
 
-// GetParentPID returns the PID of the parent of the process.
-func (ps *ProcessStatus) GetParentPID() int32 {
+// ParentPID returns the PID of the parent of the process.
+func (ps *ProcessStatus) ParentPID() int32 {
 	if ps.ppid == 0 {
 		ppid := ps.statFields[3]
 		i, err := strconv.ParseInt(ppid, 0, 32)
@@ -291,9 +291,9 @@ func (ps *ProcessStatus) GetParentPID() int32 {
 	return ps.ppid
 }
 
-// GetStartTime returns the time in jiffies (< 2.6) or clock ticks (>= 2.6)
+// StartTime returns the time in jiffies (< 2.6) or clock ticks (>= 2.6)
 // after system boot when the process started.
-func (ps *ProcessStatus) GetStartTime() uint64 {
+func (ps *ProcessStatus) StartTime() uint64 {
 	if ps.startTime == 0 {
 		st := ps.statFields[22-1]
 		i, err := strconv.ParseUint(st, 0, 64)
@@ -307,8 +307,8 @@ func (ps *ProcessStatus) GetStartTime() uint64 {
 	return ps.startTime
 }
 
-// GetStartStack returns the address of the start (i.e., bottom) of the stack.
-func (ps *ProcessStatus) GetStartStack() uint64 {
+// StartStack returns the address of the start (i.e., bottom) of the stack.
+func (ps *ProcessStatus) StartStack() uint64 {
 	if ps.startStack == 0 {
 		ss := ps.statFields[28-1]
 		i, err := strconv.ParseUint(ss, 0, 64)
@@ -322,9 +322,9 @@ func (ps *ProcessStatus) GetStartStack() uint64 {
 	return ps.startStack
 }
 
-// GetUniqueProcessID returns a reproducible unique identifier for the
+// UniqueID returns a reproducible unique identifier for the
 // process indicated by the given PID.
-func (ps *ProcessStatus) GetUniqueProcessID() string {
+func (ps *ProcessStatus) UniqueID() string {
 	if len(ps.uniqueID) == 0 {
 		// Hash the bootID, starting stack address, and start time to
 		// create a unique process identifier that has the same value
@@ -332,9 +332,9 @@ func (ps *ProcessStatus) GetUniqueProcessID() string {
 		// within the container and from the underlying host).
 		h := sha256.New()
 
-		binary.Write(h, binary.LittleEndian, GetBootID())
-		binary.Write(h, binary.LittleEndian, ps.GetStartStack())
-		binary.Write(h, binary.LittleEndian, ps.GetStartTime())
+		binary.Write(h, binary.LittleEndian, BootID())
+		binary.Write(h, binary.LittleEndian, ps.StartStack())
+		binary.Write(h, binary.LittleEndian, ps.StartTime())
 
 		ps.uniqueID = fmt.Sprintf("%x", h.Sum(nil))
 	}
@@ -342,8 +342,8 @@ func (ps *ProcessStatus) GetUniqueProcessID() string {
 	return ps.uniqueID
 }
 
-// GetBootID gets the host system boot identifier
-func GetBootID() string {
+// BootID gets the host system boot identifier
+func BootID() string {
 	bootIDOnce.Do(func() {
 		data, err := ReadFile("/sys/kernel/random/boot_id")
 		if err != nil {

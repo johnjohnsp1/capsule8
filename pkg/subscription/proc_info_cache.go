@@ -60,20 +60,20 @@ func init() {
 
 // Creates a new process cache entry.
 func newProcCacheEntry(pid int32) *procCacheEntry {
-	procFS := sys.GetHostProcFS()
-	ps := procFS.GetProcessStatus(pid)
+	procFS := sys.HostProcFS()
+	ps := procFS.Stat(pid)
 	if ps == nil {
 		return nil
 	}
 
 	proc := &procCacheEntry{
-		processID:   ps.GetUniqueProcessID(),
-		containerID: procFS.GetContainerID(pid),
-		ppid:        ps.GetParentPID(),
+		processID:   ps.UniqueID(),
+		containerID: procFS.ContainerID(pid),
+		ppid:        ps.ParentPID(),
 		children:    make(map[int32]*procCacheEntry),
 	}
 
-	proc.command.Store(ps.GetCommand())
+	proc.command.Store(ps.Command())
 
 	return proc
 }
@@ -108,7 +108,7 @@ func getProcCacheEntry(pid int32) *procCacheEntry {
 func procInfoAddChildToParent(parentPid int32, childPid int32, childEntry *procCacheEntry) {
 	// Only add to the parent's children map when the child and parent are in
 	// the same container.
-	parentContainerID := sys.GetHostProcFS().GetContainerID(parentPid)
+	parentContainerID := sys.HostProcFS().ContainerID(parentPid)
 
 	if parentContainerID == childEntry.containerID {
 		parentEntry := getProcCacheEntry(parentPid)
@@ -121,10 +121,10 @@ func procInfoAddChildToParent(parentPid int32, childPid int32, childEntry *procC
 
 func procInfoOnFork(parentPid int32, childPid int32) {
 	parentEntry := getProcCacheEntry(parentPid)
-	ps := sys.GetHostProcFS().GetProcessStatus(childPid)
+	ps := sys.HostProcFS().Stat(childPid)
 
 	childEntry := &procCacheEntry{
-		processID:   ps.GetUniqueProcessID(),
+		processID:   ps.UniqueID(),
 		containerID: parentEntry.containerID,
 		ppid:        parentPid,
 		children:    make(map[int32]*procCacheEntry),
@@ -189,12 +189,12 @@ func procInfoGetPpid(pid int32) int32 {
 	ppid := atomic.LoadInt32(&procEntry.ppid)
 
 	if ppid == PIDUnknown {
-		ps := sys.GetHostProcFS().GetProcessStatus(pid)
+		ps := sys.HostProcFS().Stat(pid)
 		if ps == nil {
 			return PIDUnknown
 		}
 
-		atomic.StoreInt32(&procEntry.ppid, ps.GetParentPID())
+		atomic.StoreInt32(&procEntry.ppid, ps.ParentPID())
 
 		procInfoAddChildToParent(ppid, pid, procEntry)
 	}

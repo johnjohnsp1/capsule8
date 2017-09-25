@@ -13,16 +13,16 @@ import (
 )
 
 var (
-	mountOnce sync.Once
-	mountInfo []MountInfo
+	mountsOnce sync.Once
+	mounts     []Mount
 
 	// Host procfs mounted into our namespace when running as a container
 	hostProcFSOnce sync.Once
 	hostProcFS     *proc.FileSystem
 )
 
-// MountInfo holds information about a mount in the process's mount namespace.
-type MountInfo struct {
+// Mount holds information about a mount in the process's mount namespace.
+type Mount struct {
 	MountID        uint
 	ParentID       uint
 	Major          uint
@@ -36,13 +36,13 @@ type MountInfo struct {
 	SuperOptions   map[string]string
 }
 
-func getMounts() ([]MountInfo, error) {
+func readMounts() ([]Mount, error) {
 	data, err := proc.ReadFile("self/mountinfo")
 	if err != nil {
 		return nil, err
 	}
 
-	var mounts []MountInfo
+	var mounts []Mount
 
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	for scanner.Scan() {
@@ -103,7 +103,7 @@ func getMounts() ([]MountInfo, error) {
 			}
 		}
 
-		mi := MountInfo{
+		m := Mount{
 			MountID:        uint(mountID),
 			ParentID:       uint(parentID),
 			Major:          uint(major),
@@ -117,57 +117,57 @@ func getMounts() ([]MountInfo, error) {
 			SuperOptions:   superOptionsMap,
 		}
 
-		mounts = append(mounts, mi)
+		mounts = append(mounts, m)
 	}
 
 	return mounts, nil
 }
 
-// GetMountInfo returns the list of filesystems mounted at process
+// Mounts returns the list of filesystems mounted at process
 // startup time. It does not reflect runtime changes to the list of
 // mounted filesystems.
-func GetMountInfo() []MountInfo {
-	mountOnce.Do(func() {
+func Mounts() []Mount {
+	mountsOnce.Do(func() {
 		var err error
 
-		mountInfo, err = getMounts()
+		mounts, err = readMounts()
 		if err != nil {
 			panic(err)
 		}
 	})
 
-	return mountInfo
+	return mounts
 }
 
-// GetProcFS creates a proc.FileSystem representing the default procfs
+// ProcFS creates a proc.FileSystem representing the default procfs
 // mountpoint /proc. When running inside a container, this will
 // contain information from the container's pid namespace.
-func GetProcFS() *proc.FileSystem {
-	return proc.GetProcFS()
+func ProcFS() *proc.FileSystem {
+	return proc.FS()
 }
 
-// GetHostProcFS creates a proc.FileSystem representing the underlying
+// HostProcFS creates a proc.FileSystem representing the underlying
 // host's procfs. If we are running in the host pid namespace, it uses
 // /proc. Otherwise, it identifies a mounted-in host procfs by it
 // being mounted on a directory that isn't /proc and /proc/self
 // linking to a differing PID than that returned by os.Getpid(). If we
 // are running in a container and no mounted-in host procfs was
 // identified, then it returns nil.
-func GetHostProcFS() *proc.FileSystem {
+func HostProcFS() *proc.FileSystem {
 	hostProcFSOnce.Do(func() {
-		hostProcFS = getHostProcFS()
+		hostProcFS = findHostProcFS()
 	})
 
 	return hostProcFS
 }
 
-func getHostProcFS() *proc.FileSystem {
+func findHostProcFS() *proc.FileSystem {
 	//
 	// Look at /proc's init to see if it is in one or more root
 	// cgroup paths.
 	//
-	procFS := GetProcFS()
-	initCgroups := procFS.GetCgroups(1)
+	procFS := ProcFS()
+	initCgroups := procFS.Cgroups(1)
 	for _, cg := range initCgroups {
 		if cg.Path == "/" {
 			// /proc is a host procfs, return it
@@ -178,9 +178,7 @@ func getHostProcFS() *proc.FileSystem {
 	//
 	// /proc isn't a host procfs, so search all mounted filesystems for it
 	//
-	mountInfo := GetMountInfo()
-
-	for _, mi := range mountInfo {
+	for _, mi := range Mounts() {
 		if mi.FilesystemType == "proc" {
 			if mi.MountPoint != "/proc" {
 				pid := os.Getpid()
@@ -208,14 +206,11 @@ func getHostProcFS() *proc.FileSystem {
 	return nil
 }
 
-// GetTraceFSMountPoint returns the mountpoint of the linux kernel
-// tracing subsystem pseudo-filesystem (a replacement for the older
-// debugfs).
-func GetTraceFSMountPoint() string {
-	mountInfo := GetMountInfo()
-
+// TracingDir returns the directory on either the debugfs or tracefs
+// used to control the Linux kernel trace event subsystem.
+func TracingDir() string {
 	// Look for an existing tracefs
-	for _, mi := range mountInfo {
+	for _, mi := range Mounts() {
 		if mi.FilesystemType == "tracefs" {
 			glog.V(1).Infof("Found tracefs at %s", mi.MountPoint)
 			return mi.MountPoint
@@ -225,13 +220,10 @@ func GetTraceFSMountPoint() string {
 	return ""
 }
 
-// GetCgroupPerfEventFSMountPoint returns the mountpoint of the
-// perf_event cgroup pseudo-filesystem or an empty string if it wasn't
-// found.
-func GetCgroupPerfEventFSMountPoint() string {
-	mountInfo := GetMountInfo()
-
-	for _, mi := range mountInfo {
+// PerfEventDir returns the mountpoint of the perf_event cgroup
+// pseudo-filesystem or an empty string if it wasn't found.
+func PerfEventDir() string {
+	for _, mi := range Mounts() {
 		if mi.FilesystemType == "cgroup" {
 			for option := range mi.SuperOptions {
 				if option == "perf_event" {

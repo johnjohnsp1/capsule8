@@ -48,15 +48,17 @@ var (
 	ErrMountTraceFS  = func(err error) error { return fmt.Errorf("error mounting tracefs: %s", err) }
 )
 
+// Sensor represents the state of the singleton Sensor instance
 type Sensor struct {
 	sync.Mutex
 
-	traceFSMountPoint string
-	id                string
-	grpcListener      net.Listener
-	grpcServer        *grpc.Server
-	pubsub            backend.Backend
-	stopped           bool
+	perfEventMountPoint string
+	traceFSMountPoint   string
+	id                  string
+	grpcListener        net.Listener
+	grpcServer          *grpc.Server
+	pubsub              backend.Backend
+	stopped             bool
 
 	healthChecker health.Checker
 
@@ -295,10 +297,22 @@ func (s *Sensor) Serve() error {
 	// If there is no mounted tracefs, the Sensor really can't do anything.
 	// Try mounting our own private mount of it.
 	//
-	if !config.Sensor.NoTraceFS && len(sys.GetTraceFSMountPoint()) == 0 {
+	if !config.Sensor.DontMountTracing && len(sys.TracingDir()) == 0 {
 		// If we couldn't find one, try mounting our own private one
-		glog.V(1).Infof("Mounted tracefs not found, mounting our own...")
+		glog.V(1).Infof("Couldn't find tracefs, mounting our own...")
 		err = s.mountTraceFS()
+		if err != nil {
+			glog.V(1).Info(err)
+			return ErrMountTraceFS(err)
+		}
+	}
+
+	//
+	//
+	//
+	if !config.Sensor.DontMountPerfEvent && len(sys.PerfEventDir()) == 0 {
+		glog.V(1).Infof("Couldn't find perf_event cgroupfs, mounting our own...")
+		err = s.mountPerfEventCgroupFS()
 		if err != nil {
 			glog.V(1).Info(err)
 			return ErrMountTraceFS(err)
@@ -433,7 +447,7 @@ func (s *Sensor) Serve() error {
 }
 
 func (s *Sensor) mountTraceFS() error {
-	dir, err := ioutil.TempDir("", "tracefs")
+	dir, err := ioutil.TempDir(config.Global.RunDir, "tracefs")
 	if err != nil {
 		glog.V(1).Infof("Couldn't create temp tracefs mountpoint: %s",
 			err)
@@ -467,6 +481,44 @@ func (s *Sensor) unmountTraceFS() error {
 	}
 
 	s.traceFSMountPoint = ""
+	return nil
+}
+
+func (s *Sensor) mountPerfEventCgroupFS() error {
+	dir, err := ioutil.TempDir(config.Global.RunDir, "perf_event")
+	if err != nil {
+		glog.V(1).Infof("Couldn't create temp perf_event cgroup mountpoint: %s",
+			err)
+		return err
+	}
+
+	err = unix.Mount("cgroup", dir, "cgroup", 0, "perf_event")
+	if err != nil {
+		glog.V(1).Infof("Couldn't mount tracefs on %s: %s", dir, err)
+		return err
+	}
+
+	s.perfEventMountPoint = dir
+	return nil
+}
+
+func (s *Sensor) unmountPerfEventCgroupFS() error {
+	err := unix.Unmount(s.perfEventMountPoint, 0)
+	if err != nil {
+		glog.V(1).Infof("Couldn't unmount tracefs at %s: %s",
+			s.traceFSMountPoint, err)
+		return err
+	}
+
+	err = os.Remove(s.perfEventMountPoint)
+	if err != nil {
+		glog.V(1).Infof("Couldn't remove %s: %s",
+			s.traceFSMountPoint, err)
+
+		return err
+	}
+
+	s.perfEventMountPoint = ""
 	return nil
 }
 
