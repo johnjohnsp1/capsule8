@@ -9,6 +9,7 @@ import (
 	"github.com/capsule8/reactive8/pkg/filter"
 	"github.com/capsule8/reactive8/pkg/perf"
 	"github.com/capsule8/reactive8/pkg/stream"
+	"github.com/capsule8/reactive8/pkg/sys"
 	"github.com/golang/glog"
 )
 
@@ -177,11 +178,12 @@ func (sb *subscriptionBroker) update() error {
 		)
 
 		//
-		// If a cgroup name is configured (can be "/"), then monitor
-		// that cgroup within the perf_event hierarchy. Otherwise,
+		// If a perf_event cgroupfs is mounted and a cgroup
+		// name is configured (can be "/"), then monitor that
+		// cgroup within the perf_event hierarchy. Otherwise,
 		// monitor all processes on the system.
 		//
-		if len(config.Sensor.CgroupName) > 0 {
+		if len(sys.PerfEventDir()) > 0 && len(config.Sensor.CgroupName) > 0 {
 			glog.Infof("Creating new event monitor on cgroup %s",
 				config.Sensor.CgroupName)
 			monitor, err = perf.NewEventMonitorWithCgroup(config.Sensor.CgroupName, 0, 0, nil)

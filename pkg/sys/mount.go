@@ -13,9 +13,6 @@ import (
 )
 
 var (
-	mountsOnce sync.Once
-	mounts     []Mount
-
 	// Host procfs mounted into our namespace when running as a container
 	hostProcFSOnce sync.Once
 	hostProcFS     *proc.FileSystem
@@ -127,14 +124,10 @@ func readMounts() ([]Mount, error) {
 // startup time. It does not reflect runtime changes to the list of
 // mounted filesystems.
 func Mounts() []Mount {
-	mountsOnce.Do(func() {
-		var err error
-
-		mounts, err = readMounts()
-		if err != nil {
-			panic(err)
-		}
-	})
+	mounts, err := readMounts()
+	if err != nil {
+		panic(err)
+	}
 
 	return mounts
 }

@@ -46,6 +46,7 @@ var (
 	ErrConnectingTo  = func(err string) error { return fmt.Errorf("error connecting to %s", err) }
 	ErrInvalidPubsub = func(err string) error { return fmt.Errorf("invalid pubsub backend %s", err) }
 	ErrMountTraceFS  = func(err error) error { return fmt.Errorf("error mounting tracefs: %s", err) }
+	ErrMountCgroupFS = func(err error) error { return fmt.Errorf("error mounting cgroupfs: %s", err) }
 )
 
 // Sensor represents the state of the singleton Sensor instance
@@ -308,14 +309,17 @@ func (s *Sensor) Serve() error {
 	}
 
 	//
-	//
+	// If there is no mounted cgroupfs for the perf_event cgroup, we can't
+	// efficiently separate processes in monitored containers from host
+	// processes. We can run without it, but it's better performance where
+	// available.
 	//
 	if !config.Sensor.DontMountPerfEvent && len(sys.PerfEventDir()) == 0 {
 		glog.V(1).Infof("Couldn't find perf_event cgroupfs, mounting our own...")
 		err = s.mountPerfEventCgroupFS()
 		if err != nil {
 			glog.V(1).Info(err)
-			return ErrMountTraceFS(err)
+			return ErrMountCgroupFS(err)
 		}
 	}
 
@@ -441,6 +445,10 @@ func (s *Sensor) Serve() error {
 
 	if len(s.traceFSMountPoint) > 0 {
 		err = s.unmountTraceFS()
+	}
+
+	if len(s.perfEventMountPoint) > 0 {
+		err = s.unmountPerfEventCgroupFS()
 	}
 
 	return err
