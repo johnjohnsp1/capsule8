@@ -5,7 +5,13 @@ import (
 	"github.com/kelseyhightower/envconfig"
 )
 
-// Config contains overridable configuration options for the Sensor
+// Global contains overridable configuration options that apply globally
+var Global struct {
+	// RunDir is the path to the runtime state directory for Capsule8
+	RunDir string `split_words:"true" default:"/var/run/capsule8"`
+}
+
+// Sensor contains overridable configuration options for the sensor
 var Sensor struct {
 	// Node name to use if not the value returned from uname(2)
 	NodeName string
@@ -44,8 +50,11 @@ var Sensor struct {
 	// monitors. The size is defined in units of pages.
 	RingBufferPages int `split_words:"true" default:"8"`
 
-	// Ignore missing tracefs mount (useful for automated testing)
-	NoTraceFS bool `split_words:"true"`
+	// Ignore missing debugfs/tracefs mount (useful for automated testing)
+	DontMountTracing bool `split_words:"true"`
+
+	// Ignore missing perf_event cgroup filesystem mount
+	DontMountPerfEvent bool `split_words:"true"`
 }
 
 var ApiServer struct {
@@ -71,7 +80,12 @@ var Recorder struct {
 }
 
 func init() {
-	err := envconfig.Process("C8_APISERVER", &ApiServer)
+	err := envconfig.Process("C8", &Global)
+	if err != nil {
+		glog.Fatal(err)
+	}
+
+	err = envconfig.Process("C8_APISERVER", &ApiServer)
 	if err != nil {
 		glog.Fatal(err)
 	}
