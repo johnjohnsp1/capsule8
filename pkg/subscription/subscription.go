@@ -130,13 +130,19 @@ func (sb *subscriptionBroker) onSampleEvent(sample interface{}, err error) {
 	if sample != nil {
 		event := sample.(*api.Event)
 
+		sb.mu.Lock()
+		defer sb.mu.Unlock()
+
 		for _, c := range sb.eventStreams {
 			c <- event
 		}
+
 	}
 }
 
 func (sb *subscriptionBroker) update() error {
+	glog.V(2).Infof("Updating perf event filters...")
+
 	fs := &filterSet{}
 
 	for s := range sb.eventStreams {
@@ -286,7 +292,9 @@ func filterNils(e interface{}) bool {
 }
 
 // Subscribe creates a new telemetry subscription
-func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, error) {
+func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, *stream.Joiner, error) {
+	glog.V(2).Infof("Subscribing to %+v", sub)
+
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 
@@ -304,7 +312,7 @@ func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, 
 		pes, err := sb.createPerfEventStream(sub)
 		if err != nil {
 			joiner.Close()
-			return nil, err
+			return nil, nil, err
 		}
 
 		joiner.Add(pes)
@@ -314,7 +322,7 @@ func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, 
 		ces, err := sb.getContainerEventStream()
 		if err != nil {
 			joiner.Close()
-			return nil, err
+			return nil, nil, err
 		}
 
 		joiner.Add(ces)
@@ -324,7 +332,7 @@ func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, 
 		cs, err := NewChargenSensor(cf)
 		if err != nil {
 			joiner.Close()
-			return nil, err
+			return nil, nil, err
 		}
 
 		joiner.Add(cs)
@@ -334,7 +342,7 @@ func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, 
 		ts, err := NewTickerSensor(tf)
 		if err != nil {
 			joiner.Close()
-			return nil, err
+			return nil, nil, err
 		}
 
 		joiner.Add(ts)
@@ -371,7 +379,7 @@ func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, 
 	}
 
 	joiner.On()
-	return eventStream, nil
+	return eventStream, joiner, nil
 }
 
 func addProcessLineage(i interface{}) {
@@ -415,7 +423,7 @@ func (sb *subscriptionBroker) Cancel(subscription *api.Subscription) bool {
 func NewSubscription(sub *api.Subscription) (*stream.Stream, error) {
 	sb := getSubscriptionBroker()
 
-	eventStream, err := sb.Subscribe(sub)
+	eventStream, _, err := sb.Subscribe(sub)
 	if err != nil {
 		glog.Errorf("Couldn't add subscription %v: %v", sub, err)
 		return nil, err
@@ -428,11 +436,9 @@ func NewSubscription(sub *api.Subscription) (*stream.Stream, error) {
 			select {
 			case _, ok := <-ctrl:
 				if !ok {
+					sb.Cancel(sub)
 					return
 				}
-
-				eventStream.Close()
-				sb.Cancel(sub)
 			}
 		}
 	}()

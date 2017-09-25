@@ -41,6 +41,7 @@ sendLoop:
 
 		// Client d/c'ed
 		if err != nil {
+			glog.V(2).Infof("Client disconnected, closing stream")
 			eventStream.Close()
 			break sendLoop
 		}

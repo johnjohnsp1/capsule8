@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/capsule8/reactive8/pkg/sys"
+	"github.com/golang/glog"
 
 	"golang.org/x/sys/unix"
 )
@@ -67,6 +68,7 @@ func fixupEventAttr(eventAttr *EventAttr) {
 }
 
 func perfEventOpen(eventAttr *EventAttr, pid int, groupfds []int, flags uintptr, filter string) ([]int, error) {
+	glog.V(2).Infof("Opening perf event: %d %s", eventAttr.Config, filter)
 	ncpu := runtime.NumCPU()
 	newfds := make([]int, ncpu)
 
