@@ -8,6 +8,7 @@ import (
 	"github.com/capsule8/reactive8/pkg/container"
 	"github.com/capsule8/reactive8/pkg/filter"
 	"github.com/capsule8/reactive8/pkg/perf"
+	"github.com/capsule8/reactive8/pkg/process"
 	"github.com/capsule8/reactive8/pkg/stream"
 	"github.com/capsule8/reactive8/pkg/sys"
 	"github.com/golang/glog"
@@ -286,9 +287,6 @@ func filterNils(e interface{}) bool {
 
 // Subscribe creates a new telemetry subscription
 func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, error) {
-	glog.Infof("Enter Add(%v)", sub)
-	defer glog.Infof("Exit Add(%v)", sub)
-
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 
@@ -309,9 +307,7 @@ func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, 
 			return nil, err
 		}
 
-		glog.Info("Adding perf EventStream to joiner")
 		joiner.Add(pes)
-		glog.Info("Added perf EventStream to joiner")
 	}
 
 	if len(sub.EventFilter.ContainerEvents) > 0 {
@@ -321,9 +317,7 @@ func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, 
 			return nil, err
 		}
 
-		glog.Info("Adding container EventStream to joiner")
 		joiner.Add(ces)
-		glog.Info("Added container EventStream to joiner")
 	}
 
 	for _, cf := range sub.EventFilter.ChargenEvents {
@@ -333,9 +327,7 @@ func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, 
 			return nil, err
 		}
 
-		glog.Info("Adding chargen EventStream to joiner")
 		joiner.Add(cs)
-		glog.Info("Added chargen EventStream to joiner")
 	}
 
 	for _, tf := range sub.EventFilter.TickerEvents {
@@ -345,9 +337,7 @@ func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, 
 			return nil, err
 		}
 
-		glog.Info("Adding ticker EventStream to joiner")
 		joiner.Add(ts)
-		glog.Info("Added ticker EventStream to joiner")
 	}
 
 	//
@@ -358,10 +348,12 @@ func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, 
 
 	if sub.ContainerFilter != nil {
 		//
-		// Attach a ContainerFilter to filter events
+		// Filter stream as requested by subscriber in the
+		// specified ContainerFilter to restrict the events to
+		// those matching the specified container ids, names,
+		// images, etc.
 		//
 		cef := filter.NewContainerFilter(sub.ContainerFilter)
-		// Filter eventStream by container
 		eventStream = stream.Filter(eventStream, cef.FilterFunc)
 		eventStream = stream.Do(eventStream, cef.DoFunc)
 	}
@@ -371,24 +363,39 @@ func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, 
 	}
 
 	//
-	// If adding process lineage to events, do so after event filtering.
+	// If adding process lineage to events, only do so after event filtering.
 	// (No point in adding lineage to an event that is going to be filtered).
 	//
 	if sub.ProcessView == api.ProcessView_PROCESS_VIEW_FULL {
-		eventStream = stream.Do(eventStream, markEventAsNeedingLineage)
+		eventStream = stream.Do(eventStream, addProcessLineage)
 	}
 
 	joiner.On()
 	return eventStream, nil
 }
 
+func addProcessLineage(i interface{}) {
+	e := i.(*api.Event)
+
+	var lineage []*api.Process
+
+	pis := process.GetLineage(e.ProcessPid)
+
+	for _, pi := range pis {
+		p := &api.Process{
+			Pid:     pi.Pid,
+			Command: pi.Command,
+		}
+		lineage = append(lineage, p)
+	}
+
+	e.ProcessLineage = lineage
+}
+
 // Cancel cancels an active telemetry subscription and returns a boolean
 // indicating whether the specified subscription was found and
 // canceled or not.
 func (sb *subscriptionBroker) Cancel(subscription *api.Subscription) bool {
-	glog.Infof("Canceling subscription %v", subscription)
-	defer glog.Infof("Canceling subscription %v", subscription)
-
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 

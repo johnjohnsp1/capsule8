@@ -202,26 +202,28 @@ func findHostProcFS() *proc.FileSystem {
 // TracingDir returns the directory on either the debugfs or tracefs
 // used to control the Linux kernel trace event subsystem.
 func TracingDir() string {
+	mounts := Mounts()
+
 	// Look for an existing tracefs
-	for _, mi := range Mounts() {
-		if mi.FilesystemType == "tracefs" {
-			glog.V(1).Infof("Found tracefs at %s", mi.MountPoint)
-			return mi.MountPoint
+	for _, m := range mounts {
+		if m.FilesystemType == "tracefs" {
+			glog.V(1).Infof("Found tracefs at %s", m.MountPoint)
+			return m.MountPoint
 		}
 	}
 
 	// If no mounted tracefs has been found, look for it as a
 	// subdirectory of the older debugfs
-	for _, mi := range mountInfo {
-		if mi.FilesystemType == "debugfs" {
-			d := filepath.Join(mi.MountPoint, "tracing")
+	for _, m := range mounts {
+		if m.FilesystemType == "debugfs" {
+			d := filepath.Join(m.MountPoint, "tracing")
 			s, err := os.Stat(filepath.Join(d, "events"))
 			if err == nil && s.IsDir() {
 				glog.V(1).Infof("Found debugfs w/ tracing at %s", d)
 				return d
 			}
 
-			return mi.MountPoint
+			return m.MountPoint
 		}
 	}
 

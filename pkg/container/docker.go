@@ -14,6 +14,7 @@ import (
 
 	"github.com/capsule8/reactive8/pkg/config"
 	"github.com/capsule8/reactive8/pkg/inotify"
+	"github.com/capsule8/reactive8/pkg/process"
 	"github.com/capsule8/reactive8/pkg/stream"
 	"golang.org/x/sys/unix"
 )
@@ -92,6 +93,7 @@ type DockerConfigV2 struct {
 	ID     string             `json:"ID"`
 	Image  string             `json:"Image"`
 	State  DockerConfigState  `json:"State"`
+	Path   string             `json:"Path"`
 	Config DockerConfigConfig `json:"Config"`
 	// ...
 	Name string `json:"Name"`
@@ -106,6 +108,19 @@ func newDockerEventFromConfigData(configV2Json []byte) (*dockerEvent, error) {
 	err := json.Unmarshal(configV2Json, &config)
 	if err != nil {
 		return nil, err
+	}
+
+	name := config.Name
+	imageID := strings.TrimPrefix(config.Image, "sha256:")
+	imageName := config.Config.Image
+	pid := config.State.Pid
+
+	//
+	// Update container and process info caches
+	//
+	cacheUpdate(config.ID, name, imageID, imageName)
+	if pid > 0 {
+		process.CacheUpdate(int32(pid), 0, "", config.ID)
 	}
 
 	var state dockerContainerState
@@ -128,11 +143,6 @@ func newDockerEventFromConfigData(configV2Json []byte) (*dockerEvent, error) {
 	} else {
 		state = 0
 	}
-
-	name := config.Name
-	imageID := config.Image
-	imageName := strings.TrimPrefix(config.Config.Image, "sha:")
-	pid := config.State.Pid
 
 	return &dockerEvent{
 		ID:         config.ID,
@@ -173,6 +183,9 @@ func onDockerConfigDelete(configPath string) (*dockerEvent, error) {
 	// events.
 	//
 	containerID := filepath.Base(filepath.Dir(configPath))
+
+	// Notify container cache of container removal
+	cacheDelete(containerID)
 
 	ev := &dockerEvent{
 		ID:    containerID,
@@ -278,7 +291,9 @@ func addWatches(dir string, in *inotify.Instance) error {
 		}
 
 		if re.MatchString(path) {
-			err := in.AddWatch(path, uint32(dirMask))
+			updateCaches(path)
+
+			err = in.AddWatch(path, uint32(dirMask))
 			return err
 		}
 
@@ -296,6 +311,32 @@ func addWatches(dir string, in *inotify.Instance) error {
 	}
 
 	return filepath.Walk(dir, walkFn)
+}
+
+func updateCaches(containerPath string) {
+	configV2Path := filepath.Join(containerPath, "config.v2.json")
+	_, err := os.Stat(configV2Path)
+	if err != nil {
+		return
+	}
+
+	jsonData, err := ioutil.ReadFile(configV2Path)
+	if err != nil {
+		return
+	}
+	configV2 := &DockerConfigV2{}
+	err = json.Unmarshal(jsonData, configV2)
+	if err != nil {
+		return
+	}
+
+	cacheUpdate(configV2.ID, configV2.Name, configV2.Image,
+		configV2.Config.Image)
+
+	pid := int32(configV2.State.Pid)
+	if pid > 0 {
+		process.CacheUpdate(pid, 0, "", configV2.ID)
+	}
 }
 
 func initializeDockerSensor() error {
@@ -386,40 +427,4 @@ func NewDockerEventStream() (*stream.Stream, error) {
 	}
 
 	return nil, errors.New("Sensor not available")
-}
-
-// GetDockerConfig() gets Docker configuration for a given container ID.
-func GetDockerConfig(ID string) (*DockerConfigV2, error) {
-	configV2Path := filepath.Join(getDockerContainerDir(), ID, "config.v2.json")
-	configV2Json, err := ioutil.ReadFile(configV2Path)
-	if err != nil {
-		return nil, err
-	}
-	configV2 := &DockerConfigV2{}
-	err = json.Unmarshal(configV2Json, configV2)
-	if err != nil {
-		return nil, err
-	}
-	return configV2, nil
-}
-
-// GetDockerConfigList() gets list of Docker configurations for all existing containers.
-func GetDockerConfigList() ([]*DockerConfigV2, error) {
-	dockContDirList, err := ioutil.ReadDir(getDockerContainerDir())
-	if err != nil {
-		return nil, err
-	}
-
-	var configList []*DockerConfigV2
-	for _, contDir := range dockContDirList {
-		configV2, derr := GetDockerConfig(contDir.Name())
-		if derr != nil {
-			// contDir was not really a container directory, just continue
-			continue
-		}
-
-		configList = append(configList, configV2)
-	}
-
-	return configList, nil
 }

@@ -8,7 +8,9 @@ import (
 	"encoding/hex"
 	"time"
 
+	"github.com/capsule8/reactive8/pkg/container"
 	"github.com/capsule8/reactive8/pkg/perf"
+	"github.com/capsule8/reactive8/pkg/process"
 
 	api "github.com/capsule8/api/v0"
 	"golang.org/x/sys/unix"
@@ -17,7 +19,7 @@ import (
 // Number of random bytes to generate for Sensor ID
 const sensorIDLengthBytes = 32
 
-// Sensor ID that is unique to the running instance of the Sensor. A restart
+// SensorID is a unique ID of the running instance of the Sensor. A restart
 // of the Sensor generates a new SensorID.
 var SensorID string
 
@@ -43,6 +45,10 @@ func init() {
 	sensorBootMonotimeNanos = d
 }
 
+// HostMonotimeNanosToSensor converts the given host monotonic clock
+// time to monotonic nanos since Sensor start time. This is done to
+// ensure that timestamps on emitted events can only be compared among
+// events with the same SensorID value.
 func HostMonotimeNanosToSensor(hostMonotime int64) int64 {
 	return hostMonotime - sensorBootMonotimeNanos
 }
@@ -60,10 +66,11 @@ func getNextSequenceNumber() uint64 {
 	// The rirst sequence number is intentionally 1 to disambiguate
 	// from no sequence number being included in the protobuf message.
 	//
-	sequenceNumber += 1
+	sequenceNumber++
 	return sequenceNumber
 }
 
+// NewEvent creates a new api.Event
 func NewEvent() *api.Event {
 	monotime := getMonotimeNanos()
 	sequenceNumber := getNextSequenceNumber()
@@ -98,13 +105,37 @@ func newEventFromSample(sample *perf.SampleRecord, data map[string]interface{}) 
 	// Use monotime based on perf event vs. Event construction
 	e.SensorMonotimeNanos = HostMonotimeNanosToSensor(int64(sample.Time))
 
-	// Even when the Sensor is running in a container and the event
-	// occurs within a different container, the sample.Pid contains
-	// the host pid.
-	e.ProcessPid = int32(sample.Pid)
-	e.ProcessTid = int32(sample.Tid)
+	//
+	// When both the Sensor and the process generating the sample
+	// are in containers, the sample.Pid and sample.Tid fields
+	// will be zero. Use the common_pid from the trace event
+	// instead.
+	//
+	e.ProcessPid = data["common_pid"].(int32)
+
+	// If Tid is available, use it
+	if sample.Tid > 0 {
+		e.ProcessTid = int32(sample.Tid)
+	}
+
 	e.Cpu = int32(sample.CPU)
-	procInfoUpdEvent(e)
+
+	// Add an associated containerID
+	procInfo := process.GetInfo(e.ProcessPid)
+	if procInfo != nil {
+		e.ProcessId = procInfo.UniqueID
+
+		containerID := procInfo.ContainerID
+		if len(containerID) > 0 {
+			containerInfo := container.GetInfo(containerID)
+			if containerInfo != nil {
+				e.ContainerId = containerID
+				e.ContainerName = containerInfo.Name
+				e.ImageId = containerInfo.ImageID
+				e.ImageName = containerInfo.ImageName
+			}
+		}
+	}
 
 	return e
 }
