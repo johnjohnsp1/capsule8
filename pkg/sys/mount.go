@@ -210,6 +210,21 @@ func TracingDir() string {
 		}
 	}
 
+	// If no mounted tracefs has been found, look for it as a
+	// subdirectory of the older debugfs
+	for _, mi := range mountInfo {
+		if mi.FilesystemType == "debugfs" {
+			d := filepath.Join(mi.MountPoint, "tracing")
+			s, err := os.Stat(filepath.Join(d, "events"))
+			if err == nil && s.IsDir() {
+				glog.V(1).Infof("Found debugfs w/ tracing at %s", d)
+				return d
+			}
+
+			return mi.MountPoint
+		}
+	}
+
 	return ""
 }
 
