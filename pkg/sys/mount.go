@@ -33,10 +33,15 @@ type Mount struct {
 	SuperOptions   map[string]string
 }
 
-func readMounts() ([]Mount, error) {
+func readMounts() []Mount {
+	//
+	// We don't return an error, we just crash if the data format from the
+	// Linux kernel has changed incompatibly.
+	//
+
 	data, err := proc.ReadFile("self/mountinfo")
 	if err != nil {
-		return nil, err
+		glog.Fatalf("Couldn't read self/mountinfo from proc")
 	}
 
 	var mounts []Mount
@@ -44,37 +49,29 @@ func readMounts() ([]Mount, error) {
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	for scanner.Scan() {
 		line := scanner.Text()
-
-		glog.V(3).Infof("Parsing mountinfo line: %s", line)
-
 		fields := strings.Split(line, " ")
 
 		mountID, err := strconv.Atoi(fields[0])
 		if err != nil {
-			glog.V(2).Infof("Couldn't parse mountID %s", fields[0])
-			continue
+			glog.Fatalf("Couldn't parse mountID %s", fields[0])
 		}
 
 		parentID, err := strconv.Atoi(fields[1])
 		if err != nil {
-			glog.V(2).Infof("Couldn't parse parentID %s", fields[1])
-			continue
+			glog.Fatalf("Couldn't parse parentID %s", fields[1])
 		}
 
 		mm := strings.Split(fields[2], ":")
 		major, err := strconv.Atoi(mm[0])
 		if err != nil {
-			glog.V(2).Infof("Couldn't parse major %s", mm[0])
-			continue
+			glog.Fatalf("Couldn't parse major %s", mm[0])
 		}
 
 		minor, err := strconv.Atoi(mm[1])
 		if err != nil {
-			glog.V(2).Infof("Couldn't parse minor %s", mm[1])
-			continue
+			glog.Fatalf("Couldn't parse minor %s", mm[1])
 		}
 
-		glog.V(3).Infof("Parsing mountOptions: %s", fields[5])
 		mountOptions := strings.Split(fields[5], ",")
 
 		optionalFieldsMap := make(map[string]string)
@@ -87,8 +84,6 @@ func readMounts() ([]Mount, error) {
 		filesystemType := fields[i+1]
 		mountSource := fields[i+2]
 		superOptions := fields[i+3]
-
-		glog.V(3).Infof("Parsing superOptions: %s", superOptions)
 
 		superOptionsMap := make(map[string]string)
 		for _, option := range strings.Split(superOptions, ",") {
@@ -117,19 +112,12 @@ func readMounts() ([]Mount, error) {
 		mounts = append(mounts, m)
 	}
 
-	return mounts, nil
+	return mounts
 }
 
-// Mounts returns the list of filesystems mounted at process
-// startup time. It does not reflect runtime changes to the list of
-// mounted filesystems.
+// Mounts returns the list of currently mounted filesystems.
 func Mounts() []Mount {
-	mounts, err := readMounts()
-	if err != nil {
-		panic(err)
-	}
-
-	return mounts
+	return readMounts()
 }
 
 // ProcFS creates a proc.FileSystem representing the default procfs

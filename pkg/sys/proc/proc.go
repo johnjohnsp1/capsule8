@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/golang/glog"
 )
 
 var (
@@ -37,27 +39,26 @@ func FS() *FileSystem {
 
 		fi, err := os.Stat("/proc")
 		if err != nil {
-			panic("/proc not found")
+			glog.Fatal("/proc not found")
 		}
 
 		if !fi.IsDir() {
-			panic("/proc not a directory")
+			glog.Fatal("/proc not a directory")
 		}
 
 		self, err := os.Readlink("/proc/self")
 		if err != nil {
-			panic("couldn't read /proc/self")
+			glog.Fatal("couldn't read /proc/self")
 		}
 
 		_, file := filepath.Split(self)
 		pid, err := strconv.Atoi(file)
 		if err != nil {
-			panic(fmt.Sprintf("Couldn't parse %s as pid", file))
+			glog.Fatalf("Couldn't parse %s as pid", file)
 		}
 
 		if pid != os.Getpid() {
-			panic(fmt.Sprintf("/proc/self points to wrong pid: %d",
-				pid))
+			glog.Fatalf("/proc/self points to wrong pid: %d", pid)
 		}
 
 		procFS = &FileSystem{
@@ -151,7 +152,7 @@ func (fs *FileSystem) Cgroups(pid int32) []Cgroup {
 		parts := strings.Split(t, ":")
 		ID, err := strconv.Atoi(parts[0])
 		if err != nil {
-			panic(fmt.Sprintf("Couldn't parse cgroup line: %s", t))
+			glog.Fatalf("Couldn't parse cgroup line: %s", t)
 		}
 
 		c := Cgroup{
@@ -257,7 +258,7 @@ func (ps *ProcessStatus) PID() int32 {
 		pid := ps.statFields[0]
 		i, err := strconv.ParseInt(pid, 0, 32)
 		if err != nil {
-			panic(fmt.Sprintf("Couldn't parse PID: %s", pid))
+			glog.Fatalf("Couldn't parse PID: %s", pid)
 		}
 
 		ps.pid = int32(i)
@@ -282,7 +283,7 @@ func (ps *ProcessStatus) ParentPID() int32 {
 		ppid := ps.statFields[3]
 		i, err := strconv.ParseInt(ppid, 0, 32)
 		if err != nil {
-			panic(fmt.Sprintf("Couldn't parse PPID: %s", ppid))
+			glog.Fatalf("Couldn't parse PPID: %s", ppid)
 		}
 
 		ps.ppid = int32(i)
@@ -298,7 +299,7 @@ func (ps *ProcessStatus) StartTime() uint64 {
 		st := ps.statFields[22-1]
 		i, err := strconv.ParseUint(st, 0, 64)
 		if err != nil {
-			panic(fmt.Sprintf("Couldn't parse starttime: %s", st))
+			glog.Fatalf("Couldn't parse starttime: %s", st)
 		}
 
 		ps.startTime = i
@@ -313,7 +314,7 @@ func (ps *ProcessStatus) StartStack() uint64 {
 		ss := ps.statFields[28-1]
 		i, err := strconv.ParseUint(ss, 0, 64)
 		if err != nil {
-			panic(fmt.Sprintf("Couldn't parse startstack: %s", ss))
+			glog.Fatalf("Couldn't parse startstack: %s", ss)
 		}
 
 		ps.startStack = i
