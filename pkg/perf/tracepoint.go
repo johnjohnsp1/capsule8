@@ -416,6 +416,8 @@ func (field *TraceEventField) parseTypeName(s string, isArray bool, arraySize in
 	}
 }
 
+var linuxArraySizeSanityWarning bool = false
+
 func (field *TraceEventField) parseTypeAndName(s string) (bool, error) {
 	if strings.HasPrefix(s, "__data_loc") {
 		s = s[11:]
@@ -484,6 +486,23 @@ func (field *TraceEventField) parseTypeAndName(s string) (bool, error) {
 	if isArray {
 		if arraySize >= 0 {
 			field.arraySize = arraySize
+
+			// Sanity check what we've determined. Various versions
+			// of the Linux kernel misreport size information.
+			if arraySize != field.Size/field.dataTypeSize {
+				if !linuxArraySizeSanityWarning {
+					linuxArraySizeSanityWarning = true
+					glog.Warning("Linux kernel tracepoint format size information is incorrect; compensating")
+				}
+				skip, err = field.parseTypeName(field.TypeName, true, -1)
+				if err != nil {
+					return true, err
+				}
+				if skip {
+					return true, nil
+				}
+				field.arraySize = field.Size / field.dataTypeSize
+			}
 		} else {
 			field.arraySize = field.Size / field.dataTypeSize
 		}
