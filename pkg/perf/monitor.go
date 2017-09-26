@@ -418,11 +418,13 @@ func (monitor *EventMonitor) Run(fn func(interface{}, error)) error {
 	// notifications there will prevent notifications on the eventfds,
 	// which are the ones we really want, because they give us the format
 	// information we need to decode the raw samples.
+	monitor.lock.Lock()
 	pollfds := make([]unix.PollFd, 0, len(monitor.eventfds)+1)
 	pollfds = addPollFd(pollfds, monitor.pipe[0])
 	for fd := range monitor.eventfds {
 		pollfds = addPollFd(pollfds, fd)
 	}
+	monitor.lock.Unlock()
 
 runloop:
 	for {
