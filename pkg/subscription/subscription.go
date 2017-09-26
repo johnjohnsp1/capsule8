@@ -111,7 +111,7 @@ type subscriptionBroker struct {
 	mu                     sync.Mutex
 	containerEventRepeater *stream.Repeater
 	monitor                *perf.EventMonitor
-	eventStreams           map[*api.Subscription]chan interface{}
+	perfEventStreams       map[*api.Subscription]chan interface{}
 }
 
 var (
@@ -152,7 +152,7 @@ func (sb *subscriptionBroker) update() error {
 
 	fs := &filterSet{}
 
-	for s := range sb.eventStreams {
+	for s := range sb.perfEventStreams {
 		if s.EventFilter != nil {
 			ef := s.EventFilter
 			for _, sef := range ef.SyscallEvents {
@@ -215,9 +215,9 @@ func (sb *subscriptionBroker) update() error {
 		// Store all of the output streams in an atomic value
 		// for onSampleEvent to use and avoid lock contention.
 		//
-		s := make([]chan interface{}, len(sb.eventStreams))
+		s := make([]chan interface{}, len(sb.perfEventStreams))
 		i := 0
-		for _, v := range sb.eventStreams {
+		for _, v := range sb.perfEventStreams {
 			s[i] = v
 			i++
 		}
@@ -260,11 +260,11 @@ func (sb *subscriptionBroker) createPerfEventStream(sub *api.Subscription) (*str
 	//
 	// We only need to save the data channel
 	//
-	if sb.eventStreams == nil {
-		sb.eventStreams = make(map[*api.Subscription]chan interface{})
+	if sb.perfEventStreams == nil {
+		sb.perfEventStreams = make(map[*api.Subscription]chan interface{})
 	}
 
-	sb.eventStreams[sub] = data
+	sb.perfEventStreams[sub] = data
 
 	err := sb.update()
 	if err != nil {
@@ -317,7 +317,7 @@ func filterNils(e interface{}) bool {
 
 // Subscribe creates a new telemetry subscription
 func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, *stream.Joiner, error) {
-	glog.V(0).Infof("Subscribing to %+v", sub)
+	glog.V(1).Infof("Subscribing to %+v", sub)
 
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
@@ -429,18 +429,22 @@ func addProcessLineage(i interface{}) {
 // indicating whether the specified subscription was found and
 // canceled or not.
 func (sb *subscriptionBroker) Cancel(subscription *api.Subscription) bool {
-	glog.V(0).Infof("Canceling subscription %+v", subscription)
+	glog.V(1).Infof("Canceling subscription %+v", subscription)
 
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 
-	_, ok := sb.eventStreams[subscription]
+	_, ok := sb.perfEventStreams[subscription]
 	if ok {
-		delete(sb.eventStreams, subscription)
+		delete(sb.perfEventStreams, subscription)
 		sb.update()
-	} else {
-		glog.Fatal("Subscription not found in sb.eventStreams!")
 	}
+
+	//
+	// It's possible for a subscriber to subscribe to only
+	// non-perf event streams (e.g. container events), so not
+	// finding them in perfEventStreams is ok.
+	//
 
 	return ok
 }
