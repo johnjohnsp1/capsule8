@@ -1,8 +1,6 @@
 package filter
 
-import (
-	api "github.com/capsule8/api/v0"
-)
+import api "github.com/capsule8/api/v0"
 
 func NewEventFilter(ef *api.EventFilter) Filter {
 	return &eventFilter{
@@ -68,6 +66,10 @@ func (ef *eventFilter) FilterFunc(i interface{}) bool {
 
 			return true
 		}
+
+	case *api.Event_KernelCall:
+		// The filtering is all handled in the kernel, let it through
+		return true
 
 	case *api.Event_Container:
 		cev := e.GetContainer()
