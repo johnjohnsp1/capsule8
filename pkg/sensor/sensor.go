@@ -266,7 +266,7 @@ func (s *Sensor) startLocalRPCServer() error {
 		// Check whether socket already exists and if someone
 		// is already listening on it.
 		//
-		_, err := os.Stat(socketPath)
+		_, err = os.Stat(socketPath)
 		if err == nil {
 			ua, err := net.ResolveUnixAddr("unix", socketPath)
 			if err == nil {
