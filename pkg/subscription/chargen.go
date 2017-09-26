@@ -16,6 +16,8 @@ type chargen struct {
 	filter  *api.ChargenEventFilter
 	chargen *stream.Stream
 	index   uint64
+	length  uint64
+	payload []byte
 }
 
 func newChargenEvent(index uint64, characters string) *api.Event {
@@ -31,17 +33,14 @@ func newChargenEvent(index uint64, characters string) *api.Event {
 }
 
 func (c *chargen) emitNextEvent(e interface{}) {
-	length := c.filter.Length
-	payload := make([]byte, length)
-
-	i := c.index % uint64(length)
+	i := c.index % uint64(c.length)
 	str := e.(string)
-	payload[i] = str[0]
+	c.payload[i] = str[0]
 
 	c.index++
 
-	if (c.index % uint64(length)) == 0 {
-		c.data <- newChargenEvent(c.index, string(payload))
+	if (c.index % uint64(c.length)) == 0 {
+		c.data <- newChargenEvent(c.index, string(c.payload))
 	}
 }
 
@@ -63,6 +62,8 @@ func NewChargenSensor(filter *api.ChargenEventFilter) (*stream.Stream, error) {
 		filter:  filter,
 		chargen: stream.Chargen(),
 		index:   0,
+		length:  filter.Length,
+		payload: make([]byte, filter.Length),
 	}
 
 	go func() {
