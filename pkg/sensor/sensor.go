@@ -5,11 +5,10 @@ package sensor
 import (
 	"crypto/sha256"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -46,7 +45,6 @@ var (
 	ErrConnectingTo  = func(err string) error { return fmt.Errorf("error connecting to %s", err) }
 	ErrInvalidPubsub = func(err string) error { return fmt.Errorf("invalid pubsub backend %s", err) }
 	ErrMountTraceFS  = func(err error) error { return fmt.Errorf("error mounting tracefs: %s", err) }
-	ErrMountCgroupFS = func(err error) error { return fmt.Errorf("error mounting cgroupfs: %s", err) }
 )
 
 // Sensor represents the state of the singleton Sensor instance
@@ -169,7 +167,10 @@ sendLoop:
 					lastSeen:     time.Now().Add(time.Duration(config.Sensor.SubscriptionTimeout) * time.Second).Unix(),
 					subscription: sub,
 				}
-				s.subscriptions[subID].stopChan = s.newSubscription(sub, subID)
+				stopChan := s.newSubscription(sub, subID)
+				if stopChan != nil {
+					s.subscriptions[subID].stopChan = stopChan
+				}
 			} else {
 				// Existing subscription? Update unix ts
 				s.subscriptions[subID].lastSeen = time.Now().Unix()
@@ -260,14 +261,34 @@ func (s *Sensor) startLocalRPCServer() error {
 	parts := strings.Split(config.Sensor.ListenAddr, ":")
 	if len(parts) > 1 && parts[0] == "unix" {
 		socketPath := parts[1]
-		socketDir := path.Dir(socketPath)
 
-		err = os.MkdirAll(socketDir, 0600)
-		if err != nil {
-			return err
+		//
+		// Check whether socket already exists and if someone
+		// is already listening on it.
+		//
+		_, err := os.Stat(socketPath)
+		if err == nil {
+			ua, err := net.ResolveUnixAddr("unix", socketPath)
+			if err == nil {
+				c, err := net.DialUnix("unix", nil, ua)
+				if err == nil {
+					// There is another running
+					// Sensor, try to listen below
+					// and return the error.
+
+					c.Close()
+				} else {
+					// Remove the stale socket so
+					// the listen below will
+					// succed.
+					os.Remove(socketPath)
+				}
+			}
 		}
 
-		lis, err = net.Listen("unix", parts[1])
+		oldMask := unix.Umask(0077)
+		lis, err = net.Listen("unix", socketPath)
+		unix.Umask(oldMask)
 	} else {
 		lis, err = net.Listen("tcp", config.Sensor.ListenAddr)
 	}
@@ -300,7 +321,7 @@ func (s *Sensor) Serve() error {
 	//
 	if !config.Sensor.DontMountTracing && len(sys.TracingDir()) == 0 {
 		// If we couldn't find one, try mounting our own private one
-		glog.V(1).Infof("Couldn't find tracefs, mounting our own...")
+		glog.Warning("Couldn't find mounted tracefs, mounting our own")
 		err = s.mountTraceFS()
 		if err != nil {
 			glog.V(1).Info(err)
@@ -315,11 +336,11 @@ func (s *Sensor) Serve() error {
 	// available.
 	//
 	if !config.Sensor.DontMountPerfEvent && len(sys.PerfEventDir()) == 0 {
-		glog.V(1).Infof("Couldn't find perf_event cgroupfs, mounting our own...")
+		glog.Warning("Couldn't find mounted perf_event cgroup fs, mounting our own")
 		err = s.mountPerfEventCgroupFS()
 		if err != nil {
-			glog.V(1).Info(err)
-			return ErrMountCgroupFS(err)
+			glog.Warningf("Couldn't mount perf_event cgroup fs: %s",
+				err)
 		}
 	}
 
@@ -334,6 +355,9 @@ func (s *Sensor) Serve() error {
 	// Start monitoring HTTP endpoint
 	//
 	if config.Sensor.MonitoringPort > 0 {
+		glog.Info("Starting HTTP monitoring endpoint on ",
+			config.Sensor.MonitoringPort)
+
 		s.configureHealthChecks()
 
 		mux := http.NewServeMux()
@@ -347,12 +371,14 @@ func (s *Sensor) Serve() error {
 		var lis net.Listener
 		lis, err = net.Listen("tcp", httpServer.Addr)
 		if err != nil {
-			s.Stop()
+			glog.Fatalf("Couldn't start HTTP listener on %s: %s",
+				httpServer.Addr, err)
 		} else {
 			wg.Add(1)
 
 			go func() {
 				<-s.stopChan
+				glog.Info("Stopping HTTP monitoring endpoint...")
 				httpServer.Shutdown(context.Background())
 			}()
 
@@ -371,26 +397,27 @@ func (s *Sensor) Serve() error {
 	// If we have a ListenAddr configured, start local gRPC Server on it
 	//
 	if len(config.Sensor.ListenAddr) > 0 {
+		glog.Info("Starting gRPC Server on ", config.Sensor.ListenAddr)
+
 		err = s.startLocalRPCServer()
 		if err != nil {
-			s.Stop()
+			glog.Fatal("Couldn't start local gRPC server: ", err)
 		} else {
 			wg.Add(1)
 
 			go func() {
 				<-s.stopChan
-				glog.V(1).Info("stopChan closed, stopping gRPC Server")
+				glog.Info("Stopping gRPC Server")
 				s.grpcServer.GracefulStop()
 			}()
 
 			go func() {
-				// grpc.Serve always returns with non-nil error,
-				// so don't return it. Instead we log it w/ V(1).
-				glog.V(1).Info("Starting gRPC Server on ",
-					s.grpcListener)
+				glog.Info("Serving gRPC")
 
+				// grpc.Serve always returns with non-nil error,
+				// so don't return it.
 				serveErr := s.grpcServer.Serve(s.grpcListener)
-				glog.V(1).Info(serveErr)
+				glog.V(0).Info(serveErr)
 
 				s.grpcListener.Close()
 				wg.Done()
@@ -402,8 +429,10 @@ func (s *Sensor) Serve() error {
 	// If we have a pubsub backend configured, startup async services on it
 	//
 	if s.pubsub != nil {
+		glog.Infof("Starting %s pubsub backend", config.Sensor.Backend)
+
 		if err := s.pubsub.Connect(); err != nil {
-			s.Stop()
+			glog.Fatalf("Couldn't connect to pubsub backend: %s", err)
 		} else {
 			// Broadcast sensor identity over discovery topic
 			wg.Add(1)
@@ -421,7 +450,7 @@ func (s *Sensor) Serve() error {
 			go func() {
 				err = s.listenForSubscriptions()
 				if err != nil {
-					s.Stop()
+					glog.Fatalf("Couldn't listen for subscriptions over pubsub backend: %s", err)
 				}
 
 				wg.Done()
@@ -437,7 +466,9 @@ func (s *Sensor) Serve() error {
 	}
 
 	// Block until goroutines have exited and then clean up after ourselves
+	glog.V(0).Infof("Waiting on WaitGroup")
 	wg.Wait()
+	glog.V(0).Infof("WaitGroup returned")
 
 	if s.pubsub != nil {
 		s.pubsub.Close()
@@ -455,16 +486,16 @@ func (s *Sensor) Serve() error {
 }
 
 func (s *Sensor) mountTraceFS() error {
-	dir, err := ioutil.TempDir(config.Global.RunDir, "tracefs")
+	dir := filepath.Join(config.Global.RunDir, "tracing")
+	err := os.MkdirAll(dir, 0500)
 	if err != nil {
-		glog.V(1).Infof("Couldn't create temp tracefs mountpoint: %s",
-			err)
+		glog.Warningf("Couldn't create temp tracefs mountpoint: %s", err)
 		return err
 	}
 
-	err = unix.Mount("tracefs", dir, "tracefs", 0, "rw")
+	err = unix.Mount("tracefs", dir, "tracefs", 0, "")
 	if err != nil {
-		glog.V(1).Infof("Couldn't mount tracefs on %s: %s", dir, err)
+		glog.Warningf("Couldn't mount tracefs on %s: %s", dir, err)
 		return err
 	}
 
@@ -475,14 +506,14 @@ func (s *Sensor) mountTraceFS() error {
 func (s *Sensor) unmountTraceFS() error {
 	err := unix.Unmount(s.traceFSMountPoint, 0)
 	if err != nil {
-		glog.V(1).Infof("Couldn't unmount tracefs at %s: %s",
+		glog.Warningf("Couldn't unmount tracefs at %s: %s",
 			s.traceFSMountPoint, err)
 		return err
 	}
 
 	err = os.Remove(s.traceFSMountPoint)
 	if err != nil {
-		glog.V(1).Infof("Couldn't remove %s: %s",
+		glog.Warningf("Couldn't remove %s: %s",
 			s.traceFSMountPoint, err)
 
 		return err
@@ -493,16 +524,17 @@ func (s *Sensor) unmountTraceFS() error {
 }
 
 func (s *Sensor) mountPerfEventCgroupFS() error {
-	dir, err := ioutil.TempDir(config.Global.RunDir, "perf_event")
+	dir := filepath.Join(config.Global.RunDir, "perf_event")
+	err := os.MkdirAll(dir, 0500)
 	if err != nil {
-		glog.V(1).Infof("Couldn't create temp perf_event cgroup mountpoint: %s",
+		glog.Warningf("Couldn't create perf_event cgroup mountpoint: %s",
 			err)
 		return err
 	}
 
 	err = unix.Mount("cgroup", dir, "cgroup", 0, "perf_event")
 	if err != nil {
-		glog.V(1).Infof("Couldn't mount tracefs on %s: %s", dir, err)
+		glog.Warningf("Couldn't mount perf_event cgroup on %s: %s", dir, err)
 		return err
 	}
 
@@ -513,14 +545,14 @@ func (s *Sensor) mountPerfEventCgroupFS() error {
 func (s *Sensor) unmountPerfEventCgroupFS() error {
 	err := unix.Unmount(s.perfEventMountPoint, 0)
 	if err != nil {
-		glog.V(1).Infof("Couldn't unmount tracefs at %s: %s",
+		glog.Warningf("Couldn't unmount tracefs at %s: %s",
 			s.traceFSMountPoint, err)
 		return err
 	}
 
 	err = os.Remove(s.perfEventMountPoint)
 	if err != nil {
-		glog.V(1).Infof("Couldn't remove %s: %s",
+		glog.Warningf("Couldn't remove %s: %s",
 			s.traceFSMountPoint, err)
 
 		return err
@@ -554,7 +586,9 @@ func (s *Sensor) newSubscription(sub *api.Subscription, subscriptionID string) c
 	}
 	stream, err := subscription.NewSubscription(sub)
 	if err != nil {
-		glog.Errorf("couldn't start Sensor: %s\n", err.Error())
+		glog.Errorf("Couldn't create subscription %+v for subscription ID %s: %v",
+			sub, subscriptionID, err)
+		return nil
 	}
 
 	glog.Infoln("STARTING NEW LIVE SUBSCRIPTION:", subscriptionID)
@@ -568,7 +602,7 @@ func (s *Sensor) newSubscription(sub *api.Subscription, subscriptionID string) c
 				break sendLoop
 			case ev, ok := <-stream.Data:
 				if !ok {
-					glog.Errorln("Failed to get next event.")
+					glog.Error("Failed to get next event.")
 					break sendLoop
 				}
 				//glog.Infoln("Sending event:", ev, "sub id", subscriptionID)

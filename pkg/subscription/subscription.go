@@ -2,6 +2,7 @@ package subscription
 
 import (
 	"sync"
+	"sync/atomic"
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/config"
@@ -114,8 +115,9 @@ type subscriptionBroker struct {
 }
 
 var (
-	broker     *subscriptionBroker
-	brokerOnce sync.Once
+	broker            *subscriptionBroker
+	brokerOnce        sync.Once
+	brokerSubscribers atomic.Value
 )
 
 func getSubscriptionBroker() *subscriptionBroker {
@@ -126,22 +128,27 @@ func getSubscriptionBroker() *subscriptionBroker {
 	return broker
 }
 
-func (sb *subscriptionBroker) onSampleEvent(sample interface{}, err error) {
+var ()
+
+//
+// This is intentionally not a method of SubscriptionBroker to
+// restrict what data it has access to. It's very much in the
+// performance hot path.
+//
+func onSampleEvent(sample interface{}, err error) {
 	if sample != nil {
 		event := sample.(*api.Event)
 
-		sb.mu.Lock()
-		defer sb.mu.Unlock()
+		es := brokerSubscribers.Load().([]chan interface{})
 
-		for _, c := range sb.eventStreams {
+		for _, c := range es {
 			c <- event
 		}
-
 	}
 }
 
 func (sb *subscriptionBroker) update() error {
-	glog.V(2).Infof("Updating perf event filters...")
+	glog.V(1).Info("Updating perf events and filters")
 
 	fs := &filterSet{}
 
@@ -172,7 +179,7 @@ func (sb *subscriptionBroker) update() error {
 
 	// Stop old perf session
 	if sb.monitor != nil {
-		glog.Info("Disabling existing perf session")
+		glog.V(1).Info("Stopping existing perf.EventMonitor")
 		sb.monitor.Close(false)
 		sb.monitor = nil
 	}
@@ -191,11 +198,11 @@ func (sb *subscriptionBroker) update() error {
 		// monitor all processes on the system.
 		//
 		if len(sys.PerfEventDir()) > 0 && len(config.Sensor.CgroupName) > 0 {
-			glog.Infof("Creating new event monitor on cgroup %s",
+			glog.V(1).Infof("Creating new event monitor on cgroup %s",
 				config.Sensor.CgroupName)
 			monitor, err = perf.NewEventMonitorWithCgroup(config.Sensor.CgroupName, 0, 0, nil)
 		} else {
-			glog.Info("Createing new system-wide event monitor")
+			glog.V(1).Info("Creating new system-wide event monitor")
 			monitor, err = perf.NewEventMonitor(-1, 0, 0, nil)
 		}
 		if err != nil {
@@ -203,14 +210,31 @@ func (sb *subscriptionBroker) update() error {
 		}
 
 		fs.registerEvents(monitor)
-		sb.monitor = monitor
+
+		//
+		// Store all of the output streams in an atomic value
+		// for onSampleEvent to use and avoid lock contention.
+		//
+		s := make([]chan interface{}, len(sb.eventStreams))
+		i := 0
+		for _, v := range sb.eventStreams {
+			s[i] = v
+			i++
+		}
+		brokerSubscribers.Store(s)
 
 		go func() {
-			sb.monitor.Enable()
+			monitor.Run(onSampleEvent)
 
-			sb.monitor.Run(sb.onSampleEvent)
-			glog.Infof("perf.Run() returned, exiting goroutine")
+			glog.V(1).Infof("EventMonitor.Run() returned, exiting goroutine")
 		}()
+
+		glog.V(1).Infof("Enabling EventMonitor")
+		monitor.Enable()
+
+		sb.monitor = monitor
+	} else {
+		glog.V(1).Infof("No filters, not creating a new EventMonitor")
 	}
 
 	return nil
@@ -293,7 +317,7 @@ func filterNils(e interface{}) bool {
 
 // Subscribe creates a new telemetry subscription
 func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, *stream.Joiner, error) {
-	glog.V(2).Infof("Subscribing to %+v", sub)
+	glog.V(0).Infof("Subscribing to %+v", sub)
 
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
@@ -371,8 +395,9 @@ func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, 
 	}
 
 	//
-	// If adding process lineage to events, only do so after event filtering.
-	// (No point in adding lineage to an event that is going to be filtered).
+	// If adding process lineage to events, only do so after event
+	// filtering.  (No point in adding lineage to an event that is
+	// going to be filtered).
 	//
 	if sub.ProcessView == api.ProcessView_PROCESS_VIEW_FULL {
 		eventStream = stream.Do(eventStream, addProcessLineage)
@@ -404,6 +429,8 @@ func addProcessLineage(i interface{}) {
 // indicating whether the specified subscription was found and
 // canceled or not.
 func (sb *subscriptionBroker) Cancel(subscription *api.Subscription) bool {
+	glog.V(0).Infof("Canceling subscription %+v", subscription)
+
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 
@@ -411,6 +438,8 @@ func (sb *subscriptionBroker) Cancel(subscription *api.Subscription) bool {
 	if ok {
 		delete(sb.eventStreams, subscription)
 		sb.update()
+	} else {
+		glog.Fatal("Subscription not found in sb.eventStreams!")
 	}
 
 	return ok
