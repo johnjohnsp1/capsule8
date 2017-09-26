@@ -151,7 +151,15 @@ func (kes *kprobeFilterSet) registerEvents(monitor *perf.EventMonitor) {
 			f.filter,
 			nil)
 		if err != nil {
-			glog.Infof("Couldn't register kprobe: %v", err)
+			var loc string
+			if f.onReturn {
+				loc = "return"
+			} else {
+				loc = "entry"
+			}
+
+			glog.Infof("Couldn't register kprobe on %s %s [%s]: %v",
+				f.symbol, loc, f.fetchargs(), err)
 			continue
 		}
 		f.name = name
