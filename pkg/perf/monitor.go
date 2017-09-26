@@ -189,7 +189,7 @@ func (monitor *EventMonitor) RegisterKprobe(name string, address string, onRetur
 
 	name, err := AddKprobe(name, address, onReturn, output)
 	if err != nil {
-		return "", nil
+		return "", err
 	}
 
 	event, err := monitor.newRegisteredEvent(name, fn, filter, eventAttr, EVENT_TYPE_KPROBE)
