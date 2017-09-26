@@ -321,7 +321,7 @@ func (s *Sensor) Serve() error {
 	//
 	if !config.Sensor.DontMountTracing && len(sys.TracingDir()) == 0 {
 		// If we couldn't find one, try mounting our own private one
-		glog.Warning("Couldn't find mounted tracefs, mounting our own")
+		glog.Warning("Can't find mounted tracefs, mounting one")
 		err = s.mountTraceFS()
 		if err != nil {
 			glog.V(1).Info(err)
@@ -336,10 +336,10 @@ func (s *Sensor) Serve() error {
 	// available.
 	//
 	if !config.Sensor.DontMountPerfEvent && len(sys.PerfEventDir()) == 0 {
-		glog.Warning("Couldn't find mounted perf_event cgroup fs, mounting our own")
+		glog.Warning("Can't find perf_event cgroup mount, mounting one")
 		err = s.mountPerfEventCgroupFS()
 		if err != nil {
-			glog.Warningf("Couldn't mount perf_event cgroup fs: %s",
+			glog.Warningf("Couldn't mount perf_event cgroup: %s",
 				err)
 		}
 	}
@@ -412,12 +412,10 @@ func (s *Sensor) Serve() error {
 			}()
 
 			go func() {
-				glog.Info("Serving gRPC")
-
 				// grpc.Serve always returns with non-nil error,
 				// so don't return it.
 				serveErr := s.grpcServer.Serve(s.grpcListener)
-				glog.V(0).Info(serveErr)
+				glog.V(1).Info(serveErr)
 
 				s.grpcListener.Close()
 				wg.Done()
@@ -466,9 +464,7 @@ func (s *Sensor) Serve() error {
 	}
 
 	// Block until goroutines have exited and then clean up after ourselves
-	glog.V(0).Infof("Waiting on WaitGroup")
 	wg.Wait()
-	glog.V(0).Infof("WaitGroup returned")
 
 	if s.pubsub != nil {
 		s.pubsub.Close()
