@@ -8,30 +8,15 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/capsule8/reactive8/pkg/config"
 	"github.com/capsule8/reactive8/pkg/sensor"
 	"github.com/capsule8/reactive8/pkg/version"
 	"github.com/golang/glog"
 )
 
-var (
-	standalone bool
-)
-
-func init() {
-	flag.BoolVar(&standalone, "standalone", false,
-		"run sensor in standalone mode")
-}
-
 func main() {
 	// Set "alsologtostderr" flag so that glog messages go stderr as well as /tmp.
 	flag.Set("alsologtostderr", "true")
 	flag.Parse()
-
-	if standalone {
-		config.Sensor.Backend = "none"
-		config.Sensor.MonitoringPort = 0
-	}
 
 	// Log version and build at "Starting ..." for debugging
 	version.InitialBuildLog("sensor")
@@ -51,7 +36,6 @@ func main() {
 		s.Stop()
 	}()
 
-	glog.Infoln("Listening for subscriptions")
 	err = s.Serve()
 	if err != nil {
 		glog.Error(err)

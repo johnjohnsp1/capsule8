@@ -26,7 +26,7 @@ var Sensor struct {
 	OciContainerDir string `split_words:"true" default:"/var/run/docker/libcontainerd"`
 
 	// Sensor backend implementation to use
-	Backend string `default:"stan"`
+	Backend string `default:"none"`
 
 	// Subscription timeout in seconds
 	SubscriptionTimeout int64 `default:"5"`
@@ -37,7 +37,7 @@ var Sensor struct {
 	//   :8484
 	ListenAddr string `split_words:"true" default:"unix:/var/run/capsule8/sensor.sock"`
 
-	MonitoringPort int `split_words:"true" default:"8083"`
+	MonitoringPort int `split_words:"true"`
 
 	// Name of Cgroup to monitor for events. The cgroup specified must
 	// exist within the perf_event cgroup hierarchy. If this is set to
@@ -65,9 +65,9 @@ var ApiServer struct {
 }
 
 var Backplane struct {
-	ClusterName       string `split_words:"true" default:"c8-backplane"`
-	NatsURL           string `split_words:"true" default:"nats://localhost:4222"`
-	NatsMonitoringURL string `split_words:"true" default:"http://localhost:8222"`
+	ClusterName       string `split_words:"true"`
+	NatsURL           string `split_words:"true"`
+	NatsMonitoringURL string `split_words:"true"`
 	AckWait           int    `split_words:"true" default:"1"`
 }
 
