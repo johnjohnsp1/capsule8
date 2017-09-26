@@ -30,7 +30,6 @@ func (t *telemetryServiceServer) GetEvents(req *api.GetEventsRequest, stream api
 
 sendLoop:
 	for {
-		// Need to make sure this is cancellable
 		ev, ok := <-eventStream.Data
 		if !ok {
 			break sendLoop
