@@ -2,7 +2,6 @@ package subscription
 
 import (
 	"sync"
-	"sync/atomic"
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/reactive8/pkg/config"
@@ -115,9 +114,8 @@ type subscriptionBroker struct {
 }
 
 var (
-	broker            *subscriptionBroker
-	brokerOnce        sync.Once
-	brokerSubscribers atomic.Value
+	broker     *subscriptionBroker
+	brokerOnce sync.Once
 )
 
 func getSubscriptionBroker() *subscriptionBroker {
@@ -126,25 +124,6 @@ func getSubscriptionBroker() *subscriptionBroker {
 	})
 
 	return broker
-}
-
-var ()
-
-//
-// This is intentionally not a method of SubscriptionBroker to
-// restrict what data it has access to. It's very much in the
-// performance hot path.
-//
-func onSampleEvent(sample interface{}, err error) {
-	if sample != nil {
-		event := sample.(*api.Event)
-
-		es := brokerSubscribers.Load().([]chan interface{})
-
-		for _, c := range es {
-			c <- event
-		}
-	}
 }
 
 func (sb *subscriptionBroker) update() error {
@@ -211,20 +190,24 @@ func (sb *subscriptionBroker) update() error {
 
 		fs.registerEvents(monitor)
 
-		//
-		// Store all of the output streams in an atomic value
-		// for onSampleEvent to use and avoid lock contention.
-		//
-		s := make([]chan interface{}, len(sb.perfEventStreams))
-		i := 0
-		for _, v := range sb.perfEventStreams {
-			s[i] = v
-			i++
-		}
-		brokerSubscribers.Store(s)
-
 		go func() {
-			monitor.Run(onSampleEvent)
+			s := make([]chan interface{}, len(sb.perfEventStreams))
+			i := 0
+
+			for _, v := range sb.perfEventStreams {
+				s[i] = v
+				i++
+			}
+
+			monitor.Run(func(sample interface{}, err error) {
+				if sample != nil {
+					event := sample.(*api.Event)
+
+					for _, c := range s {
+						c <- event
+					}
+				}
+			})
 
 			glog.V(1).Infof("EventMonitor.Run() returned, exiting goroutine")
 		}()
