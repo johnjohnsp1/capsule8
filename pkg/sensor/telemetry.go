@@ -24,7 +24,7 @@ func (t *telemetryServiceServer) GetEvents(req *api.GetEventsRequest, stream api
 
 	go func() {
 		<-stream.Context().Done()
-		glog.V(1).Infof("Client disconnected (context), closing stream")
+		glog.V(1).Infof("Client disconnected, closing stream")
 		eventStream.Close()
 	}()
 
