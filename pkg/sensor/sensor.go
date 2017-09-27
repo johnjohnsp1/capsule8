@@ -553,15 +553,15 @@ func (s *Sensor) mountPerfEventCgroupFS() error {
 func (s *Sensor) unmountPerfEventCgroupFS() error {
 	err := unix.Unmount(s.perfEventMountPoint, 0)
 	if err != nil {
-		glog.V(2).Infof("Couldn't unmount tracefs at %s: %s",
-			s.traceFSMountPoint, err)
+		glog.V(2).Infof("Couldn't unmount perf_event cgroup at %s: %s",
+			s.perfEventMountPoint, err)
 		return err
 	}
 
 	err = os.Remove(s.perfEventMountPoint)
 	if err != nil {
 		glog.V(2).Infof("Couldn't remove %s: %s",
-			s.traceFSMountPoint, err)
+			s.perfEventMountPoint, err)
 
 		return err
 	}
