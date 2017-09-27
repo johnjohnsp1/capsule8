@@ -316,12 +316,23 @@ func (s *Sensor) Serve() error {
 	var err error
 
 	//
+	// We require that our run dir (usually /var/run/capsule8) exists.
+	// Ensure that now before proceeding any further.
+	//
+	err = os.MkdirAll(config.Global.RunDir, 0700)
+	if err != nil {
+		glog.Warningf("Couldn't mkdir %s: %s",
+			config.Global.RunDir, err)
+		return err
+	}
+
+	//
 	// If there is no mounted tracefs, the Sensor really can't do anything.
 	// Try mounting our own private mount of it.
 	//
 	if !config.Sensor.DontMountTracing && len(sys.TracingDir()) == 0 {
 		// If we couldn't find one, try mounting our own private one
-		glog.Warning("Can't find mounted tracefs, mounting one")
+		glog.V(2).Info("Can't find mounted tracefs, mounting one")
 		err = s.mountTraceFS()
 		if err != nil {
 			glog.V(1).Info(err)
@@ -332,15 +343,15 @@ func (s *Sensor) Serve() error {
 	//
 	// If there is no mounted cgroupfs for the perf_event cgroup, we can't
 	// efficiently separate processes in monitored containers from host
-	// processes. We can run without it, but it's better performance where
+	// processes. We can run without it, but it's better performance when
 	// available.
 	//
 	if !config.Sensor.DontMountPerfEvent && len(sys.PerfEventDir()) == 0 {
-		glog.Warning("Can't find perf_event cgroup mount, mounting one")
+		glog.V(2).Info("Can't find mounted perf_event cgroupfs, mounting one")
 		err = s.mountPerfEventCgroupFS()
 		if err != nil {
-			glog.Warningf("Couldn't mount perf_event cgroup: %s",
-				err)
+			glog.V(1).Info(err)
+			// This is not a fatal error condition, proceed on
 		}
 	}
 
@@ -355,7 +366,7 @@ func (s *Sensor) Serve() error {
 	// Start monitoring HTTP endpoint
 	//
 	if config.Sensor.MonitoringPort > 0 {
-		glog.Info("Starting HTTP monitoring endpoint on ",
+		glog.Info("Serving HTTP monitoring on ",
 			config.Sensor.MonitoringPort)
 
 		s.configureHealthChecks()
@@ -397,7 +408,7 @@ func (s *Sensor) Serve() error {
 	// If we have a ListenAddr configured, start local gRPC Server on it
 	//
 	if len(config.Sensor.ListenAddr) > 0 {
-		glog.Info("Starting gRPC Server on ", config.Sensor.ListenAddr)
+		glog.Info("Serving gRPC API on ", config.Sensor.ListenAddr)
 
 		err = s.startLocalRPCServer()
 		if err != nil {
@@ -464,6 +475,7 @@ func (s *Sensor) Serve() error {
 	}
 
 	// Block until goroutines have exited and then clean up after ourselves
+	glog.Info("Sensor is ready")
 	wg.Wait()
 
 	if s.pubsub != nil {
@@ -523,14 +535,14 @@ func (s *Sensor) mountPerfEventCgroupFS() error {
 	dir := filepath.Join(config.Global.RunDir, "perf_event")
 	err := os.MkdirAll(dir, 0500)
 	if err != nil {
-		glog.Warningf("Couldn't create perf_event cgroup mountpoint: %s",
+		glog.V(2).Infof("Couldn't create perf_event cgroup mountpoint: %s",
 			err)
 		return err
 	}
 
 	err = unix.Mount("cgroup", dir, "cgroup", 0, "perf_event")
 	if err != nil {
-		glog.Warningf("Couldn't mount perf_event cgroup on %s: %s", dir, err)
+		glog.V(2).Infof("Couldn't mount perf_event cgroup on %s: %s", dir, err)
 		return err
 	}
 
@@ -541,14 +553,14 @@ func (s *Sensor) mountPerfEventCgroupFS() error {
 func (s *Sensor) unmountPerfEventCgroupFS() error {
 	err := unix.Unmount(s.perfEventMountPoint, 0)
 	if err != nil {
-		glog.Warningf("Couldn't unmount tracefs at %s: %s",
+		glog.V(2).Infof("Couldn't unmount tracefs at %s: %s",
 			s.traceFSMountPoint, err)
 		return err
 	}
 
 	err = os.Remove(s.perfEventMountPoint)
 	if err != nil {
-		glog.Warningf("Couldn't remove %s: %s",
+		glog.V(2).Infof("Couldn't remove %s: %s",
 			s.traceFSMountPoint, err)
 
 		return err

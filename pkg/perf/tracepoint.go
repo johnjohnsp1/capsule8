@@ -562,8 +562,6 @@ func GetTraceEventFormat(name string) (uint16, map[string]TraceEventField, error
 	filename := filepath.Join(sys.TracingDir(), "events", name, "format")
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	if err != nil {
-		glog.Infof("Couldn't open trace event %s: %v",
-			filename, err)
 		return 0, nil, err
 	}
 	defer file.Close()
