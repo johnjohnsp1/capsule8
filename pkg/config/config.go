@@ -39,6 +39,9 @@ var Sensor struct {
 
 	MonitoringPort int `split_words:"true"`
 
+	// HTTP port for the pprof runtime profiling endpoint.
+	ProfilingPort int `split_words:"true"`
+
 	// Name of Cgroup to monitor for events. The cgroup specified must
 	// exist within the perf_event cgroup hierarchy. If this is set to
 	// "docker", the Sensor will monitor containers for events and ignore
