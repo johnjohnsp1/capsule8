@@ -497,13 +497,13 @@ func (s *Sensor) mountTraceFS() error {
 	dir := filepath.Join(config.Global.RunDir, "tracing")
 	err := os.MkdirAll(dir, 0500)
 	if err != nil {
-		glog.Warningf("Couldn't create temp tracefs mountpoint: %s", err)
+		glog.V(2).Infof("Couldn't create temp tracefs mountpoint: %s", err)
 		return err
 	}
 
 	err = unix.Mount("tracefs", dir, "tracefs", 0, "")
 	if err != nil {
-		glog.Warningf("Couldn't mount tracefs on %s: %s", dir, err)
+		glog.V(2).Infof("Couldn't mount tracefs on %s: %s", dir, err)
 		return err
 	}
 
@@ -514,14 +514,14 @@ func (s *Sensor) mountTraceFS() error {
 func (s *Sensor) unmountTraceFS() error {
 	err := unix.Unmount(s.traceFSMountPoint, 0)
 	if err != nil {
-		glog.Warningf("Couldn't unmount tracefs at %s: %s",
+		glog.V(2).Infof("Couldn't unmount tracefs at %s: %s",
 			s.traceFSMountPoint, err)
 		return err
 	}
 
 	err = os.Remove(s.traceFSMountPoint)
 	if err != nil {
-		glog.Warningf("Couldn't remove %s: %s",
+		glog.V(2).Infof("Couldn't remove %s: %s",
 			s.traceFSMountPoint, err)
 
 		return err
