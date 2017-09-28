@@ -212,9 +212,7 @@ func (sb *subscriptionBroker) update() error {
 			}
 
 			monitor.Run(func(sample interface{}, err error) {
-				if sample != nil {
-					event := sample.(*api.Event)
-
+				if event, ok := sample.(*api.Event); ok && event != nil {
 					for _, c := range s {
 						c <- event
 					}
