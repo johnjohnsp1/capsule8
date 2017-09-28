@@ -1,8 +1,6 @@
 package subscription
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -84,9 +82,7 @@ func newKprobeFilter(kef *api.KernelFunctionCallFilter) *kprobeFilter {
 	// can be somewhat unreliable. Choosing our own random name ensures
 	// that we're always dealing with the right event and that we're not
 	// stomping on some other process's probe
-	randomBytes := make([]byte, 8)
-	rand.Read(randomBytes)
-	name := fmt.Sprintf("capsule8/sensor_%s", hex.EncodeToString(randomBytes))
+	name := perf.UniqueProbeName("capsule8", kef.Symbol)
 
 	filter := &kprobeFilter{
 		name:      name,
