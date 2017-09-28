@@ -71,6 +71,10 @@ func (ef *eventFilter) FilterFunc(i interface{}) bool {
 		// The filtering is all handled in the kernel, let it through
 		return true
 
+	case *api.Event_Network:
+		// The filtering is all handled in the kernel, let it through
+		return true
+
 	case *api.Event_Container:
 		cev := e.GetContainer()
 
