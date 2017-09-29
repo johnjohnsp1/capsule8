@@ -25,78 +25,90 @@ import (
 // a FilterSet into an eBPF program on tracepoints, kprobes, and uprobes.
 //
 type filterSet struct {
-	syscalls  *syscallFilterSet
-	processes *processFilterSet
-	files     *fileFilterSet
-	kprobes   *kprobeFilterSet
-}
-
-func (fs *filterSet) addSyscallEventFilter(sef *api.SyscallEventFilter) {
-	if fs.syscalls == nil {
-		fs.syscalls = new(syscallFilterSet)
-	}
-
-	fs.syscalls.add(sef)
-}
-
-func (fs *filterSet) addProcessEventFilter(pef *api.ProcessEventFilter) {
-	if fs.processes == nil {
-		fs.processes = new(processFilterSet)
-	}
-
-	fs.processes.add(pef)
+	fileFilters    *fileFilterSet
+	kernelFilters  *kprobeFilterSet
+	networkFilters *networkFilterSet
+	processFilters *processFilterSet
+	syscallFilters *syscallFilterSet
 }
 
 func (fs *filterSet) addFileEventFilter(fef *api.FileEventFilter) {
-	if fs.files == nil {
-		fs.files = new(fileFilterSet)
+	if fs.fileFilters == nil {
+		fs.fileFilters = new(fileFilterSet)
 	}
 
-	fs.files.add(fef)
+	fs.fileFilters.add(fef)
 }
 
 func (fs *filterSet) addKprobeEventFilter(kef *api.KernelFunctionCallFilter) {
-	if fs.kprobes == nil {
-		fs.kprobes = new(kprobeFilterSet)
+	if fs.kernelFilters == nil {
+		fs.kernelFilters = new(kprobeFilterSet)
 	}
 
-	fs.kprobes.add(kef)
+	fs.kernelFilters.add(kef)
+}
+
+func (fs *filterSet) addNetworkEventFilter(nef *api.NetworkEventFilter) {
+	if fs.networkFilters == nil {
+		fs.networkFilters = new(networkFilterSet)
+	}
+
+	fs.networkFilters.add(nef)
+}
+
+func (fs *filterSet) addProcessEventFilter(pef *api.ProcessEventFilter) {
+	if fs.processFilters == nil {
+		fs.processFilters = new(processFilterSet)
+	}
+
+	fs.processFilters.add(pef)
+}
+
+func (fs *filterSet) addSyscallEventFilter(sef *api.SyscallEventFilter) {
+	if fs.syscallFilters == nil {
+		fs.syscallFilters = new(syscallFilterSet)
+	}
+
+	fs.syscallFilters.add(sef)
 }
 
 func (fs *filterSet) len() int {
 	length := 0
 
-	if fs.syscalls != nil {
-		length += fs.syscalls.len()
+	if fs.fileFilters != nil {
+		length += fs.fileFilters.len()
 	}
-
-	if fs.processes != nil {
-		length += fs.processes.len()
+	if fs.kernelFilters != nil {
+		length += fs.kernelFilters.len()
 	}
-
-	if fs.files != nil {
-		length += fs.files.len()
+	if fs.networkFilters != nil {
+		length += fs.networkFilters.len()
 	}
-
-	if fs.kprobes != nil {
-		length += fs.kprobes.len()
+	if fs.processFilters != nil {
+		length += fs.processFilters.len()
+	}
+	if fs.syscallFilters != nil {
+		length += fs.syscallFilters.len()
 	}
 
 	return length
 }
 
 func (fs *filterSet) registerEvents(monitor *perf.EventMonitor) {
-	if fs.syscalls != nil {
-		fs.syscalls.registerEvents(monitor)
+	if fs.fileFilters != nil {
+		fs.fileFilters.registerEvents(monitor)
 	}
-	if fs.processes != nil {
-		fs.processes.registerEvents(monitor)
+	if fs.kernelFilters != nil {
+		fs.kernelFilters.registerEvents(monitor)
 	}
-	if fs.files != nil {
-		fs.files.registerEvents(monitor)
+	if fs.networkFilters != nil {
+		fs.networkFilters.registerEvents(monitor)
 	}
-	if fs.kprobes != nil {
-		fs.kprobes.registerEvents(monitor)
+	if fs.processFilters != nil {
+		fs.processFilters.registerEvents(monitor)
+	}
+	if fs.syscallFilters != nil {
+		fs.syscallFilters.registerEvents(monitor)
 	}
 }
 
@@ -134,20 +146,20 @@ func (sb *subscriptionBroker) update() error {
 	for s := range sb.perfEventStreams {
 		if s.EventFilter != nil {
 			ef := s.EventFilter
-			for _, sef := range ef.SyscallEvents {
-				fs.addSyscallEventFilter(sef)
-			}
-
-			for _, pef := range ef.ProcessEvents {
-				fs.addProcessEventFilter(pef)
-			}
-
 			for _, fef := range ef.FileEvents {
 				fs.addFileEventFilter(fef)
 			}
-
 			for _, kef := range ef.KernelEvents {
 				fs.addKprobeEventFilter(kef)
+			}
+			for _, nef := range ef.NetworkEvents {
+				fs.addNetworkEventFilter(nef)
+			}
+			for _, pef := range ef.ProcessEvents {
+				fs.addProcessEventFilter(pef)
+			}
+			for _, sef := range ef.SyscallEvents {
+				fs.addSyscallEventFilter(sef)
 			}
 		}
 	}
@@ -200,9 +212,7 @@ func (sb *subscriptionBroker) update() error {
 			}
 
 			monitor.Run(func(sample interface{}, err error) {
-				if sample != nil {
-					event := sample.(*api.Event)
-
+				if event, ok := sample.(*api.Event); ok && event != nil {
 					for _, c := range s {
 						c <- event
 					}
@@ -308,10 +318,11 @@ func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, 
 	eventStream, joiner := stream.NewJoiner()
 	joiner.Off()
 
-	if len(sub.EventFilter.SyscallEvents) > 0 ||
+	if len(sub.EventFilter.FileEvents) > 0 ||
+		len(sub.EventFilter.KernelEvents) > 0 ||
+		len(sub.EventFilter.NetworkEvents) > 0 ||
 		len(sub.EventFilter.ProcessEvents) > 0 ||
-		len(sub.EventFilter.FileEvents) > 0 ||
-		len(sub.EventFilter.KernelEvents) > 0 {
+		len(sub.EventFilter.SyscallEvents) > 0 {
 
 		//
 		// Create a perf event stream
