@@ -11,8 +11,8 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/capsule8/reactive8/pkg/config"
-	"github.com/capsule8/reactive8/pkg/inotify"
 	"github.com/capsule8/reactive8/pkg/stream"
+	"github.com/capsule8/reactive8/pkg/sys/inotify"
 )
 
 //

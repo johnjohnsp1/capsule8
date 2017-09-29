@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/capsule8/reactive8/pkg/config"
-	"github.com/capsule8/reactive8/pkg/inotify"
 	"github.com/capsule8/reactive8/pkg/process"
 	"github.com/capsule8/reactive8/pkg/stream"
+	"github.com/capsule8/reactive8/pkg/sys/inotify"
 	"golang.org/x/sys/unix"
 )
 

@@ -7,10 +7,10 @@ import (
 	"github.com/capsule8/reactive8/pkg/config"
 	"github.com/capsule8/reactive8/pkg/container"
 	"github.com/capsule8/reactive8/pkg/filter"
-	"github.com/capsule8/reactive8/pkg/perf"
 	"github.com/capsule8/reactive8/pkg/process"
 	"github.com/capsule8/reactive8/pkg/stream"
 	"github.com/capsule8/reactive8/pkg/sys"
+	"github.com/capsule8/reactive8/pkg/sys/perf"
 	"github.com/golang/glog"
 )
 
