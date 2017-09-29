@@ -51,9 +51,9 @@ func predicateFilterString(p *api.FilterPredicate) string {
 
 	switch p.ValueType {
 	case api.FilterPredicate_SIGNED:
-		value = fmt.Sprintf("%d", p.Value.(*api.FilterPredicate_SignedIntValue).SignedIntValue)
+		value = fmt.Sprintf("%d", p.Value.(*api.FilterPredicate_SignedValue).SignedValue)
 	case api.FilterPredicate_UNSIGNED:
-		value = fmt.Sprintf("%d", p.Value.(*api.FilterPredicate_UnsignedIntValue).UnsignedIntValue)
+		value = fmt.Sprintf("%d", p.Value.(*api.FilterPredicate_UnsignedValue).UnsignedValue)
 	case api.FilterPredicate_STRING:
 		value = fmt.Sprintf("%q", p.Value.(*api.FilterPredicate_StringValue).StringValue)
 	default:

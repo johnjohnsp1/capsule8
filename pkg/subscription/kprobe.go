@@ -24,28 +24,28 @@ func decodeKprobe(sample *perf.SampleRecord, data perf.TraceEventSampleData) (in
 			value.Value = &api.KernelFunctionCallEvent_FieldValue_StringValue{StringValue: v}
 		case int8:
 			value.FieldType = api.KernelFunctionCallEvent_SINT8
-			value.Value = &api.KernelFunctionCallEvent_FieldValue_SignedIntValue{SignedIntValue: int64(v)}
+			value.Value = &api.KernelFunctionCallEvent_FieldValue_SignedValue{SignedValue: int64(v)}
 		case int16:
 			value.FieldType = api.KernelFunctionCallEvent_SINT16
-			value.Value = &api.KernelFunctionCallEvent_FieldValue_SignedIntValue{SignedIntValue: int64(v)}
+			value.Value = &api.KernelFunctionCallEvent_FieldValue_SignedValue{SignedValue: int64(v)}
 		case int32:
 			value.FieldType = api.KernelFunctionCallEvent_SINT32
-			value.Value = &api.KernelFunctionCallEvent_FieldValue_SignedIntValue{SignedIntValue: int64(v)}
+			value.Value = &api.KernelFunctionCallEvent_FieldValue_SignedValue{SignedValue: int64(v)}
 		case int64:
 			value.FieldType = api.KernelFunctionCallEvent_SINT64
-			value.Value = &api.KernelFunctionCallEvent_FieldValue_SignedIntValue{SignedIntValue: v}
+			value.Value = &api.KernelFunctionCallEvent_FieldValue_SignedValue{SignedValue: v}
 		case uint8:
 			value.FieldType = api.KernelFunctionCallEvent_UINT8
-			value.Value = &api.KernelFunctionCallEvent_FieldValue_UnsignedIntValue{UnsignedIntValue: uint64(v)}
+			value.Value = &api.KernelFunctionCallEvent_FieldValue_UnsignedValue{UnsignedValue: uint64(v)}
 		case uint16:
 			value.FieldType = api.KernelFunctionCallEvent_UINT16
-			value.Value = &api.KernelFunctionCallEvent_FieldValue_UnsignedIntValue{UnsignedIntValue: uint64(v)}
+			value.Value = &api.KernelFunctionCallEvent_FieldValue_UnsignedValue{UnsignedValue: uint64(v)}
 		case uint32:
 			value.FieldType = api.KernelFunctionCallEvent_UINT32
-			value.Value = &api.KernelFunctionCallEvent_FieldValue_UnsignedIntValue{UnsignedIntValue: uint64(v)}
+			value.Value = &api.KernelFunctionCallEvent_FieldValue_UnsignedValue{UnsignedValue: uint64(v)}
 		case uint64:
 			value.FieldType = api.KernelFunctionCallEvent_UINT64
-			value.Value = &api.KernelFunctionCallEvent_FieldValue_UnsignedIntValue{UnsignedIntValue: v}
+			value.Value = &api.KernelFunctionCallEvent_FieldValue_UnsignedValue{UnsignedValue: v}
 		}
 		args[k] = value
 	}

@@ -11,8 +11,8 @@ func newSignedFilterPredicate(fieldName string, opType api.FilterPredicate_Predi
 		FieldName: fieldName,
 		Type:      opType,
 		ValueType: api.FilterPredicate_SIGNED,
-		Value: &api.FilterPredicate_SignedIntValue{
-			SignedIntValue: value,
+		Value: &api.FilterPredicate_SignedValue{
+			SignedValue: value,
 		},
 	}
 }
@@ -22,8 +22,8 @@ func newUnsignedFilterPredicate(fieldName string, opType api.FilterPredicate_Pre
 		FieldName: fieldName,
 		Type:      opType,
 		ValueType: api.FilterPredicate_UNSIGNED,
-		Value: &api.FilterPredicate_UnsignedIntValue{
-			UnsignedIntValue: value,
+		Value: &api.FilterPredicate_UnsignedValue{
+			UnsignedValue: value,
 		},
 	}
 }
