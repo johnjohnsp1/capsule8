@@ -47,7 +47,7 @@ var Sensor struct {
 	// "docker", the Sensor will monitor containers for events and ignore
 	// processes not running in Docker containers. To monitor the entire
 	// system, this can be set to "" or "/".
-	CgroupName string `split_words:"true" default:"docker"`
+	CgroupName string `split_words:"true"`
 
 	// The default size of ring buffers used for kernel perf_event
 	// monitors. The size is defined in units of pages.

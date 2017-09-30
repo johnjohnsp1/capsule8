@@ -182,20 +182,49 @@ func (sb *subscriptionBroker) update() error {
 			err     error
 		)
 
-		//
 		// If a perf_event cgroupfs is mounted and a cgroup
 		// name is configured (can be "/"), then monitor that
 		// cgroup within the perf_event hierarchy. Otherwise,
 		// monitor all processes on the system.
-		//
-		if len(sys.PerfEventDir()) > 0 && len(config.Sensor.CgroupName) > 0 {
-			glog.V(1).Infof("Creating new event monitor on cgroup %s",
-				config.Sensor.CgroupName)
-			monitor, err = perf.NewEventMonitorWithCgroup(config.Sensor.CgroupName, 0, 0, nil)
-		} else {
+		if len(config.Sensor.CgroupName) > 0 {
+			glog.V(1).Infof("Creating new perf event monitor on "+
+				"cgroup %s", config.Sensor.CgroupName)
+
+			monitor, err = perf.NewEventMonitorWithCgroup(
+				config.Sensor.CgroupName, 0, 0, nil)
+
+			if err != nil {
+				glog.Warningf("Couldn't create perf event "+
+					"monitor on cgroup %s (%s), creating "+
+					"new system-wide perf event monitor "+
+					"instead.", config.Sensor.CgroupName,
+					err)
+			}
+		} else if inContainer() {
+			// Assume /docker if we are running within a container
+
+			glog.V(1).Infof("Creating new perf event monitor on "+
+				"cgroup %s", "/docker")
+
+			monitor, err = perf.NewEventMonitorWithCgroup(
+				"/docker", 0, 0, nil)
+
+			if err != nil {
+				glog.Warningf("Couldn't create perf event "+
+					"monitor on cgroup %s (%s), creating "+
+					"new system-wide perf event monitor "+
+					"instead.", "/docker",
+					err)
+			}
+		}
+
+		// Try a system-wide perf event monitor as a fallback if either
+		// of the above failed.
+		if monitor == nil {
 			glog.V(1).Info("Creating new system-wide event monitor")
 			monitor, err = perf.NewEventMonitor(-1, 0, 0, nil)
 		}
+
 		if err != nil {
 			return err
 		}
@@ -231,6 +260,19 @@ func (sb *subscriptionBroker) update() error {
 	}
 
 	return nil
+}
+
+func inContainer() bool {
+	procFS := sys.ProcFS()
+	initCgroups := procFS.Cgroups(1)
+	for _, cg := range initCgroups {
+		if cg.Path == "/" {
+			// /proc is a host procfs, return it
+			return false
+		}
+	}
+
+	return true
 }
 
 func (sb *subscriptionBroker) createPerfEventStream(sub *api.Subscription) (*stream.Stream, error) {
