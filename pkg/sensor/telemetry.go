@@ -2,7 +2,7 @@ package sensor
 
 import (
 	api "github.com/capsule8/api/v0"
-	"github.com/capsule8/reactive8/pkg/subscription"
+	"github.com/capsule8/capsule8/pkg/subscription"
 	"github.com/golang/glog"
 )
 

@@ -11,8 +11,7 @@ import (
 	"google.golang.org/grpc"
 
 	api "github.com/capsule8/api/v0"
-	"github.com/capsule8/reactive8/pkg/backend/mock"
-	"github.com/capsule8/reactive8/pkg/config"
+	"github.com/capsule8/capsule8/pkg/config"
 	"github.com/golang/glog"
 )
 
@@ -128,7 +127,4 @@ func TestGetEvents(t *testing.T) {
 	glog.Info("Closing stopSignal")
 	close(stopSignal)
 	s.Stop()
-
-	// Clear mock values after we're done
-	mock.ClearMockValues()
 }

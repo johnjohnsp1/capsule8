@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 
 	api "github.com/capsule8/api/v0"
-	"github.com/capsule8/reactive8/pkg/process"
-	"github.com/capsule8/reactive8/pkg/sys"
-	"github.com/capsule8/reactive8/pkg/sys/perf"
+	"github.com/capsule8/capsule8/pkg/process"
+	"github.com/capsule8/capsule8/pkg/sys"
+	"github.com/capsule8/capsule8/pkg/sys/perf"
 	"github.com/golang/glog"
 )
 

@@ -8,9 +8,9 @@ import (
 	"encoding/hex"
 	"time"
 
-	"github.com/capsule8/reactive8/pkg/container"
-	"github.com/capsule8/reactive8/pkg/process"
-	"github.com/capsule8/reactive8/pkg/sys/perf"
+	"github.com/capsule8/capsule8/pkg/container"
+	"github.com/capsule8/capsule8/pkg/process"
+	"github.com/capsule8/capsule8/pkg/sys/perf"
 
 	api "github.com/capsule8/api/v0"
 	"golang.org/x/sys/unix"

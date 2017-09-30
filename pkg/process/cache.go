@@ -3,8 +3,8 @@ package process
 import (
 	"sync"
 
-	"github.com/capsule8/reactive8/pkg/sys"
-	"github.com/capsule8/reactive8/pkg/sys/proc"
+	"github.com/capsule8/capsule8/pkg/sys"
+	"github.com/capsule8/capsule8/pkg/sys/proc"
 )
 
 var (
