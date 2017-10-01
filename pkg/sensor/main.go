@@ -1,11 +1,12 @@
 package sensor
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"golang.org/x/net/context"
 
 	"net/http"
 
@@ -13,7 +14,6 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/capsule8/capsule8/pkg/config"
-	"github.com/capsule8/capsule8/pkg/version"
 	"github.com/golang/glog"
 )
 
@@ -63,11 +63,11 @@ func Main() {
 
 	go func() {
 		sig := <-sigChan
-		glog.Infof("Caught signal %v, stopping Sensor", sig)
-		s.Stop()
+		glog.Infof("Caught signal %v, stopping sensor", sig)
+		Sensor.Stop()
 	}()
 
-	err = s.Serve()
+	err := Sensor.Serve()
 	if err != nil {
 		glog.Error(err)
 	}
