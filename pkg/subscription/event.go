@@ -2,15 +2,15 @@ package subscription
 
 import (
 	"bytes"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"time"
 
-	"github.com/capsule8/reactive8/pkg/container"
-	"github.com/capsule8/reactive8/pkg/process"
-	"github.com/capsule8/reactive8/pkg/sys/perf"
+	"github.com/capsule8/capsule8/pkg/container"
+	"github.com/capsule8/capsule8/pkg/process"
+	"github.com/capsule8/capsule8/pkg/sys/perf"
+	"github.com/golang/go/src/math/rand"
 
 	api "github.com/capsule8/api/v0"
 	"golang.org/x/sys/unix"
@@ -19,23 +19,27 @@ import (
 // Number of random bytes to generate for Sensor ID
 const sensorIDLengthBytes = 32
 
-// SensorID is a unique ID of the running instance of the Sensor. A restart
-// of the Sensor generates a new SensorID.
-var SensorID string
+var (
+	// SensorID is a unique ID of the running instance of the
+	// Sensor. A restart of the Sensor generates a new ID.
+	SensorID string
 
-// Sensor-unique event sequence number. Each event sent from the Sensor to any
-// Subscription has a unique sequence number for the indicated Sensor ID.
-var sequenceNumber uint64
+	// Sensor-unique event sequence number. Each event sent from
+	// the Sensor to any Subscription has a unique sequence number
+	// for the indicated Sensor ID.
+	sequenceNumber uint64
 
-// Record the value of CLOCK_MONOTONIC_RAW when the Sensor starts up. All event
-// monotimes are relative to this value.
-var sensorBootMonotimeNanos int64
+	// Record the value of CLOCK_MONOTONIC_RAW when the Sensor
+	// starts up. All event monotimes are relative to this value.
+	sensorBootMonotimeNanos int64
+)
 
 func init() {
 	randomBytes := make([]byte, sensorIDLengthBytes)
 	rand.Read(randomBytes)
 
 	SensorID = hex.EncodeToString(randomBytes[:])
+
 	sequenceNumber = 0
 
 	ts := unix.Timespec{}

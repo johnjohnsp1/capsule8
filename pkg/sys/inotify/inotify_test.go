@@ -2,14 +2,12 @@ package inotify
 
 import (
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/capsule8/reactive8/pkg/stream"
-
-	"os"
-
+	"github.com/capsule8/capsule8/pkg/stream"
 	"golang.org/x/sys/unix"
 )
 

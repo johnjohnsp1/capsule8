@@ -9,6 +9,9 @@ import (
 var Global struct {
 	// RunDir is the path to the runtime state directory for Capsule8
 	RunDir string `split_words:"true" default:"/var/run/capsule8"`
+
+	// HTTP port for the pprof runtime profiling endpoint.
+	ProfilingPort int `split_words:"true"`
 }
 
 // Sensor contains overridable configuration options for the sensor
@@ -25,9 +28,6 @@ var Sensor struct {
 	// (i.e. /var/run/docker/libcontainerd)
 	OciContainerDir string `split_words:"true" default:"/var/run/docker/libcontainerd"`
 
-	// Sensor backend implementation to use
-	Backend string `default:"none"`
-
 	// Subscription timeout in seconds
 	SubscriptionTimeout int64 `default:"5"`
 
@@ -36,11 +36,6 @@ var Sensor struct {
 	//   127.0.0.1:8484
 	//   :8484
 	ListenAddr string `split_words:"true" default:"unix:/var/run/capsule8/sensor.sock"`
-
-	MonitoringPort int `split_words:"true"`
-
-	// HTTP port for the pprof runtime profiling endpoint.
-	ProfilingPort int `split_words:"true"`
 
 	// Name of Cgroup to monitor for events. The cgroup specified must
 	// exist within the perf_event cgroup hierarchy. If this is set to
@@ -60,45 +55,8 @@ var Sensor struct {
 	DontMountPerfEvent bool `split_words:"true"`
 }
 
-var ApiServer struct {
-	Pubsub         string `default:"stan"`
-	Port           int    `default:"8080"`
-	ProxyPort      int    `split_words:"true" default:"8081"`
-	MonitoringPort int    `split_words:"true" default:"8082"`
-}
-
-var Backplane struct {
-	ClusterName       string `split_words:"true"`
-	NatsURL           string `split_words:"true"`
-	NatsMonitoringURL string `split_words:"true"`
-	AckWait           int    `split_words:"true" default:"1"`
-}
-
-var Recorder struct {
-	APIServer      string `split_words:"true" default:"unix:/var/run/capsule8/sensor.sock"`
-	DbPath         string `split_words:"true" default:"/var/lib/capsule8/recorder"`
-	DbFileName     string `split_words:"true" default:"recorder.db"`
-	DbSizeLimit    string `split_words:"true" default:"100mb"`
-	MonitoringPort int    `split_words:"true" default:"8084"`
-}
-
 func init() {
 	err := envconfig.Process("C8", &Global)
-	if err != nil {
-		glog.Fatal(err)
-	}
-
-	err = envconfig.Process("C8_APISERVER", &ApiServer)
-	if err != nil {
-		glog.Fatal(err)
-	}
-
-	err = envconfig.Process("C8_BACKPLANE", &Backplane)
-	if err != nil {
-		glog.Fatal(err)
-	}
-
-	err = envconfig.Process("C8_RECORDER", &Recorder)
 	if err != nil {
 		glog.Fatal(err)
 	}

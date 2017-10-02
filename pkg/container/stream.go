@@ -1,6 +1,6 @@
 package container
 
-import "github.com/capsule8/reactive8/pkg/stream"
+import "github.com/capsule8/capsule8/pkg/stream"
 
 // State represents the state of a container instance
 type State uint

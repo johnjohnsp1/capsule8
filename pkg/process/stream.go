@@ -4,8 +4,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/capsule8/reactive8/pkg/stream"
-	"github.com/capsule8/reactive8/pkg/sys/perf"
+	"github.com/capsule8/capsule8/pkg/stream"
+	"github.com/capsule8/capsule8/pkg/sys/perf"
 	"github.com/golang/glog"
 )
 

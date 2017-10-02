@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/capsule8/reactive8/pkg/config"
+	"github.com/capsule8/capsule8/pkg/config"
 
 	"golang.org/x/sys/unix"
 )
