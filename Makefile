@@ -14,9 +14,10 @@ else
 	VERSION=$(TAG)+$(SHA)
 endif
 
-
 # Automated build unique identifier (if any)
 BUILD=$(shell echo ${BUILD_ID})
+
+BUILD_IMAGE ?= golang:1.9-alpine
 
 # we export the variables so you only have to update the version here in the top level Makefile
 LDFLAGS=-ldflags "-X $(PKG)/pkg/version.Version=$(VERSION) -X $(PKG)/pkg/version.Build=$(BUILD)"
@@ -31,6 +32,21 @@ CMDS=$(notdir $(wildcard ./cmd/*))
 # Default target: build all executables
 #
 all: $(CMDS)
+
+#
+# Default CI target
+#
+ci:
+	@docker run                                                             \
+	    -ti                                                                 \
+	    --rm                                                                \
+	    -v "$$(pwd):/go/src/$(PKG)"                                         \
+	    -w /go/src/$(PKG)                                                   \
+	    $(BUILD_IMAGE)                                                      \
+	    /bin/sh -c "                                                        \
+		apk add -U make &&                                              \
+		make check && make test_verbose                                 \
+	    "
 
 #
 # Build all executables as static executables
@@ -90,7 +106,7 @@ test:
 	go test ./cmd/... ./pkg/...
 
 test_verbose:
-	go test -v ./cmd/... ./pkg/... -args -alsologtostderr -v=10
+	go test -v ./cmd/... ./pkg/...
 
 #
 # Run all tests

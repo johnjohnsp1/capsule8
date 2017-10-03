@@ -38,7 +38,7 @@ func TestFilterContainerImageId(t *testing.T) {
 	if match := cf.FilterFunc(&api.Event{
 		ContainerId: "pass",
 		Event: &api.Event_Container{
-			&api.ContainerEvent{
+			Container: &api.ContainerEvent{
 				ImageId: "alice",
 			},
 		},
@@ -49,7 +49,7 @@ func TestFilterContainerImageId(t *testing.T) {
 	if match := cf.FilterFunc(&api.Event{
 		ContainerId: "fail",
 		Event: &api.Event_Container{
-			&api.ContainerEvent{
+			Container: &api.ContainerEvent{
 				ImageId: "bill",
 			},
 		},
@@ -69,7 +69,7 @@ func TestFilterContainerImageNames(t *testing.T) {
 	if match := cf.FilterFunc(&api.Event{
 		ContainerId: "pass",
 		Event: &api.Event_Container{
-			&api.ContainerEvent{
+			Container: &api.ContainerEvent{
 				ImageName: "alice",
 			},
 		},
@@ -80,7 +80,7 @@ func TestFilterContainerImageNames(t *testing.T) {
 	if match := cf.FilterFunc(&api.Event{
 		ContainerId: "fail",
 		Event: &api.Event_Container{
-			&api.ContainerEvent{
+			Container: &api.ContainerEvent{
 				ImageName: "bill",
 			},
 		},
@@ -100,7 +100,7 @@ func TestFilterContainerNames(t *testing.T) {
 	if match := cf.FilterFunc(&api.Event{
 		ContainerId: "pass",
 		Event: &api.Event_Container{
-			&api.ContainerEvent{
+			Container: &api.ContainerEvent{
 				Name: "alice",
 			},
 		},
@@ -111,7 +111,7 @@ func TestFilterContainerNames(t *testing.T) {
 	if match := cf.FilterFunc(&api.Event{
 		ContainerId: "fail",
 		Event: &api.Event_Container{
-			&api.ContainerEvent{
+			Container: &api.ContainerEvent{
 				Name: "bill",
 			},
 		},
