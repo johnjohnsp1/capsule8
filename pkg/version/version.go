@@ -3,9 +3,7 @@ package version
 
 import (
 	"fmt"
-	"net/http"
 
-	"github.com/coreos/pkg/httputil"
 	"github.com/golang/glog"
 )
 
@@ -31,21 +29,4 @@ func InitialBuildLog(componentName string) {
 	}
 
 	glog.Infof("Starting %s (%s)%s", componentName, Version, buildLog)
-}
-
-// HTTPHandler exposes version information through an http handler
-func HTTPHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		w.Header().Set("Allow", "GET")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	err := httputil.WriteJSONResponse(w, http.StatusOK, versionResponse{
-		Version: Version,
-		Build:   Build,
-	})
-	if err != nil {
-		glog.Errorf("Failed to write JSON response: %v", err)
-	}
 }

@@ -8,12 +8,6 @@
   revision = "2659b05d2658af6c270e5dee17db81c3bbc6ec73"
 
 [[projects]]
-  name = "github.com/coreos/pkg"
-  packages = ["health","httputil"]
-  revision = "3ac0863d7acf3bc44daf49afef8919af12f704ef"
-  version = "v3"
-
-[[projects]]
   name = "github.com/gobwas/glob"
   packages = [".","compiler","match","syntax","syntax/ast","syntax/lexer","util/runes","util/strings"]
   revision = "bea32b9cd2d6f55753d94a28e959b13f0244797a"
@@ -81,6 +75,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "3930caaaadc2f3226d93dce0ba16bdaf1ac2a36ba361aafa9f92630460646dd1"
+  inputs-digest = "86bf53aaad558602fe8caa9a10c9e0528874387f5ba2c5595d4c0b7c7d30d2d2"
   solver-name = "gps-cdcl"
   solver-version = 1
