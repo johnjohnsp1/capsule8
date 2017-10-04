@@ -227,16 +227,8 @@ func Stat(pid int32) *ProcessStatus {
 	return FS().Stat(pid)
 }
 
-// Stat reads the given process's status from the ProcFS receiver and
-// returns a ProcessStatus with methods to parse and return
-// information from that status as needed.
-func (fs *FileSystem) Stat(pid int32) *ProcessStatus {
-	statBytes, err := fs.ReadFile(fmt.Sprintf("%d/stat", pid))
-	if err != nil {
-		return nil
-	}
-	stat := string(statBytes)
-
+// statFields parses the contents of a /proc/PID/stat field into fields.
+func statFields(stat string) []string {
 	//
 	// Parse out the command field.
 	//
@@ -254,10 +246,20 @@ func (fs *FileSystem) Stat(pid int32) *ProcessStatus {
 		strings.TrimRight(stat[:firstLParen], " "),
 		command,
 	}
-	statFields = append(statFields, strings.Fields(stat[lastRParen+1:])...)
+	return append(statFields, strings.Fields(stat[lastRParen+1:])...)
+}
+
+// Stat reads the given process's status from the ProcFS receiver and
+// returns a ProcessStatus with methods to parse and return
+// information from that status as needed.
+func (fs *FileSystem) Stat(pid int32) *ProcessStatus {
+	stat, err := fs.ReadFile(fmt.Sprintf("%d/stat", pid))
+	if err != nil {
+		return nil
+	}
 
 	return &ProcessStatus{
-		statFields: statFields,
+		statFields: statFields(string(stat)),
 	}
 }
 
