@@ -19,7 +19,7 @@ func TestFilterSyscallEventType(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_Syscall{
-			&api.SyscallEvent{
+			Syscall: &api.SyscallEvent{
 				Type: api.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER,
 			},
 		},
@@ -29,7 +29,7 @@ func TestFilterSyscallEventType(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_Syscall{
-			&api.SyscallEvent{
+			Syscall: &api.SyscallEvent{
 				Type: api.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT,
 			},
 		},
@@ -51,7 +51,7 @@ func TestFilterSyscallEventId(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_Syscall{
-			&api.SyscallEvent{
+			Syscall: &api.SyscallEvent{
 				Id: 1,
 			},
 		},
@@ -61,7 +61,7 @@ func TestFilterSyscallEventId(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_Syscall{
-			&api.SyscallEvent{
+			Syscall: &api.SyscallEvent{
 				Id: 2,
 			},
 		},
@@ -90,7 +90,7 @@ func TestFilterSyscallEventArgs(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_Syscall{
-			&api.SyscallEvent{
+			Syscall: &api.SyscallEvent{
 				Arg0: 0,
 				Arg3: 3,
 				Arg5: 5,
@@ -102,7 +102,7 @@ func TestFilterSyscallEventArgs(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_Syscall{
-			&api.SyscallEvent{
+			Syscall: &api.SyscallEvent{
 				Arg0: 0,
 				Arg3: 2,
 				Arg5: 5,
@@ -126,7 +126,7 @@ func TestFilterSyscallEventRet(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_Syscall{
-			&api.SyscallEvent{
+			Syscall: &api.SyscallEvent{
 				Ret: 0,
 			},
 		},
@@ -136,7 +136,7 @@ func TestFilterSyscallEventRet(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_Syscall{
-			&api.SyscallEvent{
+			Syscall: &api.SyscallEvent{
 				Ret: 1,
 			},
 		},
@@ -156,7 +156,7 @@ func TestFilterProcessEventType(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_Process{
-			&api.ProcessEvent{
+			Process: &api.ProcessEvent{
 				Type: api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
 			},
 		},
@@ -166,7 +166,7 @@ func TestFilterProcessEventType(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_Process{
-			&api.ProcessEvent{
+			Process: &api.ProcessEvent{
 				Type: api.ProcessEventType_PROCESS_EVENT_TYPE_FORK,
 			},
 		},
@@ -186,7 +186,7 @@ func TestFilterFileEventType(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_File{
-			&api.FileEvent{
+			File: &api.FileEvent{
 				Type: api.FileEventType_FILE_EVENT_TYPE_OPEN,
 			},
 		},
@@ -196,7 +196,7 @@ func TestFilterFileEventType(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_File{
-			&api.FileEvent{
+			File: &api.FileEvent{
 				Type: api.FileEventType_FILE_EVENT_TYPE_UNKNOWN,
 			},
 		},
@@ -218,7 +218,7 @@ func TestFilterFileEventFilename(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_File{
-			&api.FileEvent{
+			File: &api.FileEvent{
 				Filename: "imafile",
 			},
 		},
@@ -228,7 +228,7 @@ func TestFilterFileEventFilename(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_File{
-			&api.FileEvent{
+			File: &api.FileEvent{
 				Filename: "notafile",
 			},
 		},
@@ -250,7 +250,7 @@ func TestFilterFileEventFilenamePattern(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_File{
-			&api.FileEvent{
+			File: &api.FileEvent{
 				Filename: "maybesuccess",
 			},
 		},
@@ -260,7 +260,7 @@ func TestFilterFileEventFilenamePattern(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_File{
-			&api.FileEvent{
+			File: &api.FileEvent{
 				Filename: "nopefailure",
 			},
 		},
@@ -285,7 +285,7 @@ func TestFilterFileEventOpenFlagsMask(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_File{
-			&api.FileEvent{
+			File: &api.FileEvent{
 				OpenFlags: int32(os.O_RDWR),
 			},
 		},
@@ -295,7 +295,7 @@ func TestFilterFileEventOpenFlagsMask(t *testing.T) {
 
 	if match := cf.FilterFunc(&api.Event{
 		Event: &api.Event_File{
-			&api.FileEvent{
+			File: &api.FileEvent{
 				OpenFlags: int32(os.O_WRONLY),
 			},
 		},
