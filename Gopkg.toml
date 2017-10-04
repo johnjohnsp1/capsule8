@@ -26,10 +26,6 @@
   name = "github.com/ashishgandhi/buffer"
 
 [[constraint]]
-  name = "github.com/coreos/pkg"
-  version = "3.0.0"
-
-[[constraint]]
   name = "github.com/gobwas/glob"
   version = "0.2.2"
 
