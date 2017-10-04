@@ -19,6 +19,20 @@ import (
 	"github.com/golang/protobuf/ptypes/wrappers"
 )
 
+var config struct {
+	endpoint string
+	image    string
+}
+
+func init() {
+	flag.StringVar(&config.endpoint, "endpoint",
+		"unix:/var/run/capsule8/sensor.sock",
+		"Capsule8 gRPC API endpoint")
+
+	flag.StringVar(&config.image, "image", "",
+		"container image wildcard pattern to monitor")
+}
+
 // Custom gRPC Dialer that understands "unix:/path/to/sock" as well as TCP addrs
 func dialer(addr string, timeout time.Duration) (net.Conn, error) {
 	var network, address string
@@ -37,6 +51,9 @@ func dialer(addr string, timeout time.Duration) (net.Conn, error) {
 
 func createSubscription() *api.Subscription {
 	processEvents := []*api.ProcessEventFilter{
+		//
+		// Get all process lifecycle events
+		//
 		&api.ProcessEventFilter{
 			Type: api.ProcessEventType_PROCESS_EVENT_TYPE_FORK,
 		},
@@ -49,7 +66,7 @@ func createSubscription() *api.Subscription {
 	}
 
 	syscallEvents := []*api.SyscallEventFilter{
-		// Get all syscalls that return an error
+		// Get all open(2) syscalls that return an error
 		&api.SyscallEventFilter{
 			Type: api.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT,
 
@@ -60,6 +77,9 @@ func createSubscription() *api.Subscription {
 	}
 
 	fileEvents := []*api.FileEventFilter{
+		//
+		// Get all attempts to open files matching glob *foo*
+		//
 		&api.FileEventFilter{
 			Type: api.FileEventType_FILE_EVENT_TYPE_OPEN,
 
@@ -74,6 +94,9 @@ func createSubscription() *api.Subscription {
 	}
 
 	kernelCallEvents := []*api.KernelFunctionCallFilter{
+		//
+		// Install a kprobe on connect(2)
+		//
 		&api.KernelFunctionCallFilter{
 			Type:   api.KernelFunctionCallEventType_KERNEL_FUNCTION_CALL_EVENT_TYPE_ENTER,
 			Symbol: "SyS_connect",
@@ -87,6 +110,9 @@ func createSubscription() *api.Subscription {
 	}
 
 	containerEvents := []*api.ContainerEventFilter{
+		//
+		// Get all container lifecycle events
+		//
 		&api.ContainerEventFilter{
 			Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED,
 		},
@@ -130,16 +156,27 @@ func createSubscription() *api.Subscription {
 		EventFilter: eventFilter,
 	}
 
+	if config.image != "" {
+		fmt.Fprintf(os.Stderr,
+			"Watching for container images matching %s\n",
+			config.image)
+
+		containerFilter := &api.ContainerFilter{}
+
+		containerFilter.ImageNames =
+			append(containerFilter.ImageNames, config.image)
+
+		sub.ContainerFilter = containerFilter
+	}
+
 	return sub
 }
 
 func main() {
-	url := flag.String("u", "unix:/var/run/capsule8/sensor.sock",
-		"Hostname & port of Sensor gRPC API")
 	flag.Parse()
 
 	// Create telemetry service client
-	conn, err := grpc.Dial(*url,
+	conn, err := grpc.Dial(config.endpoint,
 		grpc.WithDialer(dialer),
 		grpc.WithInsecure())
 
