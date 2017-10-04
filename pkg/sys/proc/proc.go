@@ -227,6 +227,28 @@ func Stat(pid int32) *ProcessStatus {
 	return FS().Stat(pid)
 }
 
+// statFields parses the contents of a /proc/PID/stat field into fields.
+func statFields(stat string) []string {
+	//
+	// Parse out the command field.
+	//
+	// This requires special care because the command can contain white space
+	// and / or punctuation. Fortunately, we are guaranteed that the command
+	// will always be between the first '(' and the last ')'.
+	//
+	firstLParen := strings.IndexByte(stat, '(')
+	lastRParen := strings.LastIndexByte(stat, ')')
+	if firstLParen < 0 || lastRParen < 0 || lastRParen < firstLParen {
+		return nil
+	}
+	command := stat[firstLParen+1 : lastRParen]
+	statFields := []string{
+		strings.TrimRight(stat[:firstLParen], " "),
+		command,
+	}
+	return append(statFields, strings.Fields(stat[lastRParen+1:])...)
+}
+
 // Stat reads the given process's status from the ProcFS receiver and
 // returns a ProcessStatus with methods to parse and return
 // information from that status as needed.
@@ -237,7 +259,7 @@ func (fs *FileSystem) Stat(pid int32) *ProcessStatus {
 	}
 
 	return &ProcessStatus{
-		statFields: strings.Fields(string(stat)),
+		statFields: statFields(string(stat)),
 	}
 }
 
@@ -271,7 +293,7 @@ func (ps *ProcessStatus) PID() int32 {
 // typically referred to as the comm value in Linux kernel interfaces).
 func (ps *ProcessStatus) Command() string {
 	if len(ps.comm) == 0 {
-		ps.comm = strings.Trim(ps.statFields[1], "()")
+		ps.comm = ps.statFields[1]
 	}
 
 	return ps.comm
