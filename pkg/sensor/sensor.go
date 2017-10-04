@@ -14,7 +14,6 @@ import (
 
 	"github.com/capsule8/capsule8/pkg/config"
 	"github.com/capsule8/capsule8/pkg/sys"
-	"github.com/coreos/pkg/health"
 	"github.com/golang/glog"
 )
 
@@ -42,8 +41,6 @@ type sensor struct {
 	grpcListener        net.Listener
 	grpcServer          *grpc.Server
 	stopped             bool
-
-	healthChecker health.Checker
 
 	// Channel that signals stopping the sensor
 	stopChan chan struct{}
