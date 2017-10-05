@@ -57,22 +57,24 @@ func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampl
 }
 
 func decodeSysEnterExitGroup(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	// Notify process cache of process exit ASAP
-	hostPid := data["common_pid"].(int32)
-	process.CacheDelete(hostPid)
-
 	// For "error_code", the value coming from the kernel is uint64, but
 	// as far as I can tell, the kernel internally only ever really deals
 	// in int for the process exit code. So, I'm going to just convert it
 	// to sint32 here just like the kernel does.
+	exitCode := int32(data["error_code"].(uint64))
 
 	ev := newEventFromSample(sample, data)
 	ev.Event = &api.Event_Process{
 		Process: &api.ProcessEvent{
 			Type:     api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT,
-			ExitCode: int32(data["error_code"].(uint64)),
+			ExitCode: exitCode,
 		},
 	}
+
+	// Notify process cache of process exit *after* event has been
+	// created (event creation may use info from process cache)
+	hostPid := data["common_pid"].(int32)
+	process.CacheDelete(hostPid)
 
 	return ev, nil
 }
