@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"sync/atomic"
 	"time"
 
 	"github.com/capsule8/capsule8/pkg/container"
@@ -88,6 +89,8 @@ func NewEvent() *api.Event {
 
 	h := sha256.Sum256(buf.Bytes())
 	eventID := hex.EncodeToString(h[:])
+
+	atomic.AddUint64(&Metrics.Events, 1)
 
 	return &api.Event{
 		Id:                   eventID,

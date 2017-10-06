@@ -2,6 +2,7 @@ package subscription
 
 import (
 	"sync"
+	"sync/atomic"
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/capsule8/pkg/config"
@@ -439,6 +440,8 @@ func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, 
 		eventStream = stream.Do(eventStream, addProcessLineage)
 	}
 
+	atomic.AddInt32(&Metrics.Subscriptions, 1)
+
 	joiner.On()
 	return eventStream, joiner, nil
 }
@@ -474,6 +477,7 @@ func (sb *subscriptionBroker) Cancel(subscription *api.Subscription) bool {
 	if ok {
 		delete(sb.perfEventStreams, subscription)
 		sb.update()
+		atomic.AddInt32(&Metrics.Subscriptions, -1)
 	}
 
 	//
