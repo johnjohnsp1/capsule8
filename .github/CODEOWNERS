@@ -1,0 +1,10 @@
+#
+# Code owners are automatically requested for review based on the
+# gitignore(5)-style rules in here.
+#
+# References:
+# https://github.com/blog/2392-introducing-code-owners
+# https://help.github.com/articles/about-codeowners/
+#
+
+*		@ddz @travertischio
