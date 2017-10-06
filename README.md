@@ -29,7 +29,7 @@ socket:
 ```
 $ make
 $ sudo ./bin/sensor
-I1004 18:55:23.111094    9617 version.go:33] Starting sensor (v0.0.0+9b149e4)
+I1004 18:55:23.111094    9617 version.go:33] Starting sensor (0.0.0+9b149e4)
 I1004 18:55:23.111736    9617 sensor.go:121] Starting servers...
 I1004 18:55:23.111746    9617 sensor.go:135] Sensor is ready
 I1004 18:55:23.111761    9617 telemetry.go:29] Serving gRPC API on unix:/var/run/capsule8/sensor.sock
