@@ -148,7 +148,7 @@ func findHostProcFS() *proc.FileSystem {
 	// cgroup paths.
 	//
 	procFS := ProcFS()
-	initCgroups := procFS.Cgroups(1)
+	initCgroups, _ := procFS.Cgroups(1)
 	for _, cg := range initCgroups {
 		if cg.Path == "/" {
 			// /proc is a host procfs, return it
