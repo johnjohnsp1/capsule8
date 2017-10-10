@@ -2,17 +2,14 @@ package subscription
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"syscall"
 
-	"golang.org/x/sys/unix"
-
 	api "github.com/capsule8/api/v0"
-	"github.com/capsule8/capsule8/pkg/process"
 	"github.com/capsule8/capsule8/pkg/sys"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 	"github.com/golang/glog"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -24,10 +21,7 @@ func decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampl
 	//
 	// Notify proc info cache of fork event ASAP
 	//
-	parentPid := data["parent_pid"].(int32)
 	childPid := data["child_pid"].(int32)
-
-	process.CacheUpdate(childPid, parentPid, "", "")
 
 	ev := newEventFromSample(sample, data)
 	ev.Event = &api.Event_Process{
@@ -45,12 +39,8 @@ func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampl
 	// Grab command line out of procfs ASAP
 	//
 	hostPid := data["common_pid"].(int32)
-	commandLine := sys.HostProcFS().CommandLine(hostPid)
-
-	// Update process cache with new command value
 	filename := data["filename"].(string)
-	_, command := filepath.Split(filename)
-	process.CacheUpdate(hostPid, 0, command, "")
+	commandLine := sys.HostProcFS().CommandLine(hostPid)
 
 	ev := newEventFromSample(sample, data)
 	processEvent := &api.ProcessEvent{
@@ -93,11 +83,6 @@ func decodeDoExit(sample *perf.SampleRecord, data perf.TraceEventSampleData) (in
 			ExitCoreDumped: coreDumped,
 		},
 	}
-
-	// Notify process cache of process exit *after* event has been
-	// created (event creation may use info from process cache)
-	hostPid := data["common_pid"].(int32)
-	process.CacheDelete(hostPid)
 
 	return ev, nil
 }

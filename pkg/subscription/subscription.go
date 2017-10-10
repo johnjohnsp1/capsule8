@@ -8,7 +8,6 @@ import (
 	"github.com/capsule8/capsule8/pkg/config"
 	"github.com/capsule8/capsule8/pkg/container"
 	"github.com/capsule8/capsule8/pkg/filter"
-	"github.com/capsule8/capsule8/pkg/process"
 	"github.com/capsule8/capsule8/pkg/stream"
 	"github.com/capsule8/capsule8/pkg/sys"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
@@ -265,7 +264,11 @@ func (sb *subscriptionBroker) update() error {
 
 func inContainer() bool {
 	procFS := sys.ProcFS()
-	initCgroups := procFS.Cgroups(1)
+	initCgroups, err := procFS.Cgroups(1)
+	if err != nil {
+		glog.Fatalf("Couldn't get cgroups for pid 1: %s", err)
+	}
+
 	for _, cg := range initCgroups {
 		if cg.Path == "/" {
 			// /proc is a host procfs, return it
@@ -431,37 +434,10 @@ func (sb *subscriptionBroker) Subscribe(sub *api.Subscription) (*stream.Stream, 
 		eventStream = applyModifiers(eventStream, *sub.Modifier)
 	}
 
-	//
-	// If adding process lineage to events, only do so after event
-	// filtering.  (No point in adding lineage to an event that is
-	// going to be filtered).
-	//
-	if sub.ProcessView == api.ProcessView_PROCESS_VIEW_FULL {
-		eventStream = stream.Do(eventStream, addProcessLineage)
-	}
-
 	atomic.AddInt32(&Metrics.Subscriptions, 1)
 
 	joiner.On()
 	return eventStream, joiner, nil
-}
-
-func addProcessLineage(i interface{}) {
-	e := i.(*api.Event)
-
-	var lineage []*api.Process
-
-	pis := process.GetLineage(e.ProcessPid)
-
-	for _, pi := range pis {
-		p := &api.Process{
-			Pid:     pi.Pid,
-			Command: pi.Command,
-		}
-		lineage = append(lineage, p)
-	}
-
-	e.ProcessLineage = lineage
 }
 
 // Cancel cancels an active telemetry subscription and returns a boolean
