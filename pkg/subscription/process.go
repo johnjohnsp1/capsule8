@@ -117,17 +117,17 @@ func (pef *processExitFilter) String() string {
 }
 
 type processFilterSet struct {
-	fork []*processForkFilter
-	exec []*processExecFilter
-	exit []*processExitFilter
+	fork []processForkFilter
+	exec []processExecFilter
+	exit []processExitFilter
 }
 
 func (pes *processFilterSet) add(pef *api.ProcessEventFilter) {
 	if pef.Type == api.ProcessEventType_PROCESS_EVENT_TYPE_FORK {
-		f := &processForkFilter{}
+		f := processForkFilter{}
 		pes.fork = append(pes.fork, f)
 	} else if pef.Type == api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC {
-		f := &processExecFilter{}
+		f := processExecFilter{}
 
 		if pef.ExecFilename != nil {
 			f.filename = pef.ExecFilename.Value
@@ -139,7 +139,7 @@ func (pes *processFilterSet) add(pef *api.ProcessEventFilter) {
 
 		pes.exec = append(pes.exec, f)
 	} else if pef.Type == api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT {
-		f := &processExitFilter{}
+		f := processExitFilter{}
 
 		if pef.ExitCode != nil {
 			f.errorCode = pef.ExitCode.Value
@@ -203,7 +203,7 @@ func (pes *processFilterSet) registerEvents(monitor *perf.EventMonitor) {
 		for _, f := range pes.exit {
 			s := f.String()
 			if len(s) > 0 {
-				parts = append(parts, fmt.Sprintf("(%s)", f))
+				parts = append(parts, fmt.Sprintf("(%s)", s))
 			}
 		}
 
