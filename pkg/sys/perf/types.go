@@ -1153,6 +1153,16 @@ func (sample *Sample) read(reader *bytes.Reader, eventAttr *EventAttr, formatMap
 
 		// NB: PERF_RECORD_SAMPLE does not include a trailing
 		// SampleID, even if SampleIDAll is true.
+		// Fill in the missing information from SampleRecord so that
+		// it's complete to the outside observer
+		sample.SampleID = SampleID {
+			PID:      record.Pid,
+			TID:      record.Tid,
+			Time:     record.Time,
+			ID:       record.ID,
+			StreamID: record.StreamID,
+			CPU:      record.CPU,
+		}
 
 	case PERF_RECORD_LOST:
 		record := new(LostRecord)

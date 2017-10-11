@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"sync"
 
 	"github.com/capsule8/capsule8/pkg/sys"
@@ -29,6 +30,8 @@ type registeredEvent struct {
 	eventType int
 }
 
+type SampleDispatchFn func(interface{}, error)
+
 type EventMonitor struct {
 	pid                int
 	flags              uintptr
@@ -38,19 +41,21 @@ type EventMonitor struct {
 	lock *sync.Mutex
 	cond *sync.Cond
 
-	events      map[string]*registeredEvent
-	isRunning   bool
-	pipe        [2]int
-	groupfds    []int
-	eventfds    map[int]int    // fd : cpu index
-	eventIDs    map[int]uint64 // fd : stream id
-	eventAttrs  map[uint64]*EventAttr
-	ringBuffers map[int]*ringBuffer
-	decoders    *TraceEventDecoderMap
-	cgroup      *os.File
+	events       map[string]*registeredEvent
+	isRunning    bool
+	pipe         [2]int
+	groupfds     []int
+	eventfds     map[int]int    // fd : cpu index
+	eventIDs     map[int]uint64 // fd : stream id
+	eventAttrs   map[uint64]*EventAttr
+	ringBuffers  map[int]*ringBuffer
+	decoders     *TraceEventDecoderMap
+	cgroup       *os.File
+	dispatchChan chan decodedSampleList
+	dispatchFn   SampleDispatchFn
 
 	// Used while reading samples from ringbuffers
-	samples []*decodedSample
+	samples decodedSampleList
 }
 
 func fixupEventAttr(eventAttr *EventAttr) {
@@ -58,12 +63,13 @@ func fixupEventAttr(eventAttr *EventAttr) {
 	eventAttr.Type = PERF_TYPE_TRACEPOINT
 	eventAttr.Size = sizeofPerfEventAttr
 	eventAttr.SamplePeriod = 1 // SampleFreq not used
-	eventAttr.SampleType |= PERF_SAMPLE_STREAM_ID | PERF_SAMPLE_IDENTIFIER
+	eventAttr.SampleType |= PERF_SAMPLE_STREAM_ID | PERF_SAMPLE_IDENTIFIER | PERF_SAMPLE_TIME
 
 	eventAttr.Disabled = true
 	eventAttr.Pinned = false
 	eventAttr.Freq = false
 	eventAttr.Watermark = true
+	eventAttr.UseClockID = false
 	eventAttr.WakeupWatermark = 1 // WakeupEvents not used
 }
 
@@ -307,16 +313,56 @@ type decodedSample struct {
 	err    error
 }
 
+type decodedSampleList []decodedSample
+
+func (ds decodedSampleList) Len() int {
+	return len(ds)
+}
+
+func (ds decodedSampleList) Swap(i, j int) {
+	ds[i], ds[j] = ds[j], ds[i]
+}
+
+func (ds decodedSampleList) Less(i, j int) bool {
+	return ds[i].sample.Time < ds[j].sample.Time
+}
+
+func (monitor *EventMonitor) dispatchSamples() {
+	for {
+		select {
+		case samples, ok := <-monitor.dispatchChan:
+			if !ok {
+				// Channel is closed; stop dispatch
+				monitor.dispatchChan = nil
+				return
+			}
+
+			// First sort the data read from the ringbuffers
+			sort.Sort(decodedSampleList(samples))
+
+			for _, ds := range samples {
+				switch record := ds.sample.Record.(type) {
+				case *SampleRecord:
+					s, err := monitor.decoders.DecodeSample(record)
+					monitor.dispatchFn(s, err)
+				default:
+					monitor.dispatchFn(&ds.sample, ds.err)
+				}
+			}
+		}
+	}
+}
+
 func (monitor *EventMonitor) readSamples(data []byte) {
 	reader := bytes.NewReader(data)
 	for reader.Len() > 0 {
-		ds := &decodedSample{}
+		ds := decodedSample{}
 		ds.err = ds.sample.read(reader, nil, monitor.eventAttrs)
 		monitor.samples = append(monitor.samples, ds)
 	}
 }
 
-func (monitor *EventMonitor) readRingBuffers(readyfds []int, fn func(interface{}, error)) {
+func (monitor *EventMonitor) readRingBuffers(readyfds []int) {
 	// Group fds are created with a read_format of 0, which means that the
 	// data read from each fd will never be anything but 8 bytes. We don't
 	// care what the data is, and due to the way that the interface works,
@@ -326,22 +372,10 @@ func (monitor *EventMonitor) readRingBuffers(readyfds []int, fn func(interface{}
 		monitor.ringBuffers[fd].read(monitor.readSamples)
 	}
 
-	go func(samples []*decodedSample) {
-		// TODO Sort the data read from the ringbuffers
-
-		for _, ds := range samples {
-			switch record := ds.sample.Record.(type) {
-			case *SampleRecord:
-				s, err := monitor.decoders.DecodeSample(record)
-				fn(s, err)
-			default:
-				fn(&ds.sample, ds.err)
-			}
-		}
-
-	}(monitor.samples)
-
-	monitor.samples = monitor.samples[:0]
+	if len(monitor.samples) > 0 {
+		monitor.dispatchChan <- monitor.samples
+		monitor.samples = monitor.samples[:0]
+	}
 }
 
 func addPollFd(pollfds []unix.PollFd, fd int) []unix.PollFd {
@@ -352,7 +386,7 @@ func addPollFd(pollfds []unix.PollFd, fd int) []unix.PollFd {
 	return append(pollfds, pollfd)
 }
 
-func (monitor *EventMonitor) Run(fn func(interface{}, error)) error {
+func (monitor *EventMonitor) Run(fn SampleDispatchFn) error {
 	var err error = nil
 
 	monitor.lock.Lock()
@@ -368,6 +402,10 @@ func (monitor *EventMonitor) Run(fn func(interface{}, error)) error {
 		monitor.stopWithSignal()
 		return err
 	}
+
+	monitor.dispatchChan = make(chan decodedSampleList, 128)
+	monitor.dispatchFn = fn
+	go monitor.dispatchSamples()
 
 	// Set up the fds for polling. Do not monitor the groupfds, because
 	// notifications there will prevent notifications on the eventfds,
@@ -398,10 +436,11 @@ runloop:
 				}
 			}
 			if len(readyfds) > 0 {
-				monitor.readRingBuffers(readyfds, fn)
+				monitor.readRingBuffers(readyfds)
 			}
 		}
 	}
+	monitor.dispatchFn = nil
 
 	if monitor.pipe[1] != -1 {
 		unix.Close(monitor.pipe[1])
@@ -410,6 +449,9 @@ runloop:
 	if monitor.pipe[0] != -1 {
 		unix.Close(monitor.pipe[0])
 		monitor.pipe[0] = -1
+	}
+	if monitor.dispatchChan != nil {
+		close(monitor.dispatchChan)
 	}
 
 	monitor.stopWithSignal()
