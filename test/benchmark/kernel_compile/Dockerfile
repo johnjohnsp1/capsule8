@@ -27,4 +27,4 @@ WORKDIR /usr/src
 #
 # Do all of the intensive work in the CMD
 #
-CMD /usr/bin/time bash -c "tar -x -J -f /linux-*.tar.xz && cd linux-* && make defconfig && make -j$(expr 2 \* $(grep -c '^processor' /proc/cpuinfo)) bzImage && make -j$(expr 2 \* $(grep -c '^processor' /proc/cpuinfo)) clean"
+CMD /usr/bin/time bash -c "tar -x -J -f /linux-*.tar.xz && cd linux-* && make defconfig && make -j$(expr 2 \* $(grep -c '^processor' /proc/cpuinfo)) bzImage && make -j$(expr 2 \* $(grep -c '^processor' /proc/cpuinfo)) clean" >/dev/null
