@@ -510,7 +510,7 @@ type metadata struct {
 	Index         uint32
 	Offset        int64
 	TimeEnabled   uint64
-	TimeRemaining uint64
+	TimeRunning   uint64
 	Capabilities  uint64
 	PMCWidth      uint16
 	TimeWidth     uint16

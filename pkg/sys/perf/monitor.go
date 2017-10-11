@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/capsule8/capsule8/pkg/sys"
 	"github.com/golang/glog"
@@ -53,6 +54,8 @@ type EventMonitor struct {
 	cgroup       *os.File
 	dispatchChan chan decodedSampleList
 	dispatchFn   SampleDispatchFn
+	baseTime     uint64
+	timeOffsets  map[int]uint64 // group fd : time offset
 
 	// Used while reading samples from ringbuffers
 	samples decodedSampleList
@@ -343,6 +346,9 @@ func (monitor *EventMonitor) dispatchSamples() {
 			for _, ds := range samples {
 				switch record := ds.sample.Record.(type) {
 				case *SampleRecord:
+					// Adjust the sample time so that it
+					// matches the normalized timestamp.
+					record.Time = ds.sample.Time
 					s, err := monitor.decoders.DecodeSample(record)
 					monitor.dispatchFn(s, err)
 				default:
@@ -364,12 +370,19 @@ func (monitor *EventMonitor) readSamples(data []byte) {
 
 func (monitor *EventMonitor) readRingBuffers(readyfds []int) {
 	// Group fds are created with a read_format of 0, which means that the
-	// data read from each fd will never be anything but 8 bytes. We don't
-	// care what the data is, and due to the way that the interface works,
-	// we don't even have to read it as long as we empty the associated
-	// ring buffer.
+	// data read from each fd will always be 8 bytes. We don't care about
+	// the data, so we can safely ignore it. Due to the way that the
+	// interface works, we don't have to read it as long as we empty the
+	// associated ring buffer, which we will.
 	for _, fd := range readyfds {
+		// Read the samples from the ring buffer, and then normalize
+		// the timestamps to be consistent across CPUs.
+		first := len(monitor.samples)
 		monitor.ringBuffers[fd].read(monitor.readSamples)
+		for i := first; i < len(monitor.samples); i++ {
+			monitor.samples[i].sample.Time = monitor.baseTime +
+				(monitor.samples[i].sample.Time - monitor.timeOffsets[fd])
+		}
 	}
 
 	if len(monitor.samples) > 0 {
@@ -440,7 +453,6 @@ runloop:
 			}
 		}
 	}
-	monitor.dispatchFn = nil
 
 	if monitor.pipe[1] != -1 {
 		unix.Close(monitor.pipe[1])
@@ -479,8 +491,70 @@ func (monitor *EventMonitor) Stop(wait bool) {
 	}
 }
 
+var referenceEventAttr EventAttr = EventAttr{
+	Type:         PERF_TYPE_HARDWARE,
+	Size:         sizeofPerfEventAttr,
+	Config:       PERF_COUNT_HW_CPU_CYCLES,
+	SampleFreq:   1,
+	SampleType:   PERF_SAMPLE_TIME,
+	Freq:         true,
+	WakeupEvents: 1,
+}
+
+func (monitor *EventMonitor) readReferenceSamples(data []byte) {
+	reader := bytes.NewReader(data)
+	for reader.Len() > 0 {
+		ds := decodedSample{}
+		ds.err = ds.sample.read(reader, &referenceEventAttr, nil)
+		monitor.samples = append(monitor.samples, ds)
+	}
+}
+
+func (monitor *EventMonitor) cpuTimeOffset(cpu int, groupfd int, rb *ringBuffer) (uint64, error) {
+	// Create a temporary event to get a reference timestamp. What
+	// type of event we use is unimportant. We just want something
+	// that will be reported immediately. After the timestamp is
+	// retrieved, we can get rid of it.
+	fd, err := open(&referenceEventAttr, -1, cpu, groupfd, PERF_FLAG_FD_OUTPUT | PERF_FLAG_FD_NO_GROUP)
+	if err != nil {
+		return 0, err
+	}
+	defer unix.Close(fd)
+
+	// Wait for the event to be ready, then pull it immediately and
+	// remember the timestamp. That's our reference for this CPU.
+	pollfds := []unix.PollFd{
+		unix.PollFd{
+			Fd:     int32(groupfd),
+			Events: unix.POLLIN,
+		},
+	}
+	for {
+		n, err := unix.Poll(pollfds, -1)
+		if err != nil && err != unix.EINTR {
+			return 0, err
+		}
+		if n == 0 {
+			continue
+		}
+
+		rb.read(monitor.readReferenceSamples)
+		if len(monitor.samples) < 0 {
+			continue
+		}
+
+		ds := monitor.samples[0]
+		monitor.samples = monitor.samples[:0]
+		if ds.err != nil {
+			return 0, err
+		}
+
+		return ds.sample.Time - rb.timeRunning(), nil
+	}
+}
+
 func (monitor *EventMonitor) initializeGroupLeaders() error {
-	eventAttr := &EventAttr{
+	groupEventAttr := &EventAttr{
 		Type:            PERF_TYPE_SOFTWARE,
 		Size:            sizeofPerfEventAttr,
 		Config:          PERF_COUNT_SW_DUMMY, // Added in Linux 3.12
@@ -492,9 +566,10 @@ func (monitor *EventMonitor) initializeGroupLeaders() error {
 	ncpu := runtime.NumCPU()
 	newfds := make([]int, ncpu)
 	ringBuffers := make(map[int]*ringBuffer, ncpu)
+	monitor.timeOffsets = make(map[int]uint64, ncpu)
 
 	for i := 0; i < ncpu; i++ {
-		fd, err := open(eventAttr, monitor.pid, i, -1, monitor.flags)
+		fd, err := open(groupEventAttr, monitor.pid, i, -1, monitor.flags)
 		if err != nil {
 			for j := i - 1; j >= 0; j-- {
 				unix.Close(newfds[j])
@@ -504,15 +579,23 @@ func (monitor *EventMonitor) initializeGroupLeaders() error {
 		newfds[i] = fd
 
 		rb, err := newRingBuffer(newfds[i], monitor.ringBufferNumPages)
-		if err != nil {
-			unix.Close(newfds[i])
-			for j := i - 1; j >= 0; j-- {
-				ringBuffers[newfds[j]].unmap()
-				unix.Close(newfds[j])
+		if err == nil {
+			ringBuffers[fd] = rb
+
+			offset, err := monitor.cpuTimeOffset(i, fd, rb)
+			if err == nil {
+				monitor.timeOffsets[newfds[i]] = offset
+				continue
 			}
-			return err
 		}
-		ringBuffers[fd] = rb
+
+		// This is the common error case
+		unix.Close(newfds[i])
+		for j := i - 1; j >= 0; j-- {
+			ringBuffers[newfds[j]].unmap()
+			unix.Close(newfds[j])
+		}
+		return err
 	}
 
 	monitor.groupfds = newfds
@@ -548,6 +631,7 @@ func NewEventMonitor(pid int, flags uintptr, ringBufferNumPages int, defaultAttr
 		eventIDs:           make(map[int]uint64),
 		decoders:           NewTraceEventDecoderMap(),
 		eventAttrs:         make(map[uint64]*EventAttr),
+		baseTime:           uint64(time.Now().UnixNano()),
 	}
 	monitor.lock = &sync.Mutex{}
 	monitor.cond = sync.NewCond(monitor.lock)
