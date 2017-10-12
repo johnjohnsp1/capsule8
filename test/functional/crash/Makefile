@@ -6,5 +6,5 @@ IMAGE_TAG=capsule8-test-crash
 run: build
 	docker run --rm -it $$(docker build -t $(IMAGE_TAG) . -q)
 
-build: Dockerfile crash.c
+build: Dockerfile crashme.c
 	docker build -t $(IMAGE_TAG) .
