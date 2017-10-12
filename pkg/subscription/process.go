@@ -12,6 +12,11 @@ import (
 	"github.com/golang/glog"
 )
 
+const (
+	exitSymbol    = "do_exit"
+	exitFetchargs = "error_code=%di"
+)
+
 func decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
 	//
 	// Notify proc info cache of fork event ASAP
@@ -58,7 +63,7 @@ func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampl
 	return ev, nil
 }
 
-func decodeSysEnterExitGroup(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+func decodeDoExit(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
 	// For "error_code", the value coming from the kernel is uint64, but
 	// as far as I can tell, the kernel internally only ever really deals
 	// in int for the process exit code. So, I'm going to just convert it
@@ -197,24 +202,11 @@ func (pes *processFilterSet) registerEvents(monitor *perf.EventMonitor) {
 		}
 	}
 
-	if pes.exit != nil {
-		var parts []string
-
-		for _, f := range pes.exit {
-			s := f.String()
-			if len(s) > 0 {
-				parts = append(parts, fmt.Sprintf("(%s)", s))
-			}
-		}
-
-		filter := strings.Join(parts, " || ")
-
-		eventName := "syscalls/sys_enter_exit_group"
-		err := monitor.RegisterEvent(eventName, decodeSysEnterExitGroup,
-			filter, nil)
-		if err != nil {
-			glog.Infof("Couldn't get %s event id: %v",
-				eventName, err)
-		}
+	eventName = perf.UniqueProbeName("capsule8", exitSymbol)
+	_, err = monitor.RegisterKprobe(eventName, exitSymbol, false,
+		exitFetchargs, decodeDoExit, "", nil)
+	if err != nil {
+		glog.Infof("Couldn't register kprobe for %s: %s",
+			exitSymbol, err)
 	}
 }
