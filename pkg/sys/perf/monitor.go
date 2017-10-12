@@ -57,8 +57,8 @@ type EventMonitor struct {
 	baseTime     uint64
 	timeOffsets  map[int]uint64 // group fd : time offset
 
-	// Used while reading samples from ringbuffers
-	samples decodedSampleList
+	samples        decodedSampleList // Used while reading from ringbuffers
+	pendingSamples decodedSampleList
 }
 
 func fixupEventAttr(eventAttr *EventAttr) {
@@ -369,11 +369,17 @@ func (monitor *EventMonitor) readSamples(data []byte) {
 }
 
 func (monitor *EventMonitor) readRingBuffers(readyfds []int) {
+	var (
+		lastTimestamp uint64
+		lastIndex     int
+	)
+
 	// Group fds are created with a read_format of 0, which means that the
 	// data read from each fd will always be 8 bytes. We don't care about
 	// the data, so we can safely ignore it. Due to the way that the
 	// interface works, we don't have to read it as long as we empty the
 	// associated ring buffer, which we will.
+
 	for _, fd := range readyfds {
 		// Read the samples from the ring buffer, and then normalize
 		// the timestamps to be consistent across CPUs.
@@ -383,11 +389,41 @@ func (monitor *EventMonitor) readRingBuffers(readyfds []int) {
 			monitor.samples[i].sample.Time = monitor.baseTime +
 				(monitor.samples[i].sample.Time - monitor.timeOffsets[fd])
 		}
+
+		if first == 0 {
+			// Sometimes readyfds get no samples from the ringbuffer
+			if len(monitor.samples) > 0 {
+				lastTimestamp = monitor.samples[len(monitor.samples)-1].sample.Time
+			}
+		} else {
+			x := len(monitor.samples)
+			for i := x-1; i > lastIndex; i-- {
+				if monitor.samples[i].sample.Time > lastTimestamp {
+					x--
+				}
+			}
+			if x != len(monitor.samples) {
+				monitor.pendingSamples = append(monitor.pendingSamples, monitor.samples[x-1:]...)
+				monitor.samples = monitor.samples[:x]
+			}
+		}
+		lastIndex = len(monitor.samples)
 	}
 
 	if len(monitor.samples) > 0 {
+		if len(monitor.pendingSamples) > 0 {
+			monitor.samples = append(monitor.samples, monitor.pendingSamples...)
+			monitor.pendingSamples = monitor.pendingSamples[:0]
+		}
 		monitor.dispatchChan <- monitor.samples
 		monitor.samples = monitor.samples[:0]
+	}
+}
+
+func (monitor *EventMonitor) flushPendingSamples() {
+	if len(monitor.pendingSamples) > 0 {
+		monitor.dispatchChan <- monitor.pendingSamples
+		monitor.pendingSamples = monitor.pendingSamples[:0]
 	}
 }
 
@@ -400,8 +436,6 @@ func addPollFd(pollfds []unix.PollFd, fd int) []unix.PollFd {
 }
 
 func (monitor *EventMonitor) Run(fn SampleDispatchFn) error {
-	var err error = nil
-
 	monitor.lock.Lock()
 	if monitor.isRunning {
 		monitor.lock.Unlock()
@@ -410,7 +444,7 @@ func (monitor *EventMonitor) Run(fn SampleDispatchFn) error {
 	monitor.isRunning = true
 	monitor.lock.Unlock()
 
-	err = unix.Pipe2(monitor.pipe[:], unix.O_DIRECT|unix.O_NONBLOCK)
+	err := unix.Pipe2(monitor.pipe[:], unix.O_DIRECT|unix.O_NONBLOCK)
 	if err != nil {
 		monitor.stopWithSignal()
 		return err
@@ -432,10 +466,29 @@ func (monitor *EventMonitor) Run(fn SampleDispatchFn) error {
 
 runloop:
 	for {
-		n, err := unix.Poll(pollfds, -1)
-		if err != nil && err != unix.EINTR {
-			break
+		var n int
+
+		// If there are pending samples, check for waiting events and
+		// return immediately. If there aren't any, flush everything
+		// pending and go back to waiting for events normally. If there
+		// are events, the pending events will get handled during
+		// normal processing
+		if len(monitor.pendingSamples) > 0 {
+			n, err = unix.Poll(pollfds, 0)
+			if err != nil && err != unix.EINTR {
+				break
+			}
+			if n == 0 {
+				monitor.flushPendingSamples()
+				continue
+			}
+		} else {
+			n, err = unix.Poll(pollfds, -1)
+			if err != nil && err != unix.EINTR {
+				break
+			}
 		}
+
 		if n > 0 {
 			readyfds := make([]int, 0, n)
 			for i, fd := range pollfds {
@@ -450,6 +503,8 @@ runloop:
 			}
 			if len(readyfds) > 0 {
 				monitor.readRingBuffers(readyfds)
+			} else if len(monitor.pendingSamples) > 0 {
+				monitor.flushPendingSamples()
 			}
 		}
 	}
