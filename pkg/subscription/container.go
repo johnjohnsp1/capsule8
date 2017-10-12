@@ -1,6 +1,10 @@
 package subscription
 
 import (
+	"syscall"
+
+	"golang.org/x/sys/unix"
+
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/capsule8/pkg/container"
 )
@@ -126,7 +130,24 @@ func translateContainerEvents(e interface{}) interface{} {
 		ece.Name = ce.Name
 		ece.ImageId = ce.ImageID
 		ece.ImageName = ce.Image
+
+		var exitStatus int
+		var exitSignal syscall.Signal
+		var coreDumped bool
+
+		ws := unix.WaitStatus(ce.ExitCode)
+
+		if ws.Exited() {
+			exitStatus = ws.ExitStatus()
+		} else if ws.Signaled() {
+			exitSignal = ws.Signal()
+			coreDumped = ws.CoreDump()
+		}
+
 		ece.ExitCode = ce.ExitCode
+		ece.ExitStatus = uint32(exitStatus)
+		ece.ExitSignal = uint32(exitSignal)
+		ece.ExitCoreDumped = coreDumped
 
 	case container.ContainerRemoved:
 		ece = newContainerDestroyed(ce.ID)
