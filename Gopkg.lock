@@ -5,7 +5,7 @@
   branch = "master"
   name = "github.com/capsule8/api"
   packages = ["v0"]
-  revision = "98dec17557b8e2bc7994e5eca6fef03da68e7fec"
+  revision = "fad90dd806a513d7dedda8899a14488336f420b0"
 
 [[projects]]
   name = "github.com/gobwas/glob"
@@ -23,7 +23,7 @@
   branch = "master"
   name = "github.com/golang/go"
   packages = ["src/math/rand"]
-  revision = "3a165bba34e2f68c2d0e3ab223efc7b8245d7083"
+  revision = "531e6c06c468badbb1ba180027a93b3f6c5b2615"
 
 [[projects]]
   branch = "master"
@@ -52,7 +52,7 @@
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix"]
-  revision = "ebfc5b4631820b793c9010c87fd8fef0f39eb082"
+  revision = "43eea11bc92608addb41b8a406b0407495c106f6"
 
 [[projects]]
   branch = "master"
@@ -68,9 +68,9 @@
 
 [[projects]]
   name = "google.golang.org/grpc"
-  packages = [".","codes","connectivity","credentials","grpclb/grpc_lb_v1/messages","grpclog","internal","keepalive","metadata","naming","peer","stats","status","tap","transport"]
-  revision = "f92cdcd7dcdc69e81b2d7b338479a19a8723cfa3"
-  version = "v1.6.0"
+  packages = [".","balancer","codes","connectivity","credentials","grpclb/grpc_lb_v1/messages","grpclog","internal","keepalive","metadata","naming","peer","resolver","stats","status","tap","transport"]
+  revision = "f7bf885db0b7479a537ec317c6e48ce53145f3db"
+  version = "v1.7.0"
 
 [solve-meta]
   analyzer-name = "dep"
