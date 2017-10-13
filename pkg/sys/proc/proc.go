@@ -131,17 +131,17 @@ func (fs *FileSystem) CommandLine(pid int32) []string {
 
 // Cgroups returns the cgroup membership of the process
 // indicated by the given PID.
-func Cgroups(pid int32) []Cgroup {
+func Cgroups(pid int32) ([]Cgroup, error) {
 	return FS().Cgroups(pid)
 }
 
 // Cgroups returns the cgroup membership of the process
 // indicated by the given PID.
-func (fs *FileSystem) Cgroups(pid int32) []Cgroup {
+func (fs *FileSystem) Cgroups(pid int32) ([]Cgroup, error) {
 	filename := fmt.Sprintf("%d/cgroup", pid)
 	cgroup, err := fs.ReadFile(filename)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	var cgroups []Cgroup
@@ -164,7 +164,7 @@ func (fs *FileSystem) Cgroups(pid int32) []Cgroup {
 		cgroups = append(cgroups, c)
 	}
 
-	return cgroups
+	return cgroups, nil
 }
 
 // Cgroup describes the cgroup membership of a process
@@ -180,27 +180,32 @@ type Cgroup struct {
 	Path string
 }
 
-// ContainerID returns the container ID running the process
-// indicated by the given PID. Returns the empty string if the process
-// is not running within a container.
-func ContainerID(pid int32) string {
+// ContainerID returns the container ID running the process indicated
+// by the given PID. Returns the empty string if the process is not
+// running within a container. Returns a non-nil error if the process
+// indicated by the given PID wasn't found.
+func ContainerID(pid int32) (string, error) {
 	return FS().ContainerID(pid)
 }
 
-// ContainerID returns the container ID running the process
-// indicated by the given PID. Returns the empty string if the process
-// is not running within a container.
-func (fs *FileSystem) ContainerID(pid int32) string {
-	cgroups := fs.Cgroups(pid)
+// ContainerID returns the container ID running the process indicated
+// by the given PID. Returns the empty string if the process is not
+// running within a container. Returns a  non-nil error if the process
+// indicated by the given PID wasn't found.
+func (fs *FileSystem) ContainerID(pid int32) (string, error) {
+	cgroups, err := fs.Cgroups(pid)
+	if err != nil {
+		return "", err
+	}
 
 	for _, pci := range cgroups {
 		if strings.HasPrefix(pci.Path, "/docker") {
 			pathParts := strings.Split(pci.Path, "/")
-			return pathParts[2]
+			return pathParts[2], nil
 		}
 	}
 
-	return ""
+	return "", nil
 }
 
 // UniqueID returns a reproducible namespace-independent
@@ -349,14 +354,15 @@ func (ps *ProcessStatus) StartStack() uint64 {
 // process indicated by the given PID.
 func (ps *ProcessStatus) UniqueID() string {
 	if len(ps.uniqueID) == 0 {
-		// Hash the bootID, starting stack address, and start time to
-		// create a unique process identifier that has the same value
-		// regardless of the pid namespace (i.e. same value from
-		// within the container and from the underlying host).
+		// Hash the bootID, PID, and start time to create a
+		// unique process identifier that has the same value
+		// regardless of the pid namespace (i.e. same value
+		// from within the container and from the underlying
+		// host).
 		h := sha256.New()
 
 		binary.Write(h, binary.LittleEndian, BootID())
-		binary.Write(h, binary.LittleEndian, ps.StartStack())
+		binary.Write(h, binary.LittleEndian, ps.PID())
 		binary.Write(h, binary.LittleEndian, ps.StartTime())
 
 		ps.uniqueID = fmt.Sprintf("%x", h.Sum(nil))

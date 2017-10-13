@@ -25,6 +25,7 @@ import (
 var config struct {
 	endpoint string
 	image    string
+	verbose  bool
 }
 
 func init() {
@@ -34,6 +35,9 @@ func init() {
 
 	flag.StringVar(&config.image, "image", "",
 		"container image wildcard pattern to monitor")
+
+	flag.BoolVar(&config.verbose, "verbose", false,
+		"verbose (print events received)")
 }
 
 // Custom gRPC Dialer that understands "unix:/path/to/sock" as well as TCP addrs
@@ -239,6 +243,10 @@ func main() {
 
 		for _, event := range response.Events {
 			e := event.Event
+
+			if config.verbose {
+				fmt.Printf("%+v\n", e)
+			}
 
 			switch x := e.Event.(type) {
 			case *api.Event_Container:

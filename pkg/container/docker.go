@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/capsule8/capsule8/pkg/config"
-	"github.com/capsule8/capsule8/pkg/process"
 	"github.com/capsule8/capsule8/pkg/stream"
 	"github.com/capsule8/capsule8/pkg/sys/inotify"
 	"golang.org/x/sys/unix"
@@ -119,9 +118,6 @@ func newDockerEventFromConfigData(configV2Json []byte) (*dockerEvent, error) {
 	// Update container and process info caches
 	//
 	cacheUpdate(config.ID, name, imageID, imageName)
-	if pid > 0 {
-		process.CacheUpdate(int32(pid), 0, "", config.ID)
-	}
 
 	var state dockerContainerState
 
@@ -332,11 +328,6 @@ func updateCaches(containerPath string) {
 
 	cacheUpdate(configV2.ID, configV2.Name, configV2.Image,
 		configV2.Config.Image)
-
-	pid := int32(configV2.State.Pid)
-	if pid > 0 {
-		process.CacheUpdate(pid, 0, "", configV2.ID)
-	}
 }
 
 func initializeDockerSensor() error {

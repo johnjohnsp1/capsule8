@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/capsule8/capsule8/pkg/container"
-	"github.com/capsule8/capsule8/pkg/process"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 	"github.com/golang/go/src/math/rand"
 
@@ -120,6 +119,9 @@ func newEventFromSample(sample *perf.SampleRecord, data map[string]interface{}) 
 	//
 	e.ProcessPid = data["common_pid"].(int32)
 
+	// Add unique ID
+	e.ProcessId = processID(e.ProcessPid)
+
 	// If Tid is available, use it
 	if sample.Tid > 0 {
 		e.ProcessTid = int32(sample.Tid)
@@ -128,19 +130,14 @@ func newEventFromSample(sample *perf.SampleRecord, data map[string]interface{}) 
 	e.Cpu = int32(sample.CPU)
 
 	// Add an associated containerID
-	procInfo := process.GetInfo(e.ProcessPid)
-	if procInfo != nil {
-		e.ProcessId = procInfo.UniqueID
-
-		containerID := procInfo.ContainerID
-		if len(containerID) > 0 {
-			containerInfo := container.GetInfo(containerID)
-			if containerInfo != nil {
-				e.ContainerId = containerID
-				e.ContainerName = containerInfo.Name
-				e.ImageId = containerInfo.ImageID
-				e.ImageName = containerInfo.ImageName
-			}
+	containerID := processContainerID(e.ProcessPid)
+	if len(containerID) > 0 {
+		containerInfo := container.GetInfo(containerID)
+		if containerInfo != nil {
+			e.ContainerId = containerID
+			e.ContainerName = containerInfo.Name
+			e.ImageId = containerInfo.ImageID
+			e.ImageName = containerInfo.ImageName
 		}
 	}
 

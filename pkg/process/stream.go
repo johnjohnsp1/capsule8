@@ -2,14 +2,11 @@ package process
 
 import (
 	"errors"
-	"sync"
 
 	"github.com/capsule8/capsule8/pkg/stream"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 	"github.com/golang/glog"
 )
-
-var once sync.Once
 
 // State represents the state of a process
 type State uint
