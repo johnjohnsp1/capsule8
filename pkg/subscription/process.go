@@ -4,12 +4,20 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"syscall"
+
+	"golang.org/x/sys/unix"
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/capsule8/pkg/process"
 	"github.com/capsule8/capsule8/pkg/sys"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 	"github.com/golang/glog"
+)
+
+const (
+	exitSymbol    = "do_exit"
+	exitFetchargs = "code=%di:s64"
 )
 
 func decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
@@ -58,18 +66,31 @@ func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampl
 	return ev, nil
 }
 
-func decodeSysEnterExitGroup(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	// For "error_code", the value coming from the kernel is uint64, but
-	// as far as I can tell, the kernel internally only ever really deals
-	// in int for the process exit code. So, I'm going to just convert it
-	// to sint32 here just like the kernel does.
-	exitCode := int32(data["error_code"].(uint64))
+func decodeDoExit(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+	var exitStatus int
+	var exitSignal syscall.Signal
+	var coreDumped bool
+
+	// The kprobe fetches the argument 'long code' as an s64. It's
+	// the same value returned as a status via waitpid(2).
+	code := data["code"].(int64)
+	ws := unix.WaitStatus(code)
+
+	if ws.Exited() {
+		exitStatus = ws.ExitStatus()
+	} else if ws.Signaled() {
+		exitSignal = ws.Signal()
+		coreDumped = ws.CoreDump()
+	}
 
 	ev := newEventFromSample(sample, data)
 	ev.Event = &api.Event_Process{
 		Process: &api.ProcessEvent{
-			Type:     api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT,
-			ExitCode: exitCode,
+			Type:           api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT,
+			ExitCode:       int32(code),
+			ExitStatus:     uint32(exitStatus),
+			ExitSignal:     uint32(exitSignal),
+			ExitCoreDumped: coreDumped,
 		},
 	}
 
@@ -197,24 +218,11 @@ func (pes *processFilterSet) registerEvents(monitor *perf.EventMonitor) {
 		}
 	}
 
-	if pes.exit != nil {
-		var parts []string
-
-		for _, f := range pes.exit {
-			s := f.String()
-			if len(s) > 0 {
-				parts = append(parts, fmt.Sprintf("(%s)", s))
-			}
-		}
-
-		filter := strings.Join(parts, " || ")
-
-		eventName := "syscalls/sys_enter_exit_group"
-		err := monitor.RegisterEvent(eventName, decodeSysEnterExitGroup,
-			filter, nil)
-		if err != nil {
-			glog.Infof("Couldn't get %s event id: %v",
-				eventName, err)
-		}
+	eventName := perf.UniqueProbeName("capsule8", exitSymbol)
+	_, err := monitor.RegisterKprobe(eventName, exitSymbol, false,
+		exitFetchargs, decodeDoExit, "", nil)
+	if err != nil {
+		glog.Infof("Couldn't register kprobe for %s: %s",
+			exitSymbol, err)
 	}
 }
