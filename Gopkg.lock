@@ -21,12 +21,6 @@
 
 [[projects]]
   branch = "master"
-  name = "github.com/golang/go"
-  packages = ["src/math/rand"]
-  revision = "531e6c06c468badbb1ba180027a93b3f6c5b2615"
-
-[[projects]]
-  branch = "master"
   name = "github.com/golang/protobuf"
   packages = ["jsonpb","proto","protoc-gen-go/descriptor","ptypes","ptypes/any","ptypes/duration","ptypes/struct","ptypes/timestamp","ptypes/wrappers"]
   revision = "130e6b02ab059e7b717a096f397c5b60111cae74"
@@ -52,13 +46,13 @@
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix"]
-  revision = "43eea11bc92608addb41b8a406b0407495c106f6"
+  revision = "686000749eaec0b8855b8eef5336cf63899fe51d"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/text"
   packages = ["collate","collate/build","internal/colltab","internal/gen","internal/tag","internal/triegen","internal/ucd","language","secure/bidirule","transform","unicode/bidi","unicode/cldr","unicode/norm","unicode/rangetable"]
-  revision = "825fc78a2fd6fa0a5447e300189e3219e05e1f25"
+  revision = "c01e4764d870b77f8abe5096ee19ad20d80e8075"
 
 [[projects]]
   branch = "master"
@@ -75,6 +69,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "86bf53aaad558602fe8caa9a10c9e0528874387f5ba2c5595d4c0b7c7d30d2d2"
+  inputs-digest = "f1d191fceb345e43cfb82e7ce3afac46a2089bd9818c663fbd5e1d9612c14a92"
   solver-name = "gps-cdcl"
   solver-version = 1

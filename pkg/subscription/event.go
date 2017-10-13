@@ -2,6 +2,7 @@ package subscription
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/capsule8/capsule8/pkg/container"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
-	"github.com/golang/go/src/math/rand"
 
 	api "github.com/capsule8/api/v0"
 	"golang.org/x/sys/unix"
