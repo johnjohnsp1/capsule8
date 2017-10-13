@@ -549,7 +549,7 @@ func (monitor *EventMonitor) Stop(wait bool) {
 var referenceEventAttr EventAttr = EventAttr{
 	Type:         PERF_TYPE_SOFTWARE,
 	Size:         sizeofPerfEventAttr,
-	Config:       PERF_COUNT_SW_DUMMY,
+	Config:       PERF_COUNT_SW_CONTEXT_SWITCHES,
 	SampleFreq:   1,
 	SampleType:   PERF_SAMPLE_TIME,
 	Freq:         true,
