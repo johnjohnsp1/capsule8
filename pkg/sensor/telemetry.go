@@ -38,9 +38,13 @@ func (g *gRPCServer) Serve() error {
 		//
 		_, err = os.Stat(socketPath)
 		if err == nil {
-			ua, err := net.ResolveUnixAddr("unix", socketPath)
+			var ua *net.UnixAddr
+
+			ua, err = net.ResolveUnixAddr("unix", socketPath)
 			if err == nil {
-				c, err := net.DialUnix("unix", nil, ua)
+				var c *net.UnixConn
+
+				c, err = net.DialUnix("unix", nil, ua)
 				if err == nil {
 					// There is another running
 					// Sensor, try to listen below

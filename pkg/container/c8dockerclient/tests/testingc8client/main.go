@@ -16,7 +16,9 @@ import (
 func inspectContainer(client *c8dockerclient.Client, id string) {
 	containerInfo, err := client.InspectContainer(id)
 	if err == nil {
-		imageInfo, err := client.InspectImage(containerInfo.ImageID)
+		var imageInfo *c8dockerclient.DockerImageInfo
+
+		imageInfo, err = client.InspectImage(containerInfo.ImageID)
 		if err != nil {
 			glog.Infoln("Error:", err)
 			return
@@ -26,7 +28,8 @@ func inspectContainer(client *c8dockerclient.Client, id string) {
 		glog.Infoln(containerInfo.String())
 
 		for networkKey, network := range containerInfo.NetworkSettings.Networks {
-			networkInfo, err := client.InspectNetwork(network.NetworkID)
+			var networkInfo *c8dockerclient.DockerNetworkInfo
+			networkInfo, err = client.InspectNetwork(network.NetworkID)
 
 			if err == nil {
 				glog.Infoln("Network entry:", networkKey)
@@ -37,7 +40,8 @@ func inspectContainer(client *c8dockerclient.Client, id string) {
 
 		}
 
-		processes, err := client.ContainerTop(id)
+		var processes []*c8dockerclient.ProcessEntry
+		processes, err = client.ContainerTop(id)
 		if err != nil {
 			glog.Infoln("Error:", err)
 			return
