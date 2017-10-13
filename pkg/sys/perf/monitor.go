@@ -397,7 +397,7 @@ func (monitor *EventMonitor) readRingBuffers(readyfds []int) {
 			}
 		} else {
 			x := len(monitor.samples)
-			for i := x-1; i > lastIndex; i-- {
+			for i := x - 1; i > lastIndex; i-- {
 				if monitor.samples[i].sample.Time > lastTimestamp {
 					x--
 				}
@@ -547,9 +547,9 @@ func (monitor *EventMonitor) Stop(wait bool) {
 }
 
 var referenceEventAttr EventAttr = EventAttr{
-	Type:         PERF_TYPE_HARDWARE,
+	Type:         PERF_TYPE_SOFTWARE,
 	Size:         sizeofPerfEventAttr,
-	Config:       PERF_COUNT_HW_CPU_CYCLES,
+	Config:       PERF_COUNT_SW_DUMMY,
 	SampleFreq:   1,
 	SampleType:   PERF_SAMPLE_TIME,
 	Freq:         true,
@@ -570,8 +570,10 @@ func (monitor *EventMonitor) cpuTimeOffset(cpu int, groupfd int, rb *ringBuffer)
 	// type of event we use is unimportant. We just want something
 	// that will be reported immediately. After the timestamp is
 	// retrieved, we can get rid of it.
-	fd, err := open(&referenceEventAttr, -1, cpu, groupfd, PERF_FLAG_FD_OUTPUT | PERF_FLAG_FD_NO_GROUP)
+	fd, err := open(&referenceEventAttr, -1, cpu, groupfd,
+		(PERF_FLAG_FD_OUTPUT | PERF_FLAG_FD_NO_GROUP))
 	if err != nil {
+		glog.V(3).Infof("Couldn't open reference event: %s", err)
 		return 0, err
 	}
 	defer unix.Close(fd)
@@ -635,9 +637,11 @@ func (monitor *EventMonitor) initializeGroupLeaders() error {
 
 		rb, err := newRingBuffer(newfds[i], monitor.ringBufferNumPages)
 		if err == nil {
+			var offset uint64
+
 			ringBuffers[fd] = rb
 
-			offset, err := monitor.cpuTimeOffset(i, fd, rb)
+			offset, err = monitor.cpuTimeOffset(i, fd, rb)
 			if err == nil {
 				monitor.timeOffsets[newfds[i]] = offset
 				continue

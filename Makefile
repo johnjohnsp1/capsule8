@@ -25,6 +25,8 @@ LDFLAGS=-ldflags "-X $(PKG)/pkg/version.Version=$(VERSION) -X $(PKG)/pkg/version
 # Need to use clang instead of gcc for -msan, specify its path here
 CLANG=clang
 
+GOVETFLAGS=-shadow
+
 # All command-line executables in cmd/
 CMDS=$(notdir $(wildcard ./cmd/*))
 
@@ -71,7 +73,7 @@ dist: static
 #
 check:
 	go build ./cmd/... ./examples/...
-	go vet ./cmd/... ./pkg/... ./examples/...
+	go vet $(GOVETFLAGS) ./cmd/... ./pkg/... ./examples/...
 
 #
 # Run an interactive busybox container with top-level directory mounted into

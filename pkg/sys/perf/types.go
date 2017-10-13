@@ -1058,13 +1058,13 @@ func (sid *SampleID) maybeRead(reader *bytes.Reader, startPos int64, recordSize 
 
 	// currentPos - startPos == # bytes already read
 	currentPos, _ := reader.Seek(0, os.SEEK_CUR)
-	if currentPos - startPos == int64(recordSize) {
+	if currentPos-startPos == int64(recordSize) {
 		return nil
 	}
-	if currentPos - startPos > int64(recordSize) {
+	if currentPos-startPos > int64(recordSize) {
 		panic("internal error - read too much data!")
 	}
-	if int64(recordSize) - (currentPos - startPos) < 8 {
+	if int64(recordSize)-(currentPos-startPos) < 8 {
 		panic("internal error - not enough data left to read for SampleIDAll!")
 	}
 
@@ -1073,7 +1073,7 @@ func (sid *SampleID) maybeRead(reader *bytes.Reader, startPos int64, recordSize 
 		sampleID uint64
 	)
 
-	reader.Seek(currentPos + int64(recordSize) - 8, os.SEEK_SET)
+	reader.Seek(currentPos+int64(recordSize)-8, os.SEEK_SET)
 	binary.Read(reader, binary.LittleEndian, &sampleID)
 	reader.Seek(currentPos, os.SEEK_SET)
 
@@ -1155,7 +1155,7 @@ func (sample *Sample) read(reader *bytes.Reader, eventAttr *EventAttr, formatMap
 		// SampleID, even if SampleIDAll is true.
 		// Fill in the missing information from SampleRecord so that
 		// it's complete to the outside observer
-		sample.SampleID = SampleID {
+		sample.SampleID = SampleID{
 			PID:      record.Pid,
 			TID:      record.Tid,
 			Time:     record.Time,
@@ -1187,7 +1187,8 @@ func (sample *Sample) read(reader *bytes.Reader, eventAttr *EventAttr, formatMap
 
 		recordData := make([]byte, recordSize)
 
-		n, err := reader.Read(recordData)
+		var n int
+		n, err = reader.Read(recordData)
 		if err != nil {
 			break
 		}
