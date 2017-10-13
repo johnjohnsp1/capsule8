@@ -66,6 +66,10 @@ func (rb *ringBuffer) unmap() error {
 	return unix.Munmap(rb.memory)
 }
 
+func (rb *ringBuffer) timeRunning() uint64 {
+	return atomic.LoadUint64(&rb.metadata.TimeRunning)
+}
+
 // Read calls the given function on each available record in the ringbuffer
 func (rb *ringBuffer) read(f func([]byte)) {
 	var dataHead, dataTail uint64
