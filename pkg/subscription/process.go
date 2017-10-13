@@ -98,7 +98,7 @@ func (pef *processExecFilter) String() string {
 	// Equality takes precedence since it's better performance
 	//
 	if len(pef.filename) > 0 {
-		return fmt.Sprintf("filename = %s", pef.filename)
+		return fmt.Sprintf("filename == %s", pef.filename)
 	}
 
 	if len(pef.filenamePattern) > 0 {
@@ -113,7 +113,7 @@ type processExitFilter struct {
 }
 
 func (pef *processExitFilter) String() string {
-	return fmt.Sprintf("exit_code = %d", pef.errorCode)
+	return fmt.Sprintf("error_code == %d", pef.errorCode)
 }
 
 type processFilterSet struct {
