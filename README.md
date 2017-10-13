@@ -83,6 +83,8 @@ cat: can't open '/foo': No such file or directory
 
 ## Contributing
 
+For contributing guidelines see [CONTRIBUTING](./CONTRIBUTING.md).
+
 ## FAQ
 
 ### How is this supposed to be used?
