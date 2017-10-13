@@ -5,7 +5,7 @@
   branch = "master"
   name = "github.com/capsule8/api"
   packages = ["v0"]
-  revision = "2659b05d2658af6c270e5dee17db81c3bbc6ec73"
+  revision = "98dec17557b8e2bc7994e5eca6fef03da68e7fec"
 
 [[projects]]
   name = "github.com/gobwas/glob"
@@ -23,7 +23,7 @@
   branch = "master"
   name = "github.com/golang/go"
   packages = ["src/math/rand"]
-  revision = "a82ee9c76d979f8ea713caa13023dcfd747b433a"
+  revision = "3a165bba34e2f68c2d0e3ab223efc7b8245d7083"
 
 [[projects]]
   branch = "master"
@@ -46,25 +46,25 @@
   branch = "master"
   name = "golang.org/x/net"
   packages = ["context","http2","http2/hpack","idna","internal/timeseries","lex/httplex","trace"]
-  revision = "0a9397675ba34b2845f758fe3cd68828369c6517"
+  revision = "a04bdaca5b32abe1c069418fb7088ae607de5bd0"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix"]
-  revision = "314a259e304ff91bd6985da2a7149bbf91237993"
+  revision = "ebfc5b4631820b793c9010c87fd8fef0f39eb082"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/text"
   packages = ["collate","collate/build","internal/colltab","internal/gen","internal/tag","internal/triegen","internal/ucd","language","secure/bidirule","transform","unicode/bidi","unicode/cldr","unicode/norm","unicode/rangetable"]
-  revision = "1cbadb444a806fd9430d14ad08967ed91da4fa0a"
+  revision = "825fc78a2fd6fa0a5447e300189e3219e05e1f25"
 
 [[projects]]
   branch = "master"
   name = "google.golang.org/genproto"
   packages = ["googleapis/api/annotations","googleapis/rpc/status"]
-  revision = "1e559d0a00eef8a9a43151db4665280bd8dd5886"
+  revision = "f676e0f3ac6395ff1a529ae59a6670878a8371a6"
 
 [[projects]]
   name = "google.golang.org/grpc"

@@ -32,7 +32,13 @@ func (ef *eventFilter) FilterFunc(i interface{}) bool {
 		pev := e.GetProcess()
 
 		for _, pef := range ef.ef.ProcessEvents {
-			mappings := make(map[string]*MappedField)
+			mappings := map[string]*MappedField{
+				"ExecFilenamePattern": &MappedField{
+					Name: "Filename",
+					Op:   COMPARISON_PATTERNMATCH,
+				},
+			}
+
 			match, _ := CompareFields(pef, pev, mappings)
 			if !match {
 				continue
