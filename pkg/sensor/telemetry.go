@@ -94,7 +94,7 @@ func (t *telemetryServiceServer) GetEvents(req *api.GetEventsRequest, stream api
 
 	glog.V(1).Infof("GetEvents(%+v)", sub)
 
-	eventStream, err := subscription.NewSubscription(sub)
+	eventStream, err := subscription.NewSubscription(sub, Sensor.ID)
 	if err != nil {
 		glog.Errorf("Failed to get events for subscription %+v: %s",
 			sub, err.Error())

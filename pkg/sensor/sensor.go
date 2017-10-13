@@ -3,6 +3,9 @@
 package sensor
 
 import (
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,16 +15,28 @@ import (
 
 	"google.golang.org/grpc"
 
+	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/capsule8/pkg/config"
 	"github.com/capsule8/capsule8/pkg/sys"
+	"github.com/capsule8/capsule8/pkg/sysinfo"
 	"github.com/golang/glog"
 )
+
+// Number of random bytes to generate for Sensor ID
+const sensorIDLengthBytes = 32
 
 // Globals
 var (
 	// Sensor is the global Sensor instance
 	Sensor sensor
 )
+
+func init() {
+	randomBytes := make([]byte, sensorIDLengthBytes)
+	rand.Read(randomBytes)
+
+	Sensor.ID = hex.EncodeToString(randomBytes[:])
+}
 
 // Server represents a server that can be registered to be run by the Sensor.
 type Server interface {
@@ -34,7 +49,7 @@ type Server interface {
 type sensor struct {
 	sync.Mutex
 
-	id                  string
+	ID                  string
 	perfEventMountPoint string
 	traceFSMountPoint   string
 	servers             []Server
@@ -232,4 +247,30 @@ func (s *sensor) Stop() {
 	if !s.stopped {
 		close(s.stopChan)
 	}
+}
+
+func (s *sensor) Report(c *api.Capsulator) error {
+	uname, err := sysinfo.Uname()
+	if err != nil {
+		glog.Errorf("failed to get uname info: %s\n", err.Error())
+		return err
+	}
+
+	stringify := func(b []byte) string { return string(bytes.Trim(b, "\x00")) }
+
+	nodename := stringify(uname.Nodename[:])
+
+	// Override nodename if set in config
+	if len(config.Sensor.NodeName) > 0 {
+		nodename = config.Sensor.NodeName
+	}
+
+	c.Id = s.ID
+	c.Type = api.Capsulator_TYPE_SENSOR
+	c.SensorSysname = stringify(uname.Sysname[:])
+	c.SensorNodename = nodename
+	c.SensorRelease = stringify(uname.Release[:])
+	c.SensorVersion = stringify(uname.Version[:])
+
+	return nil
 }
