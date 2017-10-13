@@ -160,6 +160,8 @@ func (pes *processFilterSet) len() int {
 }
 
 func (pes *processFilterSet) registerEvents(monitor *perf.EventMonitor) {
+	glog.V(2).Infof("registering events for pes %+v", pes)
+
 	if pes.fork != nil {
 		var parts []string
 
@@ -203,11 +205,24 @@ func (pes *processFilterSet) registerEvents(monitor *perf.EventMonitor) {
 		}
 	}
 
-	eventName := perf.UniqueProbeName("capsule8", exitSymbol)
-	_, err := monitor.RegisterKprobe(eventName, exitSymbol, false,
-		exitFetchargs, decodeDoExit, "", nil)
-	if err != nil {
-		glog.Infof("Couldn't register kprobe for %s: %s",
-			exitSymbol, err)
+	if pes.exit != nil {
+		var parts []string
+
+		for _, f := range pes.exit {
+			s := f.String()
+			if len(s) > 0 {
+				parts = append(parts, fmt.Sprintf("(%s)", s))
+			}
+		}
+
+		filter := strings.Join(parts, " || ")
+
+		eventName := perf.UniqueProbeName("capsule8", exitSymbol)
+		_, err := monitor.RegisterKprobe(eventName, exitSymbol, false,
+			exitFetchargs, decodeDoExit, filter, nil)
+		if err != nil {
+			glog.Infof("Couldn't register kprobe for %s: %s",
+				exitSymbol, err)
+		}
 	}
 }
