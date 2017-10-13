@@ -18,16 +18,15 @@ const (
 )
 
 func decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	//
-	// Notify proc info cache of fork event ASAP
-	//
 	childPid := data["child_pid"].(int32)
+	childID := processID(childPid)
 
 	ev := newEventFromSample(sample, data)
 	ev.Event = &api.Event_Process{
 		Process: &api.ProcessEvent{
 			Type:         api.ProcessEventType_PROCESS_EVENT_TYPE_FORK,
 			ForkChildPid: childPid,
+			ForkChildId:  childID,
 		},
 	}
 
@@ -64,8 +63,8 @@ func decodeDoExit(sample *perf.SampleRecord, data perf.TraceEventSampleData) (in
 	// The kprobe fetches the argument 'long code' as an s64. It's
 	// the same value returned as a status via waitpid(2).
 	code := data["code"].(int64)
-	ws := unix.WaitStatus(code)
 
+	ws := unix.WaitStatus(code)
 	if ws.Exited() {
 		exitStatus = ws.ExitStatus()
 	} else if ws.Signaled() {
@@ -115,11 +114,15 @@ func (pef *processExecFilter) String() string {
 }
 
 type processExitFilter struct {
-	errorCode int32
+	exitCode string
 }
 
 func (pef *processExitFilter) String() string {
-	return fmt.Sprintf("error_code == %d", pef.errorCode)
+	if len(pef.exitCode) > 0 {
+		return fmt.Sprintf("code == %s", pef.exitCode)
+	}
+
+	return ""
 }
 
 type processFilterSet struct {
@@ -148,7 +151,7 @@ func (pes *processFilterSet) add(pef *api.ProcessEventFilter) {
 		f := processExitFilter{}
 
 		if pef.ExitCode != nil {
-			f.errorCode = pef.ExitCode.Value
+			f.exitCode = fmt.Sprintf("%d", pef.ExitCode.Value)
 		}
 
 		pes.exit = append(pes.exit, f)
@@ -217,9 +220,8 @@ func (pes *processFilterSet) registerEvents(monitor *perf.EventMonitor) {
 
 		filter := strings.Join(parts, " || ")
 
-		eventName := perf.UniqueProbeName("capsule8", exitSymbol)
-		_, err := monitor.RegisterKprobe(eventName, exitSymbol, false,
-			exitFetchargs, decodeDoExit, filter, nil)
+		_, err := monitor.RegisterKprobe("capsule8/do_exit", exitSymbol,
+			false, exitFetchargs, decodeDoExit, filter, nil)
 		if err != nil {
 			glog.Infof("Couldn't register kprobe for %s: %s",
 				exitSymbol, err)
