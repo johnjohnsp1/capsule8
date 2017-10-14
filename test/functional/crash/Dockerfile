@@ -5,9 +5,10 @@ RUN apt-get update && \
     apt-get -y install build-essential && \
     apt-get clean
 
-COPY crashme.c /
+COPY main.c /
+
 WORKDIR /
 
-RUN make crashme
+RUN make main
 
-CMD "/crashme"
+CMD ["/main"]

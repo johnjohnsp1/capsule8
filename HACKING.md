@@ -1,6 +1,24 @@
 # Hacking on Capsule8
 
-## Sensor Performance Testing
+## Sensor
+
+### Functional Tests
+
+The functional tests in `test/functional` require privileges to run
+the `docker` command and reach the Sensor's local Unix socket gRPC API
+endpoint. In order to facilitate testing, it is recommended to
+separate the compilation of the test binary and the running of it with
+`sudo`. The functional tests assume that the sensor is already
+running.
+
+```
+$ cd test/functional
+$ go test -c
+$ sudo ./functional.test
+[...]
+```
+
+### Performance Tests
 
 In order to measure performance improvements or regressions of the
 Sensor, there is a simple macro benchmark in `test/benchmark`. The
@@ -29,4 +47,3 @@ $ make
 840.79user 64.07system 2:11.97elapsed 685%CPU (0avgtext+0avgdata 146052maxresident)k
 0inputs+28248outputs (0major+24220864minor)pagefaults 0swaps
 ```
-
