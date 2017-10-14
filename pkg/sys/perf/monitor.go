@@ -416,14 +416,14 @@ func (monitor *EventMonitor) readRingBuffers(readyfds []int) {
 			monitor.pendingSamples = monitor.pendingSamples[:0]
 		}
 		monitor.dispatchChan <- monitor.samples
-		monitor.samples = monitor.samples[:0]
+		monitor.samples = nil
 	}
 }
 
 func (monitor *EventMonitor) flushPendingSamples() {
 	if len(monitor.pendingSamples) > 0 {
 		monitor.dispatchChan <- monitor.pendingSamples
-		monitor.pendingSamples = monitor.pendingSamples[:0]
+		monitor.pendingSamples = nil
 	}
 }
 
