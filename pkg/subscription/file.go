@@ -128,8 +128,9 @@ func (ffs *fileFilterSet) registerEvents(monitor *perf.EventMonitor) {
 	if err != nil {
 		glog.V(1).Infof("Tracepoint fs/do_sys_open not found, adding a kprobe to emulate")
 
+		name := perf.UniqueProbeName("capsule8", "do_sys_open")
 		_, err = monitor.RegisterKprobe(
-			FS_DO_SYS_OPEN_KPROBE_NAME,
+			name,
 			FS_DO_SYS_OPEN_KPROBE_ADDRESS,
 			false,
 			FS_DO_SYS_OPEN_KPROBE_FETCHARGS,
