@@ -2,12 +2,12 @@ package subscription
 
 import (
 	"sync"
-	"syscall"
 
 	"golang.org/x/sys/unix"
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/capsule8/pkg/container"
+	"github.com/capsule8/capsule8/pkg/filter"
 	"github.com/capsule8/capsule8/pkg/stream"
 	"github.com/golang/glog"
 )
@@ -133,24 +133,16 @@ func translateContainerEvents(e interface{}) interface{} {
 		ece.Name = ce.Name
 		ece.ImageId = ce.ImageID
 		ece.ImageName = ce.Image
-
-		var exitStatus int
-		var exitSignal syscall.Signal
-		var coreDumped bool
+		ece.ExitCode = ce.ExitCode
 
 		ws := unix.WaitStatus(ce.ExitCode)
 
 		if ws.Exited() {
-			exitStatus = ws.ExitStatus()
+			ece.ExitStatus = uint32(ws.ExitStatus())
 		} else if ws.Signaled() {
-			exitSignal = ws.Signal()
-			coreDumped = ws.CoreDump()
+			ece.ExitSignal = uint32(ws.Signal())
+			ece.ExitCoreDumped = ws.CoreDump()
 		}
-
-		ece.ExitCode = ce.ExitCode
-		ece.ExitStatus = uint32(exitStatus)
-		ece.ExitSignal = uint32(exitSignal)
-		ece.ExitCoreDumped = coreDumped
 
 	case container.ContainerRemoved:
 		ece = newContainerDestroyed(ce.ID)
@@ -210,5 +202,39 @@ func createContainerEventStream(sub *api.Subscription) (*stream.Stream, error) {
 		return nil, containerEventStream.err
 	}
 
-	return containerEventStream.repeater.NewStream(), nil
+	s := containerEventStream.repeater.NewStream()
+
+	//
+	// Apply a filter based on this unique subscription to the copy
+	// of the container event stream that we got from the Repeater.
+	//
+	s = stream.Filter(s, func(i interface{}) bool {
+		e := i.(*api.Event)
+
+		switch e.Event.(type) {
+		case *api.Event_Container:
+			cev := e.GetContainer()
+
+			for _, cef := range sub.EventFilter.ContainerEvents {
+				mappings := make(map[string]*filter.MappedField)
+				match, _ :=
+					filter.CompareFields(cef, cev, mappings)
+
+				if !match {
+					continue
+				}
+
+				if cef.View != api.ContainerEventView_FULL {
+					cev.OciConfigJson = ""
+					cev.DockerConfigJson = ""
+				}
+
+				return true
+			}
+		}
+
+		return false
+	})
+
+	return s, nil
 }

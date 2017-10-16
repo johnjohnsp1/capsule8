@@ -1,6 +1,8 @@
 package subscription
 
 import (
+	"sync/atomic"
+
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/capsule8/pkg/config"
 	"github.com/capsule8/capsule8/pkg/filter"
@@ -351,8 +353,13 @@ func createTelemetryStream(sub *api.Subscription) (*stream.Stream, error) {
 		eventStream = applyModifiers(eventStream, *sub.Modifier)
 	}
 
-	joiner.On()
+	//
+	// Increment Subscriptions counter just before turning on
+	// event emission for the subscription.
+	//
+	atomic.AddInt32(&Metrics.Subscriptions, 1)
 
+	joiner.On()
 	return eventStream, nil
 }
 
