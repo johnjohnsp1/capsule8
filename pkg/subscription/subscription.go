@@ -12,11 +12,6 @@ import (
 	"github.com/golang/glog"
 )
 
-var (
-	// SensorID is a unique ID of the running instance of the Sensor.
-	SensorID string
-)
-
 //
 // FilterSet represents the union of all requested events for a
 // subscription. It consists of sub-event sets for each supported type of
@@ -367,8 +362,6 @@ func createTelemetryStream(sub *api.Subscription) (*stream.Stream, error) {
 // api.Subscription descriptor. NewSubscription returns a stream.Stream of
 // api.Events matching the specified filters. Closing the Stream cancels the
 // subscription.
-func NewSubscription(sub *api.Subscription, sensorID string) (*stream.Stream, error) {
-	SensorID = sensorID
-
+func NewSubscription(sub *api.Subscription) (*stream.Stream, error) {
 	return createTelemetryStream(sub)
 }
