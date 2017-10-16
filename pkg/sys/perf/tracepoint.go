@@ -107,6 +107,8 @@ func AddKprobe(name string, address string, onReturn bool, output string) (strin
 	// This isn't ideal: what if something else has added the same probe
 	// as us, and so we match that one, now assuming that it's ours?
 	//
+	var matches []string
+
 	filename := filepath.Join(sys.TracingDir(), "kprobe_events")
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	defer file.Close()
@@ -115,6 +117,7 @@ func AddKprobe(name string, address string, onReturn bool, output string) (strin
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
+
 		if !strings.HasPrefix(line, cmd) {
 			continue
 		}
@@ -129,9 +132,21 @@ func AddKprobe(name string, address string, onReturn bool, output string) (strin
 			continue
 		}
 
-		// We have a match! Return the name
-		glog.V(1).Infof("Matched kprobe name \"%s\" to \"%s\"", name, tokens[0][2:])
-		return string(tokens[0][2:]), nil
+		if name == string(tokens[0][2:]) {
+			glog.V(1).Infof("Found exact match for kprobe name \"%s\"", name)
+			return name, nil
+		}
+
+		matches = append(matches, string(tokens[0][2:]))
+	}
+
+	// If our exact name wasn't found, return the last match of command,
+	// symbol name, and fetchargs
+	if len(matches) > 0 {
+		match := matches[len(matches)-1]
+		glog.V(1).Infof("Matched kprobe name \"%s\" to \"%s\"",
+			name, match)
+		return match, nil
 	}
 
 	// If we get here, we've got an error or we found no matching name.
