@@ -222,7 +222,7 @@ func createPerfEventStream(sub *api.Subscription) (*stream.Stream, error) {
 	}
 
 	ctrl := make(chan interface{})
-	data := make(chan interface{}, 128)
+	data := make(chan interface{}, config.Sensor.ChannelBufferLength)
 
 	go func() {
 		defer close(data)

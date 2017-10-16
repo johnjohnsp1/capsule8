@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/capsule8/capsule8/pkg/config"
 	"github.com/capsule8/capsule8/pkg/sys"
 	"github.com/golang/glog"
 
@@ -456,7 +457,8 @@ func (monitor *EventMonitor) Run(fn SampleDispatchFn) error {
 		return err
 	}
 
-	monitor.dispatchChan = make(chan decodedSampleList, 128)
+	monitor.dispatchChan = make(chan decodedSampleList,
+		config.Sensor.ChannelBufferLength)
 	monitor.dispatchFn = fn
 
 	monitor.wg.Add(1)
