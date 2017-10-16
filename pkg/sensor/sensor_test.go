@@ -128,19 +128,6 @@ func TestGetEvents(t *testing.T) {
 	close(stopSignal)
 }
 
-func TestReport(t *testing.T) {
-	go func() {
-		Main()
-		glog.V(1).Info("Main() exited.")
-	}()
-	metadata := &api.Capsulator{}
-	Sensor.Report(metadata)
-	if Sensor.ID != metadata.Id ||
-		metadata.Type != api.Capsulator_TYPE_SENSOR {
-		t.Error("Capsulator metadata not as expected")
-	}
-}
-
 // Custom gRPC Dialer that understands "unix:/path/to/sock" as well as TCP addrs
 func dialer(addr string, timeout time.Duration) (net.Conn, error) {
 	var network, address string
