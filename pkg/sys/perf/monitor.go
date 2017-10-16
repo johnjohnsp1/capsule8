@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/capsule8/capsule8/pkg/sys"
@@ -34,31 +35,140 @@ type registeredEvent struct {
 type SampleDispatchFn func(interface{}, error)
 
 type EventMonitor struct {
+	// Ordering of fields is intentional to keep the most frequently used
+	// fields together at the head of the struct in an effort to increase
+	// cache locality
+
+	// Immutable items. No protection required. These fields are all set
+	// when the EventMonitor is created and never changed after that.
+	ringBuffers  map[int]*ringBuffer
+	dispatchChan chan decodedSampleList
+	baseTime     uint64
+	timeOffsets  map[int]uint64 // group fd : time offset
+
+	// Mutable by various goroutines, and also needed by the monitor
+	// goroutine. Both of these are thread-safe mutable without a lock.
+	// The monitor goroutine only ever reads from them, so there's no lock
+	// taken. .eventAttrs Writers will lock if the monitor goroutine is
+	// running; otherwise, .lock protects in-place writes. The thread-safe
+	// mutation of .decoders is handled elsewhere.
+	eventAttrs *safeEventAttrMap     // stream id : event attr
+	decoders   *TraceEventDecoderMap
+
+	// Mutable only by the monitor goroutine while running. No protection
+	// required.
+	samples        decodedSampleList // Used while reading from ringbuffers
+	pendingSamples decodedSampleList
+
+	// Immutable once set. Only used by the .dispatchSamples() goroutine.
+	// Load once there and cache locally to avoid cache misses on this
+	// struct.
+	dispatchFn SampleDispatchFn
+
+	// This lock protects everything mutable below this point.
+	lock *sync.Mutex
+
+	// Mutable only by the monitor goroutine, but readable by others
+	isRunning bool
+	pipe      [2]int
+
+	// Mutable by various goroutines, but not required by the monitor goroutine
+	events   map[string]*registeredEvent
+	eventfds map[int]int    // fd : cpu index
+	eventIDs map[int]uint64 // fd : stream id
+
+	// Immutable, rarely referenced
 	pid                int
 	flags              uintptr
 	ringBufferNumPages int
 	defaultAttr        EventAttr
+	groupfds           []int
+	cgroup             *os.File
 
-	lock *sync.Mutex
+	// Used only once during shutdown
 	cond *sync.Cond
+}
 
-	events       map[string]*registeredEvent
-	isRunning    bool
-	pipe         [2]int
-	groupfds     []int
-	eventfds     map[int]int    // fd : cpu index
-	eventIDs     map[int]uint64 // fd : stream id
-	eventAttrs   map[uint64]*EventAttr
-	ringBuffers  map[int]*ringBuffer
-	decoders     *TraceEventDecoderMap
-	cgroup       *os.File
-	dispatchChan chan decodedSampleList
-	dispatchFn   SampleDispatchFn
-	baseTime     uint64
-	timeOffsets  map[int]uint64 // group fd : time offset
+type eventAttrMap map[uint64]*EventAttr
 
-	samples        decodedSampleList // Used while reading from ringbuffers
-	pendingSamples decodedSampleList
+func newEventAttrMap() eventAttrMap {
+	return make(map[uint64]*EventAttr)
+}
+
+type safeEventAttrMap struct {
+	sync.Mutex              // used only by writers
+	active     atomic.Value // map[uint64]*EventAttr
+}
+
+func newSafeEventAttrMap() *safeEventAttrMap {
+	return &safeEventAttrMap{}
+}
+
+func (m *safeEventAttrMap) getMap() eventAttrMap {
+	value := m.active.Load()
+	if value == nil {
+		return nil
+	}
+	return value.(eventAttrMap)
+}
+
+func (m *safeEventAttrMap) removeInPlace(ids []uint64) {
+	em := m.getMap()
+	if em == nil {
+		return
+	}
+
+	for _, id := range ids {
+		delete(em, id)
+	}
+}
+
+func (m *safeEventAttrMap) remove(ids []uint64) {
+	m.Lock()
+	defer m.Unlock()
+
+	oem := m.getMap()
+	nem := newEventAttrMap()
+	if oem != nil {
+		for k, v := range oem {
+			nem[k] = v
+		}
+	}
+	for _, id := range ids {
+		delete(nem, id)
+	}
+
+	m.active.Store(nem)
+}
+
+func (m *safeEventAttrMap) updateInPlace(emfrom eventAttrMap) {
+	em := m.getMap()
+	if em == nil {
+		em = newEventAttrMap()
+		m.active.Store(em)
+	}
+
+	for k, v := range emfrom {
+		em[k] = v
+	}
+}
+
+func (m *safeEventAttrMap) update(emfrom eventAttrMap) {
+	m.Lock()
+	defer m.Unlock()
+
+	oem := m.getMap()
+	nem := newEventAttrMap()
+	if oem != nil {
+		for k, v := range oem {
+			nem[k] = v
+		}
+	}
+	for k, v := range emfrom {
+		nem[k] = v
+	}
+
+	m.active.Store(nem)
 }
 
 func fixupEventAttr(eventAttr *EventAttr) {
@@ -89,6 +199,7 @@ func perfEventOpen(eventAttr *EventAttr, pid int, groupfds []int, flags uintptr,
 			}
 			return nil, err
 		}
+		newfds[i] = fd
 
 		if len(filter) > 0 {
 			err := setFilter(fd, filter)
@@ -99,13 +210,12 @@ func perfEventOpen(eventAttr *EventAttr, pid int, groupfds []int, flags uintptr,
 				return nil, err
 			}
 		}
-
-		newfds[i] = fd
 	}
 
 	return newfds, nil
 }
 
+// This should be called with monitor.lock held.
 func (monitor *EventMonitor) newRegisteredEvent(name string, fn TraceEventDecoderFn, filter string, eventAttr *EventAttr, eventType int) (*registeredEvent, error) {
 	id, err := monitor.decoders.AddDecoder(name, fn)
 	if err != nil {
@@ -129,24 +239,26 @@ func (monitor *EventMonitor) newRegisteredEvent(name string, fn TraceEventDecode
 		return nil, err
 	}
 
+	eventAttrs := newEventAttrMap()
 	for _, fd := range newfds {
 		id, err := unix.IoctlGetInt(fd, PERF_EVENT_IOC_ID)
 		if err != nil {
 			for _, fd := range newfds {
 				unix.Close(fd)
-				id, ok := monitor.eventIDs[fd]
-				if ok {
-					delete(monitor.eventAttrs, id)
-					delete(monitor.eventIDs, fd)
-				}
+				delete(monitor.eventIDs, fd)
 			}
 			monitor.decoders.RemoveDecoder(name)
 			return nil, err
 		}
-		monitor.eventAttrs[uint64(id)] = &attr
+		eventAttrs[uint64(id)] = &attr
 		monitor.eventIDs[fd] = uint64(id)
 	}
 
+	if monitor.isRunning {
+		monitor.eventAttrs.update(eventAttrs)
+	} else {
+		monitor.eventAttrs.updateInPlace(eventAttrs)
+	}
 	for i, fd := range newfds {
 		monitor.eventfds[fd] = i
 	}
@@ -164,9 +276,8 @@ func (monitor *EventMonitor) newRegisteredEvent(name string, fn TraceEventDecode
 }
 
 func (monitor *EventMonitor) RegisterEvent(name string, fn TraceEventDecoderFn, filter string, eventAttr *EventAttr) error {
-	if monitor.isRunning {
-		return errors.New("monitor is already running")
-	}
+	monitor.lock.Lock()
+	defer monitor.lock.Unlock()
 
 	key := fmt.Sprintf("%s %s", name, filter)
 	_, ok := monitor.events[key]
@@ -186,9 +297,8 @@ func (monitor *EventMonitor) RegisterEvent(name string, fn TraceEventDecoderFn, 
 func (monitor *EventMonitor) RegisterKprobe(name string, address string, onReturn bool, output string,
 	fn TraceEventDecoderFn, filter string, eventAttr *EventAttr) (string, error) {
 
-	if monitor.isRunning {
-		return "", errors.New("monitor is already running")
-	}
+	monitor.lock.Lock()
+	defer monitor.lock.Unlock()
 
 	key := fmt.Sprintf("%s %s", name, filter)
 	_, ok := monitor.events[key]
@@ -211,15 +321,23 @@ func (monitor *EventMonitor) RegisterKprobe(name string, address string, onRetur
 	return name, nil
 }
 
+// This should be called with monitor.lock held
 func (monitor *EventMonitor) removeRegisteredEvent(event *registeredEvent) {
+	ids := make([]uint64, 0, len(event.fds))
 	for _, fd := range event.fds {
 		delete(monitor.eventfds, fd)
 		id, ok := monitor.eventIDs[fd]
 		if ok {
-			delete(monitor.eventAttrs, id)
+			ids = append(ids, id)
 			delete(monitor.eventIDs, fd)
 		}
 		unix.Close(fd)
+	}
+
+	if monitor.isRunning {
+		monitor.eventAttrs.removeInPlace(ids)
+	} else {
+		monitor.eventAttrs.remove(ids)
 	}
 
 	switch event.eventType {
@@ -233,9 +351,8 @@ func (monitor *EventMonitor) removeRegisteredEvent(event *registeredEvent) {
 }
 
 func (monitor *EventMonitor) UnregisterEvent(name string, filter string) error {
-	if monitor.isRunning {
-		return errors.New("monitor is already running")
-	}
+	monitor.lock.Lock()
+	defer monitor.lock.Unlock()
 
 	key := fmt.Sprintf("%s %s", name, filter)
 	event, ok := monitor.events[key]
@@ -252,6 +369,13 @@ func (monitor *EventMonitor) Close(wait bool) error {
 	// if the monitor is running, stop it and wait for it to stop
 	monitor.Stop(wait)
 
+	// This lock isn't strictly necessary -- by the time .Close() is
+	// called, it would be a programming error for multiple go routines
+	// to be trying to close the monitor or update events. It doesn't
+	// hurt to lock, so do it anyway just to be on the safe side.
+	monitor.lock.Lock()
+	defer monitor.lock.Unlock()
+
 	for _, event := range monitor.events {
 		monitor.removeRegisteredEvent(event)
 	}
@@ -267,7 +391,7 @@ func (monitor *EventMonitor) Close(wait bool) error {
 	}
 	monitor.eventIDs = nil
 
-	if len(monitor.eventAttrs) != 0 {
+	if len(monitor.eventAttrs.getMap()) != 0 {
 		panic("internal error: stray event attrs left after monitor Close")
 	}
 	monitor.eventAttrs = nil
@@ -291,6 +415,9 @@ func (monitor *EventMonitor) Close(wait bool) error {
 }
 
 func (monitor *EventMonitor) Disable() {
+	monitor.lock.Lock()
+	defer monitor.lock.Unlock()
+
 	// Group FDs are always disabled
 	for fd := range monitor.eventfds {
 		disable(fd)
@@ -298,6 +425,9 @@ func (monitor *EventMonitor) Disable() {
 }
 
 func (monitor *EventMonitor) Enable() {
+	monitor.lock.Lock()
+	defer monitor.lock.Unlock()
+
 	// Group FDs are always disabled
 	for fd := range monitor.eventfds {
 		enable(fd)
@@ -331,6 +461,7 @@ func (ds decodedSampleList) Less(i, j int) bool {
 }
 
 func (monitor *EventMonitor) dispatchSamples() {
+	dispatchFn := monitor.dispatchFn
 	for {
 		select {
 		case samples, ok := <-monitor.dispatchChan:
@@ -350,9 +481,9 @@ func (monitor *EventMonitor) dispatchSamples() {
 					// matches the normalized timestamp.
 					record.Time = ds.sample.Time
 					s, err := monitor.decoders.DecodeSample(record)
-					monitor.dispatchFn(s, err)
+					dispatchFn(s, err)
 				default:
-					monitor.dispatchFn(&ds.sample, ds.err)
+					dispatchFn(&ds.sample, ds.err)
 				}
 			}
 		}
@@ -363,7 +494,7 @@ func (monitor *EventMonitor) readSamples(data []byte) {
 	reader := bytes.NewReader(data)
 	for reader.Len() > 0 {
 		ds := decodedSample{}
-		ds.err = ds.sample.read(reader, nil, monitor.eventAttrs)
+		ds.err = ds.sample.read(reader, nil, monitor.eventAttrs.getMap())
 		monitor.samples = append(monitor.samples, ds)
 	}
 }
@@ -442,9 +573,9 @@ func (monitor *EventMonitor) Run(fn SampleDispatchFn) error {
 		return errors.New("monitor is already running")
 	}
 	monitor.isRunning = true
-	monitor.lock.Unlock()
 
 	err := unix.Pipe2(monitor.pipe[:], unix.O_DIRECT|unix.O_NONBLOCK)
+	monitor.lock.Unlock()
 	if err != nil {
 		monitor.stopWithSignal()
 		return err
@@ -454,10 +585,9 @@ func (monitor *EventMonitor) Run(fn SampleDispatchFn) error {
 	monitor.dispatchFn = fn
 	go monitor.dispatchSamples()
 
-	// Set up the fds for polling. Do not monitor the groupfds, because
-	// notifications there will prevent notifications on the eventfds,
-	// which are the ones we really want, because they give us the format
-	// information we need to decode the raw samples.
+	// Set up the fds for polling. Monitor only the groupfds, because they
+	// will encapsulate all of the eventfds and they're tied to the ring
+	// buffers.
 	pollfds := make([]unix.PollFd, 0, len(monitor.groupfds)+1)
 	pollfds = addPollFd(pollfds, monitor.pipe[0])
 	for _, fd := range monitor.groupfds {
@@ -509,6 +639,11 @@ runloop:
 		}
 	}
 
+	if monitor.dispatchChan != nil {
+		close(monitor.dispatchChan)
+	}
+
+	monitor.lock.Lock()
 	if monitor.pipe[1] != -1 {
 		unix.Close(monitor.pipe[1])
 		monitor.pipe[1] = -1
@@ -517,9 +652,7 @@ runloop:
 		unix.Close(monitor.pipe[0])
 		monitor.pipe[0] = -1
 	}
-	if monitor.dispatchChan != nil {
-		close(monitor.dispatchChan)
-	}
+	monitor.lock.Unlock()
 
 	monitor.stopWithSignal()
 	return err
@@ -689,7 +822,7 @@ func NewEventMonitor(pid int, flags uintptr, ringBufferNumPages int, defaultAttr
 		eventfds:           make(map[int]int),
 		eventIDs:           make(map[int]uint64),
 		decoders:           NewTraceEventDecoderMap(),
-		eventAttrs:         make(map[uint64]*EventAttr),
+		eventAttrs:         newSafeEventAttrMap(),
 		baseTime:           uint64(time.Now().UnixNano()),
 	}
 	monitor.lock = &sync.Mutex{}
