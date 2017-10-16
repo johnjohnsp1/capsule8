@@ -44,15 +44,22 @@ var Sensor struct {
 	// system, this can be set to "" or "/".
 	CgroupName string `split_words:"true"`
 
-	// The default size of ring buffers used for kernel perf_event
-	// monitors. The size is defined in units of pages.
-	RingBufferPages int `split_words:"true" default:"8"`
-
 	// Ignore missing debugfs/tracefs mount (useful for automated testing)
 	DontMountTracing bool `split_words:"true"`
 
 	// Ignore missing perf_event cgroup filesystem mount
 	DontMountPerfEvent bool `split_words:"true"`
+
+	//
+	// Performance knobs below here
+	//
+
+	// The default size of ring buffers used for kernel perf_event
+	// monitors. The size is defined in units of pages.
+	RingBufferPages int `split_words:"true" default:"8"`
+
+	// The default buffer length for Go channels used internally
+	ChannelBufferLength int `split_words:"true" default:"0"`
 }
 
 func init() {

@@ -3,6 +3,7 @@ package stream
 import (
 	"reflect"
 
+	"github.com/capsule8/capsule8/pkg/config"
 	"github.com/golang/glog"
 )
 
@@ -148,7 +149,7 @@ func (j *joiner) loop() {
 // streams can be created from the Joiner and later removed.
 func NewJoiner() (*Stream, *Joiner) {
 	ctrl := make(chan interface{})
-	data := make(chan interface{})
+	data := make(chan interface{}, config.Sensor.ChannelBufferLength)
 
 	go func() {
 		r := &joiner{ctrl: ctrl, data: data, enable: true}

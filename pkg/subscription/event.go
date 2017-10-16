@@ -119,9 +119,12 @@ func newEventFromSample(sample *perf.SampleRecord, data map[string]interface{}) 
 	// Add an associated containerID
 	containerID := processContainerID(e.ProcessPid)
 	if len(containerID) > 0 {
+		// Add the container ID if we have it and then try
+		// using it to look up additional container info
+		e.ContainerId = containerID
+
 		containerInfo := container.GetInfo(containerID)
 		if containerInfo != nil {
-			e.ContainerId = containerID
 			e.ContainerName = containerInfo.Name
 			e.ImageId = containerInfo.ImageID
 			e.ImageName = containerInfo.ImageName

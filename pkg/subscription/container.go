@@ -1,12 +1,15 @@
 package subscription
 
 import (
+	"sync"
 	"syscall"
 
 	"golang.org/x/sys/unix"
 
 	api "github.com/capsule8/api/v0"
 	"github.com/capsule8/capsule8/pkg/container"
+	"github.com/capsule8/capsule8/pkg/stream"
+	"github.com/golang/glog"
 )
 
 func newContainerCreated(cID string) *api.ContainerEvent {
@@ -174,4 +177,38 @@ func translateContainerEvents(e interface{}) interface{} {
 	}
 
 	return nil
+}
+
+var containerEventStream struct {
+	sync.Once
+	err      error
+	repeater *stream.Repeater
+}
+
+func createContainerEventStream(sub *api.Subscription) (*stream.Stream, error) {
+	containerEventStream.Do(func() {
+		glog.V(1).Info("Creating container event stream")
+		ces, err := container.NewEventStream()
+		if err != nil {
+			if glog.V(1) {
+				glog.Warning("Couldn't create container event stream: %s",
+					err)
+			}
+
+			containerEventStream.err = err
+			return
+		}
+
+		// Translate container events to protobuf versions
+		ces = stream.Map(ces, translateContainerEvents)
+		ces = stream.Filter(ces, filterNils)
+
+		containerEventStream.repeater = stream.NewRepeater(ces)
+	})
+
+	if containerEventStream.err != nil {
+		return nil, containerEventStream.err
+	}
+
+	return containerEventStream.repeater.NewStream(), nil
 }
