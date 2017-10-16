@@ -37,12 +37,12 @@ var Sensor struct {
 	//   :8484
 	ListenAddr string `split_words:"true" default:"unix:/var/run/capsule8/sensor.sock"`
 
-	// Name of Cgroup to monitor for events. The cgroup specified must
-	// exist within the perf_event cgroup hierarchy. If this is set to
-	// "docker", the Sensor will monitor containers for events and ignore
-	// processes not running in Docker containers. To monitor the entire
-	// system, this can be set to "" or "/".
-	CgroupName string `split_words:"true"`
+	// Names of cgroups to monitor for events. Each cgroup specified must
+	// exist within the perf_event cgroup hierarchy. For example, if this
+	// is set to "docker", the Sensor will monitor containers for events
+	// and ignore processes not running in Docker containers. To monitor
+	// the entire system, use "" or "/" as the cgroup name.
+	CgroupName []string `split_words:"true"`
 
 	// Ignore missing debugfs/tracefs mount (useful for automated testing)
 	DontMountTracing bool `split_words:"true"`

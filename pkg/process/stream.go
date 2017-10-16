@@ -156,18 +156,10 @@ func createStream(monitor *perf.EventMonitor) (*stream.Stream, error) {
 	return ps.eventStream, nil
 }
 
-func newPidStream(args ...int) (*stream.Stream, error) {
-	var pid int
+func newPidStream(pids ...int) (*stream.Stream, error) {
+	monitor, err := perf.NewEventMonitor(0, nil,
+		perf.WithPids(pids))
 
-	if len(args) < 1 {
-		pid = -1
-	} else if len(args) > 1 {
-		return nil, errors.New("Must specify zero or one pids")
-	} else {
-		pid = args[0]
-	}
-
-	monitor, err := perf.NewEventMonitor(pid, 0, 0, nil)
 	if err != nil {
 		glog.Infof("Couldn't create event monitor: %v", err)
 		return nil, err
@@ -182,8 +174,14 @@ func newPidStream(args ...int) (*stream.Stream, error) {
 	return createStream(monitor)
 }
 
-func newCgroupStream(cgroup string) (*stream.Stream, error) {
-	monitor, err := perf.NewEventMonitorWithCgroup(cgroup, 0, 0, nil)
+func newCgroupStream(cgroups ...string) (*stream.Stream, error) {
+	if len(cgroups) < 1 {
+		return nil, errors.New("Must specify at least one cgroup name")
+	}
+
+	monitor, err := perf.NewEventMonitor(0, nil,
+		perf.WithCgroups(cgroups))
+
 	if err != nil {
 		glog.Infof("Couldn't create event monitor: %v", err)
 		return nil, err
