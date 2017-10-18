@@ -27,7 +27,7 @@ func newNetworkEvent(eventType api.NetworkEventType, sample *perf.SampleRecord, 
 	// If this even contains a network address, throw away any family that
 	// we do not support without doing the extra work of creating an event
 	// just to throw it away
-	family, have_family := data["sa_family"]
+	family, have_family := data["sa_family"].(uint16)
 	if have_family {
 		switch family {
 		case 1: // AF_LOCAL
