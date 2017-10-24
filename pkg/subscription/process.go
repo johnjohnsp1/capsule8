@@ -220,10 +220,11 @@ func (pes *processFilterSet) registerEvents(monitor *perf.EventMonitor) {
 
 		filter := strings.Join(parts, " || ")
 
-		_, err := monitor.RegisterKprobe("capsule8/do_exit", exitSymbol,
+		name := perf.UniqueProbeName("capsule8", "do_exit")
+		_, err := monitor.RegisterKprobe(name, exitSymbol,
 			false, exitFetchargs, decodeDoExit, filter, nil)
 		if err != nil {
-			glog.Infof("Couldn't register kprobe for %s: %s",
+			glog.Errorf("Couldn't register kprobe for %s: %s",
 				exitSymbol, err)
 		}
 	}

@@ -198,6 +198,8 @@ func (fs *FileSystem) ContainerID(pid int32) (string, error) {
 		return "", err
 	}
 
+	glog.V(10).Infof("pid:%d cgroups:%+v", pid, cgroups)
+
 	for _, pci := range cgroups {
 		if strings.HasPrefix(pci.Path, "/docker") {
 			pathParts := strings.Split(pci.Path, "/")

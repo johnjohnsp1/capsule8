@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/capsule8/capsule8/pkg/config"
 	"github.com/capsule8/capsule8/pkg/sys"
 	"github.com/golang/glog"
 
@@ -87,6 +88,7 @@ type EventMonitor struct {
 
 	// Used only once during shutdown
 	cond *sync.Cond
+	wg   sync.WaitGroup
 }
 
 type eventAttrMap map[uint64]*EventAttr
@@ -461,13 +463,17 @@ func (ds decodedSampleList) Less(i, j int) bool {
 }
 
 func (monitor *EventMonitor) dispatchSamples() {
-	dispatchFn := monitor.dispatchFn
-	for {
+	defer monitor.wg.Done()
+
+  dispatchFn := monitor.dispatchFn
+	for monitor.isRunning {
 		select {
 		case samples, ok := <-monitor.dispatchChan:
 			if !ok {
 				// Channel is closed; stop dispatch
 				monitor.dispatchChan = nil
+
+				// Signal completion of dispatch via WaitGroup
 				return
 			}
 
@@ -572,6 +578,7 @@ func (monitor *EventMonitor) Run(fn SampleDispatchFn) error {
 		monitor.lock.Unlock()
 		return errors.New("monitor is already running")
 	}
+
 	monitor.isRunning = true
 
 	err := unix.Pipe2(monitor.pipe[:], unix.O_DIRECT|unix.O_NONBLOCK)
@@ -581,8 +588,11 @@ func (monitor *EventMonitor) Run(fn SampleDispatchFn) error {
 		return err
 	}
 
-	monitor.dispatchChan = make(chan decodedSampleList, 128)
+	monitor.dispatchChan = make(chan decodedSampleList,
+		config.Sensor.ChannelBufferLength)
 	monitor.dispatchFn = fn
+
+	monitor.wg.Add(1)
 	go monitor.dispatchSamples()
 
 	// Set up the fds for polling. Monitor only the groupfds, because they
@@ -654,6 +664,13 @@ runloop:
 	}
 	monitor.lock.Unlock()
 
+  if monitor.dispatchChan != nil {
+		close(monitor.dispatchChan)
+
+		// Wait for dispatchSamples goroutine to exit
+		monitor.wg.Wait()
+	}
+
 	monitor.stopWithSignal()
 	return err
 }
@@ -674,6 +691,7 @@ func (monitor *EventMonitor) Stop(wait bool) {
 
 	if wait {
 		for monitor.isRunning {
+			// Wait for condition to signal that Run() is done
 			monitor.cond.Wait()
 		}
 	}

@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"sync"
 
+	"github.com/capsule8/capsule8/pkg/config"
 	"github.com/capsule8/capsule8/pkg/stream"
 	"github.com/golang/glog"
 
@@ -426,7 +427,7 @@ func NewInstance() (*Instance, error) {
 	}
 
 	stop := make(chan interface{})
-	elem := make(chan interface{})
+	elem := make(chan interface{}, config.Sensor.ChannelBufferLength)
 	ctrl := make(chan interface{})
 
 	is := &Instance{

@@ -2,6 +2,7 @@ package subscription
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -15,7 +16,14 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// Number of random bytes to generate for Sensor ID
+const sensorIDLengthBytes = 32
+
 var (
+	// SensorID is a unique ID of the running instance of the
+	// Sensor. A restart of the Sensor generates a new ID.
+	SensorID string
+
 	// Sensor-unique event sequence number. Each event sent from
 	// the Sensor to any Subscription has a unique sequence number
 	// for the indicated Sensor ID.
@@ -27,6 +35,11 @@ var (
 )
 
 func init() {
+	randomBytes := make([]byte, sensorIDLengthBytes)
+	rand.Read(randomBytes)
+
+	SensorID = hex.EncodeToString(randomBytes[:])
+
 	sequenceNumber = 0
 
 	ts := unix.Timespec{}
@@ -119,9 +132,12 @@ func newEventFromSample(sample *perf.SampleRecord, data map[string]interface{}) 
 	// Add an associated containerID
 	containerID := processContainerID(e.ProcessPid)
 	if len(containerID) > 0 {
+		// Add the container ID if we have it and then try
+		// using it to look up additional container info
+		e.ContainerId = containerID
+
 		containerInfo := container.GetInfo(containerID)
 		if containerInfo != nil {
-			e.ContainerId = containerID
 			e.ContainerName = containerInfo.Name
 			e.ImageId = containerInfo.ImageID
 			e.ImageName = containerInfo.ImageName
