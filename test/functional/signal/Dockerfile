@@ -5,9 +5,10 @@ RUN apt-get update && \
     apt-get -y install build-essential && \
     apt-get clean
 
-COPY killme.c /
+COPY main.c /
 WORKDIR /
 
-RUN make killme
+RUN make main
 
-CMD /killme 10
+# init process can't raise signals, so use shell form of CMD
+CMD "/main"
