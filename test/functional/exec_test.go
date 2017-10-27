@@ -10,16 +10,16 @@ import (
 )
 
 type execTest struct {
-	testContainer   *container
+	testContainer   *Container
 	err             error
 	containerID     string
 	containerExited bool
 	processID       string
 }
 
-func (ct *execTest) buildContainer(t *testing.T) {
-	c := newContainer(t, "exec")
-	err := c.build()
+func (ct *execTest) BuildContainer(t *testing.T) {
+	c := NewContainer(t, "exec")
+	err := c.Build()
 	if err != nil {
 		t.Error(err)
 	} else {
@@ -27,14 +27,14 @@ func (ct *execTest) buildContainer(t *testing.T) {
 	}
 }
 
-func (ct *execTest) runContainer(t *testing.T) {
-	err := ct.testContainer.run()
+func (ct *execTest) RunContainer(t *testing.T) {
+	err := ct.testContainer.Run()
 	if err != nil {
 		t.Error(err)
 	}
 }
 
-func (ct *execTest) createSubscription(t *testing.T) *api.Subscription {
+func (ct *execTest) CreateSubscription(t *testing.T) *api.Subscription {
 	containerEvents := []*api.ContainerEventFilter{
 		&api.ContainerEventFilter{
 			Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED,
@@ -69,13 +69,13 @@ func (ct *execTest) createSubscription(t *testing.T) *api.Subscription {
 	return sub
 }
 
-func (ct *execTest) handleTelemetryEvent(t *testing.T, telemetryEvent *api.TelemetryEvent) bool {
+func (ct *execTest) HandleTelemetryEvent(t *testing.T, telemetryEvent *api.TelemetryEvent) bool {
 	glog.V(2).Infof("%+v", telemetryEvent)
 
 	switch event := telemetryEvent.Event.Event.(type) {
 	case *api.Event_Container:
 		if event.Container.Type == api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED {
-			if event.Container.ImageName == ct.testContainer.imageID {
+			if event.Container.ImageName == ct.testContainer.ImageID {
 				if len(ct.containerID) > 0 {
 					t.Error("Already saw container created")
 					return false
@@ -112,6 +112,6 @@ func (ct *execTest) handleTelemetryEvent(t *testing.T, telemetryEvent *api.Telem
 
 func TestExec(t *testing.T) {
 	et := &execTest{}
-	tt := newTelemetryTest(et)
-	tt.runTest(t)
+	tt := NewTelemetryTester(et)
+	tt.RunTest(t)
 }

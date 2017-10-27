@@ -10,7 +10,7 @@ import (
 )
 
 type crashTest struct {
-	testContainer   *container
+	testContainer   *Container
 	err             error
 	containerID     string
 	containerExited bool
@@ -18,9 +18,9 @@ type crashTest struct {
 	processExited   bool
 }
 
-func (ct *crashTest) buildContainer(t *testing.T) {
-	c := newContainer(t, "crash")
-	err := c.build()
+func (ct *crashTest) BuildContainer(t *testing.T) {
+	c := NewContainer(t, "crash")
+	err := c.Build()
 	if err != nil {
 		t.Error(err)
 	} else {
@@ -28,18 +28,18 @@ func (ct *crashTest) buildContainer(t *testing.T) {
 	}
 }
 
-func (ct *crashTest) runContainer(t *testing.T) {
-	err := ct.testContainer.start()
+func (ct *crashTest) RunContainer(t *testing.T) {
+	err := ct.testContainer.Start()
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
 	// We assume that the container will return an error, so ignore that one
-	ct.testContainer.wait()
+	ct.testContainer.Wait()
 }
 
-func (ct *crashTest) createSubscription(t *testing.T) *api.Subscription {
+func (ct *crashTest) CreateSubscription(t *testing.T) *api.Subscription {
 	containerEvents := []*api.ContainerEventFilter{
 		&api.ContainerEventFilter{
 			Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED,
@@ -78,13 +78,13 @@ func (ct *crashTest) createSubscription(t *testing.T) *api.Subscription {
 	return sub
 }
 
-func (ct *crashTest) handleTelemetryEvent(t *testing.T, telemetryEvent *api.TelemetryEvent) bool {
+func (ct *crashTest) HandleTelemetryEvent(t *testing.T, telemetryEvent *api.TelemetryEvent) bool {
 	glog.V(2).Infof("%+v", telemetryEvent)
 
 	switch event := telemetryEvent.Event.Event.(type) {
 	case *api.Event_Container:
 		if event.Container.Type == api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED {
-			if event.Container.ImageName == ct.testContainer.imageID {
+			if event.Container.ImageName == ct.testContainer.ImageID {
 				if len(ct.containerID) > 0 {
 					t.Error("Already saw container created")
 					return false
@@ -151,6 +151,6 @@ func (ct *crashTest) handleTelemetryEvent(t *testing.T, telemetryEvent *api.Tele
 
 func TestCrash(t *testing.T) {
 	ct := &crashTest{}
-	tt := newTelemetryTest(ct)
-	tt.runTest(t)
+	tt := NewTelemetryTester(ct)
+	tt.RunTest(t)
 }

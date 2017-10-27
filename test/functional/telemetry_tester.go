@@ -5,42 +5,60 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/net/context"
-
 	api "github.com/capsule8/api/v0"
+	"github.com/golang/glog"
+	"golang.org/x/net/context"
+	"google.golang.org/grpc"
 )
 
 const telemetryTestTimeout = 10 * time.Second
 
+var (
+	sensorConn *grpc.ClientConn
+	connOnce   sync.Once
+)
+
 type TelemetryTest interface {
 	// Build the container used for testing.
-	buildContainer(t *testing.T)
+	BuildContainer(t *testing.T)
 
 	// Run the container used for testing.
-	runContainer(t *testing.T)
+	RunContainer(t *testing.T)
 
 	// create and return telemetry subscription to use for the test
-	createSubscription(t *testing.T) *api.Subscription
+	CreateSubscription(t *testing.T) *api.Subscription
 
 	// return true to keep going, false if done
-	handleTelemetryEvent(t *testing.T, te *api.TelemetryEvent) bool
+	HandleTelemetryEvent(t *testing.T, te *api.TelemetryEvent) bool
 }
 
-type telemetryTest struct {
+type TelemetryTester struct {
 	test      TelemetryTest
 	err       error
 	waitGroup sync.WaitGroup
 }
 
-func newTelemetryTest(tt TelemetryTest) *telemetryTest {
-	return &telemetryTest{test: tt}
+func NewTelemetryTester(tt TelemetryTest) *TelemetryTester {
+	return &TelemetryTester{test: tt}
 }
 
-func (tt *telemetryTest) buildContainer(t *testing.T) {
-	tt.test.buildContainer(t)
+func (tt *TelemetryTester) buildContainer(t *testing.T) {
+	tt.test.BuildContainer(t)
 }
 
-func (tt *telemetryTest) runTelemetryTest(t *testing.T) {
+func (tt *TelemetryTester) runTelemetryTest(t *testing.T) {
+	//
+	// Dial the sensor and allow each test to set up their own subscriptions
+	// over the same gRPC connection
+	//
+	connOnce.Do(func() {
+		var err error
+		sensorConn, err = SensorConn()
+		if err != nil {
+			glog.Fatal(err)
+		}
+	})
+
 	ctx, cancel := context.WithTimeout(context.Background(),
 		telemetryTestTimeout)
 
@@ -49,7 +67,7 @@ func (tt *telemetryTest) runTelemetryTest(t *testing.T) {
 	//
 	c := api.NewTelemetryServiceClient(sensorConn)
 	stream, err := c.GetEvents(ctx, &api.GetEventsRequest{
-		Subscription: tt.test.createSubscription(t),
+		Subscription: tt.test.CreateSubscription(t),
 	})
 	if err != nil {
 		t.Error(err)
@@ -72,7 +90,7 @@ func (tt *telemetryTest) runTelemetryTest(t *testing.T) {
 			}
 
 			for _, telemetryEvent := range response.Events {
-				if !tt.test.handleTelemetryEvent(t, telemetryEvent) {
+				if !tt.test.HandleTelemetryEvent(t, telemetryEvent) {
 					cancel()
 					tt.waitGroup.Done()
 					return
@@ -87,7 +105,7 @@ func (tt *telemetryTest) runTelemetryTest(t *testing.T) {
 		// starting container
 		receiverStarted.Wait()
 
-		tt.test.runContainer(t)
+		tt.test.RunContainer(t)
 		tt.waitGroup.Done()
 	}()
 
@@ -98,7 +116,7 @@ func (tt *telemetryTest) runTelemetryTest(t *testing.T) {
 	}
 }
 
-func (tt *telemetryTest) runTest(t *testing.T) {
+func (tt *TelemetryTester) RunTest(t *testing.T) {
 	if !t.Run("buildContainer", tt.buildContainer) {
 		t.Error("Couldn't build container")
 		return
