@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/capsule8/capsule8/pkg/sys/proc"
 	"github.com/golang/glog"
 )
@@ -236,4 +238,37 @@ func PerfEventDir() string {
 	}
 
 	return ""
+}
+
+func MountTempFS(source string, target string, fstype string, flags uintptr, data string) error {
+	// Make sure that `target` exists.
+	err := os.MkdirAll(target, 0500)
+	if err != nil {
+		glog.V(2).Infof("Couldn't create temp %s mountpoint: %s", fstype, err)
+		return err
+	}
+
+	err = unix.Mount(source, target, fstype, flags, data)
+	if err != nil {
+		glog.V(2).Infof("Couldn't mount %s on %s: %s", fstype, target, err)
+		return err
+	}
+
+	return nil
+}
+
+func UnmountTempFS(dir string, fstype string) error {
+	err := unix.Unmount(dir, 0)
+	if err != nil {
+		glog.V(2).Infof("Couldn't unmount %s at %s: %s", fstype, dir, err)
+		return err
+	}
+
+	err = os.Remove(dir)
+	if err != nil {
+		glog.V(2).Infof("Couldn't remove %s: %s", dir, err)
+		return err
+	}
+
+	return nil
 }

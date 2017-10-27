@@ -1,9 +1,4 @@
-package subscription
-
-var (
-	// Current metrics counters, will be incremented
-	Metrics MetricsCounters
-)
+package sensor
 
 // Counters used for metrics
 type MetricsCounters struct {

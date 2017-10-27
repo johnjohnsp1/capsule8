@@ -1,4 +1,4 @@
-package subscription
+package filter
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	api "github.com/capsule8/api/v0"
 )
 
-func filterString(f *api.FilterExpression) string {
+func FilterExpressionString(f *api.FilterExpression) string {
 	var joiner string
 
 	switch f.Type {
@@ -14,7 +14,7 @@ func filterString(f *api.FilterExpression) string {
 		if f.Predicate == nil {
 			return ""
 		}
-		return predicateFilterString(f.Predicate)
+		return FilterPredicateString(f.Predicate)
 	case api.FilterExpression_AND:
 		joiner = "&&"
 		break
@@ -28,11 +28,11 @@ func filterString(f *api.FilterExpression) string {
 	if f.Lhs == nil || f.Rhs == nil {
 		return ""
 	}
-	lhs := filterString(f.Lhs)
+	lhs := FilterExpressionString(f.Lhs)
 	if lhs == "" {
 		return ""
 	}
-	rhs := filterString(f.Rhs)
+	rhs := FilterExpressionString(f.Rhs)
 	if rhs == "" {
 		return ""
 	}
@@ -46,7 +46,7 @@ func filterString(f *api.FilterExpression) string {
 	return fmt.Sprintf("%s %s %s", lhs, joiner, rhs)
 }
 
-func predicateFilterString(p *api.FilterPredicate) string {
+func FilterPredicateString(p *api.FilterPredicate) string {
 	var value string
 
 	switch p.ValueType {

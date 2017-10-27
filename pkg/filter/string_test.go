@@ -1,4 +1,4 @@
-package subscription
+package filter
 
 import (
 	"testing"
@@ -48,56 +48,56 @@ func TestSignedFilterPredicate(t *testing.T) {
 
 	e = "-42"
 	fp = newSignedFilterPredicate("foo", api.FilterPredicate_CONST, -42)
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = "foo == -42"
 	fp = newSignedFilterPredicate("foo", api.FilterPredicate_EQ, -42)
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = "foo != -42"
 	fp = newSignedFilterPredicate("foo", api.FilterPredicate_NE, -42)
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = "foo < -42"
 	fp = newSignedFilterPredicate("foo", api.FilterPredicate_LT, -42)
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = "foo <= -42"
 	fp = newSignedFilterPredicate("foo", api.FilterPredicate_LE, -42)
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = "foo > -42"
 	fp = newSignedFilterPredicate("foo", api.FilterPredicate_GT, -42)
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = "foo >= -42"
 	fp = newSignedFilterPredicate("foo", api.FilterPredicate_GE, -42)
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = ""
 	fp = newSignedFilterPredicate("foo", api.FilterPredicate_GLOB, -42)
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
@@ -112,56 +112,56 @@ func TestUnsignedFilterPredicate(t *testing.T) {
 
 	e = "8493"
 	fp = newUnsignedFilterPredicate("foo", api.FilterPredicate_CONST, 8493)
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = "foo == 8493"
 	fp = newUnsignedFilterPredicate("foo", api.FilterPredicate_EQ, 8493)
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = "foo != 8493"
 	fp = newUnsignedFilterPredicate("foo", api.FilterPredicate_NE, 8493)
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = "foo < 8493"
 	fp = newUnsignedFilterPredicate("foo", api.FilterPredicate_LT, 8493)
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = "foo <= 8493"
 	fp = newUnsignedFilterPredicate("foo", api.FilterPredicate_LE, 8493)
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = "foo > 8493"
 	fp = newUnsignedFilterPredicate("foo", api.FilterPredicate_GT, 8493)
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = "foo >= 8493"
 	fp = newUnsignedFilterPredicate("foo", api.FilterPredicate_GE, 8493)
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = ""
 	fp = newUnsignedFilterPredicate("foo", api.FilterPredicate_GLOB, 8493)
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
@@ -176,56 +176,56 @@ func TestStringFilterPredicate(t *testing.T) {
 
 	e = "\"bar\""
 	fp = newStringFilterPredicate("foo", api.FilterPredicate_CONST, "bar")
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = "foo == \"bar\""
 	fp = newStringFilterPredicate("foo", api.FilterPredicate_EQ, "bar")
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = "foo != \"bar\""
 	fp = newStringFilterPredicate("foo", api.FilterPredicate_NE, "bar")
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = ""
 	fp = newStringFilterPredicate("foo", api.FilterPredicate_LT, "bar")
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = ""
 	fp = newStringFilterPredicate("foo", api.FilterPredicate_LE, "bar")
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = ""
 	fp = newStringFilterPredicate("foo", api.FilterPredicate_GT, "bar")
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = ""
 	fp = newStringFilterPredicate("foo", api.FilterPredicate_GE, "bar")
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
 
 	e = "foo ~ \"bar\""
 	fp = newStringFilterPredicate("foo", api.FilterPredicate_GLOB, "bar")
-	s = predicateFilterString(fp)
+	s = FilterPredicateString(fp)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
@@ -243,7 +243,7 @@ func TestFilterExpression(t *testing.T) {
 		Type:      api.FilterExpression_PREDICATE,
 		Predicate: newUnsignedFilterPredicate("port", api.FilterPredicate_GT, 1024),
 	}
-	s = filterString(fe)
+	s = FilterExpressionString(fe)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
@@ -260,7 +260,7 @@ func TestFilterExpression(t *testing.T) {
 			Predicate: newUnsignedFilterPredicate("port", api.FilterPredicate_EQ, 443),
 		},
 	}
-	s = filterString(fe)
+	s = FilterExpressionString(fe)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
@@ -277,7 +277,7 @@ func TestFilterExpression(t *testing.T) {
 			Predicate: newUnsignedFilterPredicate("port", api.FilterPredicate_NE, 443),
 		},
 	}
-	s = filterString(fe)
+	s = FilterExpressionString(fe)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}
@@ -301,7 +301,7 @@ func TestFilterExpression(t *testing.T) {
 			},
 		},
 	}
-	s = filterString(fe)
+	s = FilterExpressionString(fe)
 	if s != e {
 		t.Errorf("want: %q, got %q", e, s)
 	}

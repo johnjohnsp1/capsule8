@@ -1,72 +1,63 @@
-package subscription
+package sensor
 
 import (
-	"sync"
-
-	"golang.org/x/sys/unix"
-
 	api "github.com/capsule8/api/v0"
+
 	"github.com/capsule8/capsule8/pkg/container"
 	"github.com/capsule8/capsule8/pkg/filter"
 	"github.com/capsule8/capsule8/pkg/stream"
-	"github.com/golang/glog"
+
+	"golang.org/x/sys/unix"
 )
 
+type ContainerEventRepeater struct {
+	repeater *stream.Repeater
+	sensor   *Sensor
+
+	// We get two ContainerCreated events. Use this map to merge them
+	createdMap map[string]*api.ContainerEvent
+
+	// We get two ContainerStarted events from the container EventStream:
+	// one from Docker and one from OCI. Use this map to merge them
+	startedMap map[string]*api.ContainerEvent
+}
+
 func newContainerCreated(cID string) *api.ContainerEvent {
-	ev := &api.ContainerEvent{
+	return &api.ContainerEvent{
 		Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED,
 	}
-
-	return ev
 }
 
 func newContainerRunning(cID string) *api.ContainerEvent {
-	ev := &api.ContainerEvent{
+	return &api.ContainerEvent{
 		Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_RUNNING,
 	}
-
-	return ev
 }
 
 func newContainerExited(cID string) *api.ContainerEvent {
-	ev := &api.ContainerEvent{
+	return &api.ContainerEvent{
 		Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_EXITED,
 	}
-
-	return ev
 }
 
 func newContainerDestroyed(cID string) *api.ContainerEvent {
-	ev := &api.ContainerEvent{
+	return &api.ContainerEvent{
 		Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_DESTROYED,
 	}
-
-	return ev
 }
 
-//
-// We get two ContainerCreated events, use this to uniq them
-//
-var containerCreated map[string]*api.ContainerEvent
-
-//
-// We get two ContainerStarted events from the container EventStream:
-// one from Docker and one from OCI. We use this map to merge them.
-//
-var containerStarted map[string]*api.ContainerEvent
-
-func translateContainerEvents(e interface{}) interface{} {
+func (cer *ContainerEventRepeater) translateContainerEvents(e interface{}) interface{} {
 	ce := e.(*container.Event)
 	var ece *api.ContainerEvent
 
 	switch ce.State {
 	case container.ContainerCreated:
-		if containerCreated == nil {
-			containerCreated = make(map[string]*api.ContainerEvent)
+		if cer.createdMap == nil {
+			cer.createdMap = make(map[string]*api.ContainerEvent)
 		}
 
-		if containerCreated[ce.ID] != nil {
-			ece = containerCreated[ce.ID]
+		if cer.createdMap[ce.ID] != nil {
+			ece = cer.createdMap[ce.ID]
 		} else {
 			ece = newContainerCreated(ce.ID)
 			ece.Name = ce.Name
@@ -78,24 +69,24 @@ func translateContainerEvents(e interface{}) interface{} {
 			ece.DockerConfigJson = ce.DockerConfig
 		}
 
-		if containerCreated[ce.ID] == nil {
-			containerCreated[ce.ID] = ece
+		if cer.createdMap[ce.ID] == nil {
+			cer.createdMap[ce.ID] = ece
 			ece = nil
 		} else {
-			delete(containerCreated, ce.ID)
+			delete(cer.createdMap, ce.ID)
 		}
 
 	case container.ContainerStarted:
-		if containerStarted == nil {
-			containerStarted = make(map[string]*api.ContainerEvent)
+		if cer.startedMap == nil {
+			cer.startedMap = make(map[string]*api.ContainerEvent)
 		}
 
-		if containerStarted[ce.ID] != nil {
+		if cer.startedMap[ce.ID] != nil {
 			//
 			// If we have already received one container
 			// started event, merge the 2nd one into it
 			//
-			ece = containerStarted[ce.ID]
+			ece = cer.startedMap[ce.ID]
 		} else {
 			ece = newContainerRunning(ce.ID)
 		}
@@ -112,11 +103,11 @@ func translateContainerEvents(e interface{}) interface{} {
 			ece.OciConfigJson = ce.OciConfig
 		}
 
-		if containerStarted[ce.ID] == nil {
-			containerStarted[ce.ID] = ece
+		if cer.startedMap[ce.ID] == nil {
+			cer.startedMap[ce.ID] = ece
 			ece = nil
 		} else {
-			delete(containerStarted, ce.ID)
+			delete(cer.startedMap, ce.ID)
 		}
 
 	case container.ContainerStopped:
@@ -160,7 +151,7 @@ func translateContainerEvents(e interface{}) interface{} {
 			ece.OciConfigJson = ce.OciConfig
 		}
 
-		ev := newEventFromContainer(ce.ID)
+		ev := cer.sensor.NewEventFromContainer(ce.ID)
 		ev.Event = &api.Event_Container{
 			Container: ece,
 		}
@@ -171,43 +162,29 @@ func translateContainerEvents(e interface{}) interface{} {
 	return nil
 }
 
-var containerEventStream struct {
-	sync.Once
-	err      error
-	repeater *stream.Repeater
-}
-
-func createContainerEventStream(sub *api.Subscription) (*stream.Stream, error) {
-	containerEventStream.Do(func() {
-		glog.V(1).Info("Creating container event stream")
-		ces, err := container.NewEventStream()
-		if err != nil {
-			if glog.V(1) {
-				glog.Warning("Couldn't create container event stream: %s",
-					err)
-			}
-
-			containerEventStream.err = err
-			return
-		}
-
-		// Translate container events to protobuf versions
-		ces = stream.Map(ces, translateContainerEvents)
-		ces = stream.Filter(ces, filterNils)
-
-		containerEventStream.repeater = stream.NewRepeater(ces)
-	})
-
-	if containerEventStream.err != nil {
-		return nil, containerEventStream.err
+func NewContainerEventRepeater(sensor *Sensor) (*ContainerEventRepeater, error) {
+	ces, err := container.NewEventStream()
+	if err != nil {
+		return nil, err
 	}
 
-	s := containerEventStream.repeater.NewStream()
+	cer := &ContainerEventRepeater{
+		sensor: sensor,
+	}
 
-	//
+	// Translate container events to protobuf versions
+	ces = stream.Map(ces, cer.translateContainerEvents)
+	ces = stream.Filter(ces, filterNils)
+	cer.repeater = stream.NewRepeater(ces)
+
+	return cer, nil
+}
+
+func (cer *ContainerEventRepeater) NewEventStream(sub *api.Subscription) (*stream.Stream, error) {
+	s := cer.repeater.NewStream()
+
 	// Apply a filter based on this unique subscription to the copy
 	// of the container event stream that we got from the Repeater.
-	//
 	s = stream.Filter(s, func(i interface{}) bool {
 		e := i.(*api.Event)
 

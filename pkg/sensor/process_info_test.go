@@ -1,4 +1,4 @@
-package subscription
+package sensor
 
 import (
 	"os"
@@ -22,7 +22,7 @@ BenchmarkContainerCacheMissParallel-8   	  300000	      5789 ns/op
 
 var values = []struct {
 	pid         int32
-	containerID string
+	containerId string
 }{
 	{1, "foo"},
 	{2, "bar"},
@@ -36,22 +36,22 @@ func TestCaches(t *testing.T) {
 	mapCache := newMapProcessInfoCache()
 
 	for i := int32(0); i < cacheArraySize; i++ {
-		arrayCache.setContainerID(i, values[i%4].containerID)
-		mapCache.setContainerID(i, values[i%4].containerID)
+		arrayCache.setContainerId(i, values[i%4].containerId)
+		mapCache.setContainerId(i, values[i%4].containerId)
 	}
 
 	for i := int32(cacheArraySize) - 1; i >= 0; i-- {
-		cid1 := arrayCache.containerID(i)
-		cid2 := mapCache.containerID(i)
+		cid1 := arrayCache.containerId(i)
+		cid2 := mapCache.containerId(i)
 
-		if cid1 != values[i%4].containerID {
+		if cid1 != values[i%4].containerId {
 			t.Fatalf("Expected %s for pid %d, got %s",
-				values[i%4].containerID, i, cid1)
+				values[i%4].containerId, i, cid1)
 		}
 
-		if cid2 != values[i%4].containerID {
+		if cid2 != values[i%4].containerId {
 			t.Fatalf("Expected %s for pid %d, got %s",
-				values[i%4].containerID, i, cid2)
+				values[i%4].containerId, i, cid2)
 		}
 	}
 
@@ -61,12 +61,12 @@ func BenchmarkArrayCache(b *testing.B) {
 	cache := newArrayProcessInfoCache()
 
 	for i := int32(0); i < int32(b.N); i++ {
-		cache.setContainerID((i % cacheArraySize),
-			values[i%4].containerID)
+		cache.setContainerId((i % cacheArraySize),
+			values[i%4].containerId)
 	}
 
 	for i := int32(0); i < int32(b.N); i++ {
-		_ = cache.containerID((i % cacheArraySize))
+		_ = cache.containerId((i % cacheArraySize))
 	}
 }
 
@@ -74,12 +74,12 @@ func BenchmarkMapCache(b *testing.B) {
 	cache := newMapProcessInfoCache()
 
 	for i := int32(0); i < int32(b.N); i++ {
-		cache.setContainerID((i % cacheArraySize),
-			values[i%4].containerID)
+		cache.setContainerId((i % cacheArraySize),
+			values[i%4].containerId)
 	}
 
 	for i := int32(0); i < int32(b.N); i++ {
-		_ = cache.containerID((i % cacheArraySize))
+		_ = cache.containerId((i % cacheArraySize))
 	}
 }
 
@@ -89,8 +89,8 @@ func BenchmarkArrayCacheParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		i := int32(0)
 		for pb.Next() {
-			cache.setContainerID((i % cacheArraySize),
-				values[i%4].containerID)
+			cache.setContainerId((i % cacheArraySize),
+				values[i%4].containerId)
 			i++
 		}
 	})
@@ -98,7 +98,7 @@ func BenchmarkArrayCacheParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		i := int32(0)
 		for pb.Next() {
-			_ = cache.containerID((i % cacheArraySize))
+			_ = cache.containerId((i % cacheArraySize))
 			i++
 		}
 	})
@@ -110,8 +110,8 @@ func BenchmarkMapCacheParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		i := int32(0)
 		for pb.Next() {
-			cache.setContainerID((i % cacheArraySize),
-				values[i%4].containerID)
+			cache.setContainerId((i % cacheArraySize),
+				values[i%4].containerId)
 			i++
 		}
 	})
@@ -119,7 +119,7 @@ func BenchmarkMapCacheParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		i := int32(0)
 		for pb.Next() {
-			_ = cache.containerID((i % cacheArraySize))
+			_ = cache.containerId((i % cacheArraySize))
 			i++
 		}
 	})

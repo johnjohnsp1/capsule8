@@ -1,27 +1,24 @@
-package subscription
+package sensor
 
 import (
 	"time"
 
 	api "github.com/capsule8/api/v0"
+
 	"github.com/capsule8/capsule8/pkg/stream"
 )
-
-//
-// Sensors are singletons that emit events through one or more sessions
-// configured by a api.Selector.
-//
 
 type ticker struct {
 	ctrl     chan interface{}
 	data     chan interface{}
+	sensor   *Sensor
 	filter   *api.TickerEventFilter
 	duration time.Duration
 	ticker   *stream.Stream
 }
 
-func newTickerEvent(tick time.Time) *api.Event {
-	e := NewEvent()
+func (t *ticker) newTickerEvent(tick time.Time) *api.Event {
+	e := t.sensor.NewEvent()
 	e.Event = &api.Event_Ticker{
 		Ticker: &api.TickerEvent{
 			Seconds:     tick.Unix(),
@@ -32,21 +29,19 @@ func newTickerEvent(tick time.Time) *api.Event {
 	return e
 }
 
-// NewTickerSensor creates a new ticker sensor configured by the given Selector
-func NewTickerSensor(filter *api.TickerEventFilter) (*stream.Stream, error) {
-	//
+func newTickerSource(sensor *Sensor, filter *api.TickerEventFilter) (*stream.Stream, error) {
 	// Each call to New creates a new session with the Sensor. It is the
 	// Sensor's responsibility to handle all of its sessions in the most
 	// high-performance way possible. For example, a Sensor may install
 	// kernel probes for the union of all sessions, but then demux the
 	// results through individual goroutines forwarding events over
 	// their own channels.
-	//
 
 	duration := time.Duration(filter.Interval)
 	t := &ticker{
 		ctrl:     make(chan interface{}),
 		data:     make(chan interface{}),
+		sensor:   sensor,
 		filter:   filter,
 		duration: duration,
 		ticker:   stream.Ticker(duration),
@@ -64,7 +59,7 @@ func NewTickerSensor(filter *api.TickerEventFilter) (*stream.Stream, error) {
 			case e, ok := <-t.ticker.Data:
 				if ok {
 					tick := e.(time.Time)
-					ev := newTickerEvent(tick)
+					ev := t.newTickerEvent(tick)
 					t.data <- ev
 
 				} else {

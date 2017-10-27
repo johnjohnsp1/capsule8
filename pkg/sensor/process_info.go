@@ -1,4 +1,4 @@
-package subscription
+package sensor
 
 //
 // The purpose of this cache at present is to maintain process and
@@ -6,8 +6,8 @@ package subscription
 // when process or container information can't be retrieved from
 // procfs.
 //
-// The process stat and container ID lookups through processID and
-// processContainerID are highly impacting on sensor performance since
+// The process stat and container Id lookups through processId and
+// processContainerId are highly impacting on sensor performance since
 // every event emitted will require at least one call to them. Any
 // changes to this path should be considered along with benchmarking
 // in order catch any performance regressions early.
@@ -35,8 +35,8 @@ type processInfoCache interface {
 	status(int32) *proc.ProcessStatus
 	setStatus(int32, *proc.ProcessStatus)
 
-	containerID(int32) string
-	setContainerID(int32, string)
+	containerId(int32) string
+	setContainerId(int32, string)
 }
 
 type arrayProcessInfoCache struct {
@@ -55,12 +55,12 @@ func (c *arrayProcessInfoCache) setStatus(pid int32, status *proc.ProcessStatus)
 	c.entries[pid].status = status
 }
 
-func (c *arrayProcessInfoCache) containerID(pid int32) string {
-	return c.entries[pid].containerID
+func (c *arrayProcessInfoCache) containerId(pid int32) string {
+	return c.entries[pid].containerId
 }
 
-func (c *arrayProcessInfoCache) setContainerID(pid int32, containerID string) {
-	c.entries[pid].containerID = containerID
+func (c *arrayProcessInfoCache) setContainerId(pid int32, containerId string) {
+	c.entries[pid].containerId = containerId
 }
 
 type mapProcessInfoCache struct {
@@ -70,7 +70,7 @@ type mapProcessInfoCache struct {
 
 type processCacheEntry struct {
 	status      *proc.ProcessStatus
-	containerID string
+	containerId string
 }
 
 func newMapProcessInfoCache() *mapProcessInfoCache {
@@ -106,28 +106,28 @@ func (c *mapProcessInfoCache) setStatus(pid int32, status *proc.ProcessStatus) {
 	}
 }
 
-func (c *mapProcessInfoCache) containerID(pid int32) string {
+func (c *mapProcessInfoCache) containerId(pid int32) string {
 	c.Lock()
 	defer c.Unlock()
 
 	entry, ok := c.entries[pid]
 	if ok {
-		return entry.containerID
+		return entry.containerId
 	}
 
 	return ""
 }
 
-func (c *mapProcessInfoCache) setContainerID(pid int32, containerID string) {
+func (c *mapProcessInfoCache) setContainerId(pid int32, containerId string) {
 	c.Lock()
 	defer c.Unlock()
 
 	entry, ok := c.entries[pid]
 	if ok {
-		entry.containerID = containerID
+		entry.containerId = containerId
 	} else {
 		entry := processCacheEntry{
-			containerID: containerID,
+			containerId: containerId,
 		}
 		c.entries[pid] = entry
 	}
@@ -135,7 +135,7 @@ func (c *mapProcessInfoCache) setContainerID(pid int32, containerID string) {
 
 //
 // In order to avoid needing to lock, we pre-allocate two arrays of
-// strings for the last-seen UniqueID and ContainerID for a given PID,
+// strings for the last-seen UniqueId and ContainerId for a given PID,
 // respectively.
 //
 var cache processInfoCache
@@ -155,10 +155,10 @@ func procFS() *proc.FileSystem {
 	return fs
 }
 
-// processID returns the unique ID for the process indicated by the
-// given PID. The unique ID is identical whether it is derived inside
+// processId returns the unique Id for the process indicated by the
+// given PID. The unique Id is identical whether it is derived inside
 // or outside a container.
-func processID(pid int32) string {
+func processId(pid int32) string {
 	var uid string
 
 	ps := procFS().Stat(pid)
@@ -173,13 +173,13 @@ func processID(pid int32) string {
 		uid = ps.UniqueID()
 	}
 
-	glog.V(10).Infof("processID(%d) -> %s", pid, uid)
+	glog.V(10).Infof("processId(%d) -> %s", pid, uid)
 	return uid
 }
 
-// processContainerID returns the container ID that the process
+// processContainerId returns the container Id that the process
 // indicated by the given host PID.
-func processContainerID(pid int32) string {
+func processContainerId(pid int32) string {
 	var cid string
 	var err error
 
@@ -188,40 +188,40 @@ func processContainerID(pid int32) string {
 		if len(cid) > 0 {
 			//
 			// If the process was found *and* it is in a container,
-			// cache the container ID for the given PID.
+			// cache the container Id for the given PID.
 			//
-			glog.V(10).Infof("setContainerID(%d) = [%s]", pid, cid)
-			cache.setContainerID(pid, cid)
+			glog.V(10).Infof("setContainerId(%d) = [%s]", pid, cid)
+			cache.setContainerId(pid, cid)
 		}
 
-		glog.V(10).Infof("processContainerID(%d) -> %s", pid, cid)
+		glog.V(10).Infof("processContainerId(%d) -> %s", pid, cid)
 		return cid
 	}
 
 	//
 	// If the process was not found, check the cache for a
-	// last-seen container ID.
+	// last-seen container Id.
 	//
-	cid = cache.containerID(pid)
+	cid = cache.containerId(pid)
 	if len(cid) > 0 {
-		glog.V(10).Infof("processContainerID(%d) -> %s", pid, cid)
+		glog.V(10).Infof("processContainerId(%d) -> %s", pid, cid)
 		return cid
 	}
 
 	//
-	// If we never saw a ContainerID from /proc, then the process
+	// If we never saw a ContainerId from /proc, then the process
 	// is a container init that is already gone. Check the cache
 	// for its status to find its parent and return the parent's
-	// containerID.
+	// containerId.
 	//
 	status := cache.status(pid)
 	if status != nil {
 		ppid := status.ParentPID()
-		cid = processContainerID(ppid)
-		glog.V(10).Infof("processContainerID(%d) -> %s", pid, cid)
+		cid = processContainerId(ppid)
+		glog.V(10).Infof("processContainerId(%d) -> %s", pid, cid)
 		return cid
 	}
 
-	glog.V(10).Infof("processContainerID(%d) -> %s", pid, cid)
+	glog.V(10).Infof("processContainerId(%d) -> %s", pid, cid)
 	return cid
 }

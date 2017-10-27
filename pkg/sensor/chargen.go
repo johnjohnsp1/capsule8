@@ -1,18 +1,15 @@
-package subscription
+package sensor
 
 import (
 	api "github.com/capsule8/api/v0"
+
 	"github.com/capsule8/capsule8/pkg/stream"
 )
-
-//
-// Sensors are singletons that emit events through one or more sessions
-// configured by a api.Subscription.
-//
 
 type chargen struct {
 	ctrl    chan interface{}
 	data    chan interface{}
+	sensor  *Sensor
 	filter  *api.ChargenEventFilter
 	chargen *stream.Stream
 	index   uint64
@@ -20,8 +17,8 @@ type chargen struct {
 	payload []byte
 }
 
-func newChargenEvent(index uint64, characters string) *api.Event {
-	e := NewEvent()
+func (c *chargen) newChargenEvent(index uint64, characters string) *api.Event {
+	e := c.sensor.NewEvent()
 	e.Event = &api.Event_Chargen{
 		Chargen: &api.ChargenEvent{
 			Index:      index,
@@ -40,25 +37,22 @@ func (c *chargen) emitNextEvent(e interface{}) {
 	c.index++
 
 	if (c.index % uint64(c.length)) == 0 {
-		c.data <- newChargenEvent(c.index, string(c.payload))
+		c.data <- c.newChargenEvent(c.index, string(c.payload))
 	}
 }
 
-// NewChargenSensor creates a new chargen sensor configured by the given
-// Filter
-func NewChargenSensor(filter *api.ChargenEventFilter) (*stream.Stream, error) {
-	//
+func newChargenSource(sensor *Sensor, filter *api.ChargenEventFilter) (*stream.Stream, error) {
 	// Each call to New creates a new session with the Sensor. It is the
 	// Sensor's responsibility to handle all of its sessions in the most
 	// high-performance way possible. For example, a Sensor may install
 	// kernel probes for the union of all sessions, but then demux the
 	// results through individual goroutines forwarding events over
 	// their own channels.
-	//
 
 	c := &chargen{
 		ctrl:    make(chan interface{}),
 		data:    make(chan interface{}),
+		sensor:  sensor,
 		filter:  filter,
 		chargen: stream.Chargen(),
 		index:   0,
@@ -76,11 +70,10 @@ func NewChargenSensor(filter *api.ChargenEventFilter) (*stream.Stream, error) {
 				}
 
 			case e, ok := <-c.chargen.Data:
-				if ok {
-					c.emitNextEvent(e)
-				} else {
+				if !ok {
 					return
 				}
+				c.emitNextEvent(e)
 			}
 		}
 	}()
