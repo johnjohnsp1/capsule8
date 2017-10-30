@@ -5,9 +5,9 @@ RUN apt-get update && \
     apt-get -y install build-essential && \
     apt-get clean
 
-COPY exitfail.c /
+COPY main.c /
 WORKDIR /
 
-RUN make exitfail
+RUN make main
 
-CMD "/exitfail"
+CMD ["/main"]
