@@ -1,6 +1,7 @@
 package subscription
 
 import (
+	"path/filepath"
 	"sync/atomic"
 
 	api "github.com/capsule8/api/v0"
@@ -112,7 +113,42 @@ func (fs *filterSet) registerEvents(monitor *perf.EventMonitor) {
 
 // ---------------------------------------------------------------------
 
-func createMonitor(s *api.Subscription) (monitor *perf.EventMonitor, err error) {
+func buildMonitorGroups() ([]string, []int, error) {
+	var (
+		cgroupList []string
+		pidList    []int
+		system     bool
+	)
+
+	cgroups := make(map[string]bool)
+	for _, cgroup := range config.Sensor.CgroupName {
+		if len(cgroup) == 0 || cgroup == "/" {
+			system = true
+			continue
+		}
+		if cgroups[cgroup] {
+			continue
+		}
+		cgroups[cgroup] = true
+		cgroupList = append(cgroupList, cgroup)
+		glog.V(1).Infof("Creating new perf event monitor on cgroup %s", cgroup)
+	}
+	if !system && len(cgroups) == 0 && inContainer() {
+		cgroups["docker"] = true
+		cgroupList = append(cgroupList, "docker")
+	}
+
+	// Try a system-wide perf event monitor if requested or as
+	// a fallback if no cgroups were requested
+	if system || len(cgroupList) == 0 {
+		glog.V(1).Info("Creating new system-wide event monitor")
+		pidList = append(pidList, -1)
+	}
+
+	return cgroupList, pidList, nil
+}
+
+func createMonitor(s *api.Subscription) (*perf.EventMonitor, error) {
 	fs := &filterSet{}
 
 	if s.EventFilter != nil {
@@ -135,60 +171,34 @@ func createMonitor(s *api.Subscription) (monitor *perf.EventMonitor, err error) 
 	}
 
 	if fs.len() > 0 {
-		// If a perf_event cgroupfs is mounted and a cgroup
-		// name is configured (can be "/"), then monitor that
-		// cgroup within the perf_event hierarchy. Otherwise,
-		// monitor all processes on the system.
-		if len(config.Sensor.CgroupName) > 0 {
-			glog.V(1).Infof("Creating new perf event monitor on "+
-				"cgroup %s", config.Sensor.CgroupName)
+		var perfEventDir string
 
-			monitor, err = perf.NewEventMonitorWithCgroup(
-				config.Sensor.CgroupName, 0, 0, nil)
-
-			if err != nil {
-				glog.Warningf("Couldn't create perf event "+
-					"monitor on cgroup %s (%s), creating "+
-					"new system-wide perf event monitor "+
-					"instead.", config.Sensor.CgroupName,
-					err)
-			}
-		} else if inContainer() {
-			// Assume /docker if we are running within a container
-
-			glog.V(1).Infof("Creating new perf event monitor on "+
-				"cgroup %s", "/docker")
-
-			monitor, err = perf.NewEventMonitorWithCgroup(
-				"/docker", 0, 0, nil)
-
-			if err != nil {
-				glog.Warningf("Couldn't create perf event "+
-					"monitor on cgroup %s (%s), creating "+
-					"new system-wide perf event monitor "+
-					"instead.", "/docker",
-					err)
-			}
+		if len(sys.PerfEventDir()) != 0 {
+			perfEventDir = sys.PerfEventDir()
+		} else {
+			perfEventDir = filepath.Join(config.Global.RunDir,
+				"perf_event")
 		}
 
-		// Try a system-wide perf event monitor as a fallback if either
-		// of the above failed.
-		if monitor == nil {
-			glog.V(1).Info("Creating new system-wide event monitor")
-			monitor, err = perf.NewEventMonitor(-1, 0, 0, nil)
+		cgroups, pids, err := buildMonitorGroups()
+		if err != nil {
+			return nil, err
 		}
 
+		monitor, err := perf.NewEventMonitor(0, nil,
+			perf.WithPerfEventDir(perfEventDir),
+			perf.WithCgroups(cgroups),
+			perf.WithPids(pids))
 		if monitor == nil {
-			return
+			return nil, err
 		}
 
 		fs.registerEvents(monitor)
-
-	} else {
-		glog.V(1).Infof("No filters, not creating a new EventMonitor")
+		return monitor, nil
 	}
 
-	return monitor, err
+	glog.V(1).Infof("No filters, not creating a new EventMonitor")
+	return nil, nil
 }
 
 func inContainer() bool {

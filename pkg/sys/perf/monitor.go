@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -19,9 +18,54 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+type eventMonitorOptions struct {
+	perfEventDir       string
+	ringBufferNumPages int
+	cgroups            []string
+	pids               []int
+}
+
+type EventMonitorOption func (*eventMonitorOptions)
+
+func WithPerfEventDir(dir string) EventMonitorOption {
+	return func(o *eventMonitorOptions) {
+		o.perfEventDir = dir
+	}
+}
+
+func WithRingBufferNumPages(numPages int) EventMonitorOption {
+	return func(o *eventMonitorOptions) {
+		o.ringBufferNumPages = numPages
+	}
+}
+
+func WithCgroup(cgroup string) EventMonitorOption {
+	return func(o *eventMonitorOptions) {
+		o.cgroups = append(o.cgroups, cgroup)
+	}
+}
+
+func WithCgroups(cgroups []string) EventMonitorOption {
+	return func(o *eventMonitorOptions) {
+		o.cgroups = append(o.cgroups, cgroups...)
+	}
+}
+
+func WithPid(pid int) EventMonitorOption {
+	return func(o *eventMonitorOptions) {
+		o.pids = append(o.pids, pid)
+	}
+}
+
+func WithPids(pids []int) EventMonitorOption {
+	return func(o *eventMonitorOptions) {
+		o.pids = append(o.pids, pids...)
+	}
+}
+
 const (
-	EVENT_TYPE_TRACEPOINT int = iota
-	EVENT_TYPE_KPROBE
+	eventTypeTracepoint int = iota
+	eventTypeKprobe
 )
 
 type registeredEvent struct {
@@ -33,6 +77,26 @@ type registeredEvent struct {
 	eventType int
 }
 
+type perfEventGroup struct {
+	rb         *ringBuffer
+	timeBase   uint64
+	timeOffset uint64
+	pid        int  // passed as 'pid' argument to perf_event_open()
+	cpu        int  // passed as 'cpu' argument to perf_event_open()
+	fd         int  // fd returned from perf_event_open()
+	cgroup     bool // true if 'pid' is a cgroup fd
+}
+
+func (group *perfEventGroup) cleanup() {
+	if group.rb != nil {
+		group.rb.unmap()
+	}
+	unix.Close(group.fd)
+	if group.cgroup {
+		unix.Close(group.pid)
+	}
+}
+
 type SampleDispatchFn func(interface{}, error)
 
 type EventMonitor struct {
@@ -42,10 +106,8 @@ type EventMonitor struct {
 
 	// Immutable items. No protection required. These fields are all set
 	// when the EventMonitor is created and never changed after that.
-	ringBuffers  map[int]*ringBuffer
+	groups       map[int]perfEventGroup // fd : group data
 	dispatchChan chan decodedSampleList
-	baseTime     uint64
-	timeOffsets  map[int]uint64 // group fd : time offset
 
 	// Mutable by various goroutines, and also needed by the monitor
 	// goroutine. Both of these are thread-safe mutable without a lock.
@@ -53,7 +115,7 @@ type EventMonitor struct {
 	// taken. .eventAttrs Writers will lock if the monitor goroutine is
 	// running; otherwise, .lock protects in-place writes. The thread-safe
 	// mutation of .decoders is handled elsewhere.
-	eventAttrs *safeEventAttrMap     // stream id : event attr
+	eventAttrs *safeEventAttrMap // stream id : event attr
 	decoders   *TraceEventDecoderMap
 
 	// Mutable only by the monitor goroutine while running. No protection
@@ -78,13 +140,13 @@ type EventMonitor struct {
 	eventfds map[int]int    // fd : cpu index
 	eventIDs map[int]uint64 // fd : stream id
 
-	// Immutable, rarely referenced
-	pid                int
-	flags              uintptr
+	// Immutable, used only when adding new tracepoints/probes
+	flags       uintptr
+	defaultAttr EventAttr
+
+	// Used only during initial monitor configuration
 	ringBufferNumPages int
-	defaultAttr        EventAttr
-	groupfds           []int
-	cgroup             *os.File
+	perfEventDir       string
 
 	// Used only once during shutdown
 	cond *sync.Cond
@@ -188,25 +250,26 @@ func fixupEventAttr(eventAttr *EventAttr) {
 	eventAttr.WakeupWatermark = 1 // WakeupEvents not used
 }
 
-func perfEventOpen(eventAttr *EventAttr, pid int, groupfds []int, flags uintptr, filter string) ([]int, error) {
+func (monitor *EventMonitor) perfEventOpen(eventAttr *EventAttr, filter string) ([]int, error) {
 	glog.V(2).Infof("Opening perf event: %d %s", eventAttr.Config, filter)
-	ncpu := runtime.NumCPU()
-	newfds := make([]int, ncpu)
 
-	for i := 0; i < ncpu; i++ {
-		fd, err := open(eventAttr, pid, i, groupfds[i], flags)
+	newfds := make([]int, 0, len(monitor.groups))
+	flags := monitor.flags | PERF_FLAG_FD_OUTPUT | PERF_FLAG_FD_NO_GROUP
+
+	for groupfd, group := range monitor.groups {
+		fd, err := open(eventAttr, group.pid, group.cpu, groupfd, flags)
 		if err != nil {
-			for j := i - 1; j >= 0; j-- {
+			for j := len(newfds) - 1; j >= 0; j-- {
 				unix.Close(newfds[j])
 			}
 			return nil, err
 		}
-		newfds[i] = fd
+		newfds = append(newfds, fd)
 
 		if len(filter) > 0 {
 			err := setFilter(fd, filter)
 			if err != nil {
-				for j := i; j >= 0; j-- {
+				for j := len(newfds) - 1; j >= 0; j-- {
 					unix.Close(newfds[j])
 				}
 				return nil, err
@@ -234,8 +297,7 @@ func (monitor *EventMonitor) newRegisteredEvent(name string, fn TraceEventDecode
 	}
 	attr.Config = uint64(id)
 
-	flags := monitor.flags | PERF_FLAG_FD_OUTPUT | PERF_FLAG_FD_NO_GROUP
-	newfds, err := perfEventOpen(&attr, monitor.pid, monitor.groupfds, flags, filter)
+	newfds, err := monitor.perfEventOpen(&attr, filter)
 	if err != nil {
 		monitor.decoders.RemoveDecoder(name)
 		return nil, err
@@ -287,7 +349,7 @@ func (monitor *EventMonitor) RegisterEvent(name string, fn TraceEventDecoderFn, 
 		return fmt.Errorf("event \"%s\" is already registered", name)
 	}
 
-	event, err := monitor.newRegisteredEvent(name, fn, filter, eventAttr, EVENT_TYPE_TRACEPOINT)
+	event, err := monitor.newRegisteredEvent(name, fn, filter, eventAttr, eventTypeTracepoint)
 	if err != nil {
 		return err
 	}
@@ -313,7 +375,7 @@ func (monitor *EventMonitor) RegisterKprobe(name string, address string, onRetur
 		return "", err
 	}
 
-	event, err := monitor.newRegisteredEvent(name, fn, filter, eventAttr, EVENT_TYPE_KPROBE)
+	event, err := monitor.newRegisteredEvent(name, fn, filter, eventAttr, eventTypeKprobe)
 	if err != nil {
 		RemoveKprobe(name)
 		return "", err
@@ -343,9 +405,9 @@ func (monitor *EventMonitor) removeRegisteredEvent(event *registeredEvent) {
 	}
 
 	switch event.eventType {
-	case EVENT_TYPE_TRACEPOINT:
+	case eventTypeTracepoint:
 		break
-	case EVENT_TYPE_KPROBE:
+	case eventTypeKprobe:
 		RemoveKprobe(event.name)
 	}
 
@@ -398,25 +460,15 @@ func (monitor *EventMonitor) Close(wait bool) error {
 	}
 	monitor.eventAttrs = nil
 
-	for _, rb := range monitor.ringBuffers {
-		rb.unmap()
+	for _, group := range monitor.groups {
+		group.cleanup()
 	}
-	monitor.ringBuffers = nil
-
-	for _, fd := range monitor.groupfds {
-		unix.Close(fd)
-	}
-	monitor.groupfds = nil
-
-	if monitor.cgroup != nil {
-		monitor.cgroup.Close()
-		monitor.cgroup = nil
-	}
+	monitor.groups = nil
 
 	return nil
 }
 
-func (monitor *EventMonitor) Disable() {
+func (monitor *EventMonitor) Disable() error {
 	monitor.lock.Lock()
 	defer monitor.lock.Unlock()
 
@@ -424,9 +476,11 @@ func (monitor *EventMonitor) Disable() {
 	for fd := range monitor.eventfds {
 		disable(fd)
 	}
+
+	return nil
 }
 
-func (monitor *EventMonitor) Enable() {
+func (monitor *EventMonitor) Enable() error {
 	monitor.lock.Lock()
 	defer monitor.lock.Unlock()
 
@@ -434,6 +488,8 @@ func (monitor *EventMonitor) Enable() {
 	for fd := range monitor.eventfds {
 		enable(fd)
 	}
+
+	return nil
 }
 
 func (monitor *EventMonitor) stopWithSignal() {
@@ -465,7 +521,7 @@ func (ds decodedSampleList) Less(i, j int) bool {
 func (monitor *EventMonitor) dispatchSamples() {
 	defer monitor.wg.Done()
 
-  dispatchFn := monitor.dispatchFn
+	dispatchFn := monitor.dispatchFn
 	for monitor.isRunning {
 		select {
 		case samples, ok := <-monitor.dispatchChan:
@@ -521,10 +577,11 @@ func (monitor *EventMonitor) readRingBuffers(readyfds []int) {
 		// Read the samples from the ring buffer, and then normalize
 		// the timestamps to be consistent across CPUs.
 		first := len(monitor.samples)
-		monitor.ringBuffers[fd].read(monitor.readSamples)
+		group := monitor.groups[fd]
+		group.rb.read(monitor.readSamples)
 		for i := first; i < len(monitor.samples); i++ {
-			monitor.samples[i].sample.Time = monitor.baseTime +
-				(monitor.samples[i].sample.Time - monitor.timeOffsets[fd])
+			monitor.samples[i].sample.Time = group.timeBase +
+				(monitor.samples[i].sample.Time - group.timeOffset)
 		}
 
 		if first == 0 {
@@ -578,7 +635,6 @@ func (monitor *EventMonitor) Run(fn SampleDispatchFn) error {
 		monitor.lock.Unlock()
 		return errors.New("monitor is already running")
 	}
-
 	monitor.isRunning = true
 
 	err := unix.Pipe2(monitor.pipe[:], unix.O_DIRECT|unix.O_NONBLOCK)
@@ -598,9 +654,9 @@ func (monitor *EventMonitor) Run(fn SampleDispatchFn) error {
 	// Set up the fds for polling. Monitor only the groupfds, because they
 	// will encapsulate all of the eventfds and they're tied to the ring
 	// buffers.
-	pollfds := make([]unix.PollFd, 0, len(monitor.groupfds)+1)
+	pollfds := make([]unix.PollFd, 0, len(monitor.groups)+1)
 	pollfds = addPollFd(pollfds, monitor.pipe[0])
-	for _, fd := range monitor.groupfds {
+	for fd := range monitor.groups {
 		pollfds = addPollFd(pollfds, fd)
 	}
 
@@ -664,9 +720,7 @@ runloop:
 	}
 	monitor.lock.Unlock()
 
-  if monitor.dispatchChan != nil {
-		close(monitor.dispatchChan)
-
+	if monitor.dispatchChan != nil {
 		// Wait for dispatchSamples goroutine to exit
 		monitor.wg.Wait()
 	}
@@ -761,7 +815,7 @@ func (monitor *EventMonitor) cpuTimeOffset(cpu int, groupfd int, rb *ringBuffer)
 	}
 }
 
-func (monitor *EventMonitor) initializeGroupLeaders() error {
+func (monitor *EventMonitor) initializeGroupLeaders(pid int, flags uintptr) error {
 	groupEventAttr := &EventAttr{
 		Type:            PERF_TYPE_SOFTWARE,
 		Size:            sizeofPerfEventAttr,
@@ -772,101 +826,142 @@ func (monitor *EventMonitor) initializeGroupLeaders() error {
 	}
 
 	ncpu := runtime.NumCPU()
-	newfds := make([]int, ncpu)
-	ringBuffers := make(map[int]*ringBuffer, ncpu)
-	monitor.timeOffsets = make(map[int]uint64, ncpu)
+	newfds := make(map[int]perfEventGroup, ncpu)
 
-	for i := 0; i < ncpu; i++ {
-		fd, err := open(groupEventAttr, monitor.pid, i, -1, monitor.flags)
+	for cpu := 0; cpu < ncpu; cpu++ {
+		groupfd, err := open(groupEventAttr, pid, cpu, -1, flags)
 		if err != nil {
-			for j := i - 1; j >= 0; j-- {
-				unix.Close(newfds[j])
+			for fd := range newfds {
+				unix.Close(fd)
 			}
 			return err
 		}
-		newfds[i] = fd
 
-		rb, err := newRingBuffer(newfds[i], monitor.ringBufferNumPages)
+		newGroup := perfEventGroup{
+			pid: pid,
+			cpu: cpu,
+			fd:  groupfd,
+		}
+		if flags&PERF_FLAG_PID_CGROUP == PERF_FLAG_PID_CGROUP {
+			newGroup.cgroup = true
+		}
+
+		rb, err := newRingBuffer(groupfd, monitor.ringBufferNumPages)
 		if err == nil {
 			var offset uint64
 
-			ringBuffers[fd] = rb
+			newGroup.rb = rb
 
-			offset, err = monitor.cpuTimeOffset(i, fd, rb)
+			offset, err = monitor.cpuTimeOffset(cpu, groupfd, rb)
 			if err == nil {
-				monitor.timeOffsets[newfds[i]] = offset
+				newGroup.timeBase = uint64(time.Now().UnixNano())
+				newGroup.timeOffset = offset
+				newfds[groupfd] = newGroup
 				continue
 			}
 		}
 
 		// This is the common error case
-		unix.Close(newfds[i])
-		for j := i - 1; j >= 0; j-- {
-			ringBuffers[newfds[j]].unmap()
-			unix.Close(newfds[j])
+		newGroup.cleanup()
+		for _, group := range newfds {
+			group.cleanup()
 		}
 		return err
 	}
 
-	monitor.groupfds = newfds
-	monitor.ringBuffers = ringBuffers
+	for k, v := range newfds {
+		monitor.groups[k] = v
+	}
 
 	return nil
 }
 
-func NewEventMonitor(pid int, flags uintptr, ringBufferNumPages int, defaultAttr *EventAttr) (*EventMonitor, error) {
+func NewEventMonitor(flags uintptr, defaultEventAttr *EventAttr, options ...EventMonitorOption) (*EventMonitor, error) {
 	var eventAttr EventAttr
 
-	if defaultAttr == nil {
+	if defaultEventAttr == nil {
 		eventAttr = EventAttr{
 			SampleType:  PERF_SAMPLE_TID | PERF_SAMPLE_TIME | PERF_SAMPLE_CPU | PERF_SAMPLE_RAW,
 			Inherit:     true,
 			SampleIDAll: true,
 		}
 	} else {
-		eventAttr = *defaultAttr
+		eventAttr = *defaultEventAttr
 	}
 	fixupEventAttr(&eventAttr)
 
 	// Only allow certain flags to be passed
-	flags &= PERF_FLAG_FD_CLOEXEC | PERF_FLAG_PID_CGROUP
+	flags &= PERF_FLAG_FD_CLOEXEC
+
+	// Process options
+	opts := eventMonitorOptions{}
+	for _, option := range options {
+		option(&opts)
+	}
+
+	if len(opts.perfEventDir) == 0 {
+		opts.perfEventDir = sys.PerfEventDir()
+	}
+	if len(opts.pids) == 0 && len(opts.cgroups) == 0 {
+		opts.pids = append(opts.pids, -1)
+	}
 
 	monitor := &EventMonitor{
-		pid:                pid,
-		flags:              flags,
-		ringBufferNumPages: ringBufferNumPages,
-		defaultAttr:        eventAttr,
+		groups:             make(map[int]perfEventGroup),
+		eventAttrs:         newSafeEventAttrMap(),
+		decoders:           NewTraceEventDecoderMap(),
 		events:             make(map[string]*registeredEvent),
 		eventfds:           make(map[int]int),
 		eventIDs:           make(map[int]uint64),
-		decoders:           NewTraceEventDecoderMap(),
-		eventAttrs:         newSafeEventAttrMap(),
-		baseTime:           uint64(time.Now().UnixNano()),
+		flags:              flags,
+		defaultAttr:        eventAttr,
+		ringBufferNumPages: opts.ringBufferNumPages,
+		perfEventDir:       opts.perfEventDir,
 	}
 	monitor.lock = &sync.Mutex{}
 	monitor.cond = sync.NewCond(monitor.lock)
 
-	err := monitor.initializeGroupLeaders()
-	if err != nil {
+	cgroups := make(map[string]bool, len(opts.cgroups))
+	for _, cgroup := range opts.cgroups {
+		if cgroups[cgroup] {
+			glog.V(1).Infof("Ignoring duplicate cgroup %s", cgroup)
+			continue
+		}
+		cgroups[cgroup] = true
+
+		path := filepath.Join(monitor.perfEventDir, cgroup)
+		fd, err := unix.Open(path, unix.O_RDONLY, 0)
+		if err == nil {
+			err = monitor.initializeGroupLeaders(fd, monitor.flags|PERF_FLAG_PID_CGROUP)
+			if err == nil {
+				continue
+			}
+		}
+
+		for _, group := range monitor.groups {
+			group.cleanup()
+		}
 		return nil, err
 	}
 
-	return monitor, nil
-}
+	pids := make(map[int]bool, len(opts.pids))
+	for _, pid := range opts.pids {
+		if pids[pid] {
+			glog.V(1).Infof("Ignoring duplicate pid %d", pid)
+			continue
+		}
+		pids[pid] = true
 
-func NewEventMonitorWithCgroup(cgroup string, flags uintptr, ringBufferNumPages int, defaultAttr *EventAttr) (*EventMonitor, error) {
-	path := filepath.Join(sys.PerfEventDir(), cgroup)
-	f, err := os.OpenFile(path, os.O_RDONLY, 0)
-	if err != nil {
+		err := monitor.initializeGroupLeaders(pid, monitor.flags)
+		if err == nil {
+			continue
+		}
+
+		for _, group := range monitor.groups {
+			group.cleanup()
+		}
 		return nil, err
 	}
-
-	monitor, err := NewEventMonitor(int(f.Fd()), flags|PERF_FLAG_PID_CGROUP, ringBufferNumPages, defaultAttr)
-	if err != nil {
-		f.Close()
-		return nil, err
-	}
-	monitor.cgroup = f
 
 	return monitor, nil
 }
