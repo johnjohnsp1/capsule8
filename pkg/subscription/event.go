@@ -120,7 +120,7 @@ func newEventFromSample(sample *perf.SampleRecord, data map[string]interface{}) 
 	e.ProcessPid = data["common_pid"].(int32)
 
 	// Add unique ID
-	e.ProcessId = processID(e.ProcessPid)
+	e.ProcessId = processID(int(e.ProcessPid))
 
 	// If Tid is available, use it
 	if sample.Tid > 0 {
@@ -130,7 +130,7 @@ func newEventFromSample(sample *perf.SampleRecord, data map[string]interface{}) 
 	e.Cpu = int32(sample.CPU)
 
 	// Add an associated containerID
-	containerID := processContainerID(e.ProcessPid)
+	containerID := processContainerID(int(e.ProcessPid))
 	if len(containerID) > 0 {
 		// Add the container ID if we have it and then try
 		// using it to look up additional container info

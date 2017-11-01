@@ -902,6 +902,11 @@ func NewEventMonitor(flags uintptr, defaultEventAttr *EventAttr, options ...Even
 	if len(opts.perfEventDir) == 0 {
 		opts.perfEventDir = sys.PerfEventDir()
 	}
+
+	if len(opts.perfEventDir) == 0 && len(opts.cgroups) > 0 {
+		return nil, fmt.Errorf("Can't monitor specific cgroups without perf_event cgroupfs")
+	}
+
 	if len(opts.pids) == 0 && len(opts.cgroups) == 0 {
 		opts.pids = append(opts.pids, -1)
 	}

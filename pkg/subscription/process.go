@@ -19,7 +19,7 @@ const (
 
 func decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
 	childPid := data["child_pid"].(int32)
-	childID := processID(childPid)
+	childID := processID(int(childPid))
 
 	ev := newEventFromSample(sample, data)
 	ev.Event = &api.Event_Process{
@@ -39,7 +39,7 @@ func decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampl
 	//
 	hostPid := data["common_pid"].(int32)
 	filename := data["filename"].(string)
-	commandLine := sys.HostProcFS().CommandLine(hostPid)
+	commandLine := sys.HostProcFS().CommandLine(int(hostPid))
 
 	ev := newEventFromSample(sample, data)
 	processEvent := &api.ProcessEvent{
