@@ -85,6 +85,7 @@ type perfEventGroup struct {
 	cpu        int  // passed as 'cpu' argument to perf_event_open()
 	fd         int  // fd returned from perf_event_open()
 	cgroup     bool // true if 'pid' is a cgroup fd
+	flags      uintptr
 }
 
 func (group *perfEventGroup) cleanup() {
@@ -141,7 +142,6 @@ type EventMonitor struct {
 	eventIDs map[int]uint64 // fd : stream id
 
 	// Immutable, used only when adding new tracepoints/probes
-	flags       uintptr
 	defaultAttr EventAttr
 
 	// Used only during initial monitor configuration
@@ -254,9 +254,8 @@ func (monitor *EventMonitor) perfEventOpen(eventAttr *EventAttr, filter string) 
 	glog.V(2).Infof("Opening perf event: %d %s", eventAttr.Config, filter)
 
 	newfds := make([]int, 0, len(monitor.groups))
-	flags := monitor.flags | PERF_FLAG_FD_OUTPUT | PERF_FLAG_FD_NO_GROUP
-
 	for groupfd, group := range monitor.groups {
+		flags := group.flags | PERF_FLAG_FD_OUTPUT | PERF_FLAG_FD_NO_GROUP
 		fd, err := open(eventAttr, group.pid, group.cpu, groupfd, flags)
 		if err != nil {
 			for j := len(newfds) - 1; j >= 0; j-- {
@@ -838,9 +837,10 @@ func (monitor *EventMonitor) initializeGroupLeaders(pid int, flags uintptr) erro
 		}
 
 		newGroup := perfEventGroup{
-			pid: pid,
-			cpu: cpu,
-			fd:  groupfd,
+			pid:   pid,
+			cpu:   cpu,
+			fd:    groupfd,
+			flags: flags,
 		}
 		if flags&PERF_FLAG_PID_CGROUP == PERF_FLAG_PID_CGROUP {
 			newGroup.cgroup = true
@@ -913,7 +913,6 @@ func NewEventMonitor(flags uintptr, defaultEventAttr *EventAttr, options ...Even
 		events:             make(map[string]*registeredEvent),
 		eventfds:           make(map[int]int),
 		eventIDs:           make(map[int]uint64),
-		flags:              flags,
 		defaultAttr:        eventAttr,
 		ringBufferNumPages: opts.ringBufferNumPages,
 		perfEventDir:       opts.perfEventDir,
@@ -932,7 +931,7 @@ func NewEventMonitor(flags uintptr, defaultEventAttr *EventAttr, options ...Even
 		path := filepath.Join(monitor.perfEventDir, cgroup)
 		fd, err := unix.Open(path, unix.O_RDONLY, 0)
 		if err == nil {
-			err = monitor.initializeGroupLeaders(fd, monitor.flags|PERF_FLAG_PID_CGROUP)
+			err = monitor.initializeGroupLeaders(fd, flags|PERF_FLAG_PID_CGROUP)
 			if err == nil {
 				continue
 			}
@@ -952,7 +951,7 @@ func NewEventMonitor(flags uintptr, defaultEventAttr *EventAttr, options ...Even
 		}
 		pids[pid] = true
 
-		err := monitor.initializeGroupLeaders(pid, monitor.flags)
+		err := monitor.initializeGroupLeaders(pid, flags)
 		if err == nil {
 			continue
 		}
