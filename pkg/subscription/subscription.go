@@ -258,8 +258,10 @@ func createPerfEventStream(sub *api.Subscription) (*stream.Stream, error) {
 
 	}()
 
-	glog.V(1).Infof("Enabling EventMonitor")
-	monitor.Enable()
+	if monitor != nil {
+		glog.V(1).Infof("Enabling EventMonitor")
+		monitor.Enable()
+	}
 
 	return &stream.Stream{
 		Ctrl: ctrl,
