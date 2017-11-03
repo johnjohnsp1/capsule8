@@ -43,11 +43,14 @@ ci:
 	    -ti                                                                 \
 	    --rm                                                                \
 	    -v "$$(pwd):/go/src/$(PKG)"                                         \
+	    -v /var/run/docker.sock:/var/run/docker.sock:ro                     \
+	    -v /var/run/capsule8/sensor.sock:/var/run/capsule8/sensor.sock:ro   \
 	    -w /go/src/$(PKG)                                                   \
 	    $(BUILD_IMAGE)                                                      \
 	    /bin/sh -c "                                                        \
+		apk add -U docker &&                                            \
 		apk add -U make &&                                              \
-		make check && make test_verbose                                 \
+		make check test_verbose                                         \
 	    "
 
 #
@@ -126,6 +129,9 @@ test_msan:
 #
 test_race:
 	go test -race ./cmd/... ./pkg/...
+
+test_functional:
+	go test -v ./test/functional
 
 clean:
 	rm -rf ./bin $(CMDS)

@@ -9,7 +9,7 @@ import (
 )
 
 type signalTest struct {
-	testContainer   *container
+	testContainer   *Container
 	err             error
 	containerID     string
 	containerExited bool
@@ -17,9 +17,9 @@ type signalTest struct {
 	processExited   bool
 }
 
-func (ct *signalTest) buildContainer(t *testing.T) {
-	c := newContainer(t, "signal")
-	err := c.build()
+func (ct *signalTest) BuildContainer(t *testing.T) {
+	c := NewContainer(t, "signal")
+	err := c.Build()
 	if err != nil {
 		t.Error(err)
 	} else {
@@ -27,18 +27,18 @@ func (ct *signalTest) buildContainer(t *testing.T) {
 	}
 }
 
-func (ct *signalTest) runContainer(t *testing.T) {
-	err := ct.testContainer.start()
+func (ct *signalTest) RunContainer(t *testing.T) {
+	err := ct.testContainer.Start()
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
 	// We assume that the container will return an error, so ignore that one
-	ct.testContainer.wait()
+	ct.testContainer.Wait()
 }
 
-func (ct *signalTest) createSubscription(t *testing.T) *api.Subscription {
+func (ct *signalTest) CreateSubscription(t *testing.T) *api.Subscription {
 	containerEvents := []*api.ContainerEventFilter{
 		&api.ContainerEventFilter{
 			Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED,
@@ -77,13 +77,13 @@ func (ct *signalTest) createSubscription(t *testing.T) *api.Subscription {
 	return sub
 }
 
-func (ct *signalTest) handleTelemetryEvent(t *testing.T, telemetryEvent *api.TelemetryEvent) bool {
+func (ct *signalTest) HandleTelemetryEvent(t *testing.T, telemetryEvent *api.TelemetryEvent) bool {
 	glog.V(2).Infof("%+v", telemetryEvent)
 
 	switch event := telemetryEvent.Event.Event.(type) {
 	case *api.Event_Container:
 		if event.Container.Type == api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED {
-			if event.Container.ImageName == ct.testContainer.imageID {
+			if event.Container.ImageName == ct.testContainer.ImageID {
 				if len(ct.containerID) > 0 {
 					t.Error("Already saw container created")
 					return false
@@ -150,6 +150,6 @@ func (ct *signalTest) handleTelemetryEvent(t *testing.T, telemetryEvent *api.Tel
 
 func TestSignal(t *testing.T) {
 	st := &signalTest{}
-	tt := newTelemetryTest(st)
-	tt.runTest(t)
+	tt := NewTelemetryTester(st)
+	tt.RunTest(t)
 }
