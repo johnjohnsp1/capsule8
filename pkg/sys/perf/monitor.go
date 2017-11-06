@@ -25,7 +25,7 @@ type eventMonitorOptions struct {
 	pids               []int
 }
 
-type EventMonitorOption func (*eventMonitorOptions)
+type EventMonitorOption func(*eventMonitorOptions)
 
 func WithPerfEventDir(dir string) EventMonitorOption {
 	return func(o *eventMonitorOptions) {

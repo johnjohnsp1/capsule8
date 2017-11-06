@@ -10,7 +10,7 @@ import (
 )
 
 type exitTest struct {
-	testContainer   *container
+	testContainer   *Container
 	err             error
 	waitGroup       sync.WaitGroup
 	containerID     string
@@ -19,9 +19,9 @@ type exitTest struct {
 	processExited   bool
 }
 
-func (ct *exitTest) buildContainer(t *testing.T) {
-	c := newContainer(t, "exit")
-	err := c.build()
+func (ct *exitTest) BuildContainer(t *testing.T) {
+	c := NewContainer(t, "exit")
+	err := c.Build()
 	if err != nil {
 		t.Error(err)
 	} else {
@@ -29,18 +29,18 @@ func (ct *exitTest) buildContainer(t *testing.T) {
 	}
 }
 
-func (ct *exitTest) runContainer(t *testing.T) {
-	err := ct.testContainer.start()
+func (ct *exitTest) RunContainer(t *testing.T) {
+	err := ct.testContainer.Start()
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
 	// We assume that the container will return an error, so ignore that one
-	ct.testContainer.wait()
+	ct.testContainer.Wait()
 }
 
-func (ct *exitTest) createSubscription(t *testing.T) *api.Subscription {
+func (ct *exitTest) CreateSubscription(t *testing.T) *api.Subscription {
 	containerEvents := []*api.ContainerEventFilter{
 		&api.ContainerEventFilter{
 			Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED,
@@ -79,13 +79,13 @@ func (ct *exitTest) createSubscription(t *testing.T) *api.Subscription {
 	return sub
 }
 
-func (ct *exitTest) handleTelemetryEvent(t *testing.T, telemetryEvent *api.TelemetryEvent) bool {
+func (ct *exitTest) HandleTelemetryEvent(t *testing.T, telemetryEvent *api.TelemetryEvent) bool {
 	glog.V(2).Infof("%+v", telemetryEvent)
 
 	switch event := telemetryEvent.Event.Event.(type) {
 	case *api.Event_Container:
 		if event.Container.Type == api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED {
-			if event.Container.ImageName == ct.testContainer.imageID {
+			if event.Container.ImageName == ct.testContainer.ImageID {
 				if len(ct.containerID) > 0 {
 					t.Error("Already saw container created")
 					return false
@@ -152,6 +152,6 @@ func (ct *exitTest) handleTelemetryEvent(t *testing.T, telemetryEvent *api.Telem
 
 func TestExit(t *testing.T) {
 	et := &exitTest{}
-	tt := newTelemetryTest(et)
-	tt.runTest(t)
+	tt := NewTelemetryTester(et)
+	tt.RunTest(t)
 }
