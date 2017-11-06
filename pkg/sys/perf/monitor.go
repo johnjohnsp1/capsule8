@@ -899,12 +899,14 @@ func NewEventMonitor(flags uintptr, defaultEventAttr *EventAttr, options ...Even
 		option(&opts)
 	}
 
+	// If no perf_event cgroup mountpoint was specified, scan mounts for one
 	if len(opts.perfEventDir) == 0 {
 		opts.perfEventDir = sys.PerfEventDir()
-	}
 
-	if len(opts.perfEventDir) == 0 && len(opts.cgroups) > 0 {
-		return nil, fmt.Errorf("Can't monitor specific cgroups without perf_event cgroupfs")
+		// If we didn't find one, we can't monitor specific cgroups
+		if len(opts.perfEventDir) == 0 && len(opts.cgroups) > 0 {
+			return nil, errors.New("Can't monitor specific cgroups without perf_event cgroupfs")
+		}
 	}
 
 	if len(opts.pids) == 0 && len(opts.cgroups) == 0 {

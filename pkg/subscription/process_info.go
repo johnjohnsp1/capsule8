@@ -17,9 +17,6 @@ package subscription
 //
 
 import (
-	"crypto/sha256"
-	"encoding/binary"
-	"fmt"
 	"strings"
 	"sync"
 
@@ -324,28 +321,9 @@ func decodeNewTask(sample *perf.SampleRecord, data perf.TraceEventSampleData) (i
 		tgid = childPid
 
 		//
-		// Create processID for thread group leaders
+		// Create unique ID for thread group leaders
 		//
-
-		h := sha256.New()
-
-		bootID := proc.BootID()
-		err := binary.Write(h, binary.LittleEndian, []byte(bootID))
-		if err != nil {
-			glog.Fatal(err)
-		}
-
-		err = binary.Write(h, binary.LittleEndian, int32(tgid))
-		if err != nil {
-			glog.Fatal(err)
-		}
-
-		err = binary.Write(h, binary.LittleEndian, int32(parentPid))
-		if err != nil {
-			glog.Fatal(err)
-		}
-
-		uniqueID = fmt.Sprintf("%x", h.Sum(nil))
+		uniqueID = proc.DeriveUniqueID(tgid, parentPid)
 		containerID = processContainerID(parentPid)
 		if len(containerID) == 0 {
 			containerID, _ = procFS.ContainerID(tgid)
