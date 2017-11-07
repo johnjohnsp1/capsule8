@@ -68,9 +68,9 @@ var (
 
 type statParseData struct {
 	statFile   string
-	pid        int32
+	pid        int
 	comm       string
-	ppid       int32
+	ppid       int
 	startTime  uint64
 	startStack uint64
 }

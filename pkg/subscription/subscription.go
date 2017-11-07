@@ -1,7 +1,7 @@
 package subscription
 
 import (
-	"path/filepath"
+	"strings"
 	"sync/atomic"
 
 	api "github.com/capsule8/api/v0"
@@ -131,17 +131,15 @@ func buildMonitorGroups() ([]string, []int, error) {
 		}
 		cgroups[cgroup] = true
 		cgroupList = append(cgroupList, cgroup)
-		glog.V(1).Infof("Creating new perf event monitor on cgroup %s", cgroup)
 	}
-	if !system && len(cgroups) == 0 && inContainer() {
+	if !system && len(cgroups) == 0 && sys.InContainer() {
 		cgroups["docker"] = true
 		cgroupList = append(cgroupList, "docker")
 	}
 
 	// Try a system-wide perf event monitor if requested or as
 	// a fallback if no cgroups were requested
-	if system || len(cgroupList) == 0 {
-		glog.V(1).Info("Creating new system-wide event monitor")
+	if system || len(sys.PerfEventDir()) == 0 || len(cgroupList) == 0 {
 		pidList = append(pidList, -1)
 	}
 
@@ -171,25 +169,32 @@ func createMonitor(s *api.Subscription) (*perf.EventMonitor, error) {
 	}
 
 	if fs.len() > 0 {
-		var perfEventDir string
-
-		if len(sys.PerfEventDir()) != 0 {
-			perfEventDir = sys.PerfEventDir()
-		} else {
-			perfEventDir = filepath.Join(config.Global.RunDir,
-				"perf_event")
-		}
+		eventMonitorOptions := []perf.EventMonitorOption{}
 
 		cgroups, pids, err := buildMonitorGroups()
 		if err != nil {
 			return nil, err
 		}
 
-		monitor, err := perf.NewEventMonitor(0, nil,
-			perf.WithPerfEventDir(perfEventDir),
-			perf.WithCgroups(cgroups),
-			perf.WithPids(pids))
+		perfEventDir := sys.PerfEventDir()
+		if len(perfEventDir) > 0 && len(cgroups) > 0 {
+			glog.V(1).Infof("Creating new perf event monitor on cgroups %s",
+				strings.Join(cgroups, ","))
+
+			eventMonitorOptions = append(eventMonitorOptions,
+				perf.WithPerfEventDir(perfEventDir),
+				perf.WithCgroups(cgroups))
+		} else if len(pids) > 0 {
+			glog.V(1).Info("Creating new system-wide event monitor")
+			eventMonitorOptions = append(eventMonitorOptions,
+				perf.WithPids(pids))
+		} else {
+			glog.Fatal("Can't create event monitor with no cgroups or pids")
+		}
+
+		monitor, err := perf.NewEventMonitor(0, nil, eventMonitorOptions...)
 		if monitor == nil {
+			glog.V(1).Infof("Couldn't create event monitor: %s", err)
 			return nil, err
 		}
 
@@ -201,24 +206,11 @@ func createMonitor(s *api.Subscription) (*perf.EventMonitor, error) {
 	return nil, nil
 }
 
-func inContainer() bool {
-	procFS := sys.ProcFS()
-	initCgroups, err := procFS.Cgroups(1)
-	if err != nil {
-		glog.Fatalf("Couldn't get cgroups for pid 1: %s", err)
-	}
-
-	for _, cg := range initCgroups {
-		if cg.Path == "/" {
-			// /proc is a host procfs, return it
-			return false
-		}
-	}
-
-	return true
-}
-
 func createPerfEventStream(sub *api.Subscription) (*stream.Stream, error) {
+	// This fires up the global process monitor if it hasn't been
+	// started already
+	_ = ProcessMonitor()
+
 	//
 	// Create the perf event monitor out of the subscription
 	// first. If it fails, there is nothing else we can do.

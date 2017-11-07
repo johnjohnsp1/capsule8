@@ -191,6 +191,23 @@ func findHostProcFS() *proc.FileSystem {
 	return nil
 }
 
+// InContainer returns whether the process is running within a container or not
+func InContainer() bool {
+	initCgroups, err := ProcFS().Cgroups(1)
+	if err != nil {
+		glog.Fatalf("Couldn't get cgroups for pid 1: %s", err)
+	}
+
+	for _, cg := range initCgroups {
+		if cg.Path == "/" {
+			// /proc is a host procfs, return it
+			return false
+		}
+	}
+
+	return true
+}
+
 // TracingDir returns the directory on either the debugfs or tracefs
 // used to control the Linux kernel trace event subsystem.
 func TracingDir() string {

@@ -14,6 +14,7 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/capsule8/capsule8/pkg/config"
+	"github.com/capsule8/capsule8/pkg/subscription"
 	"github.com/golang/glog"
 )
 
@@ -66,6 +67,9 @@ func Main() {
 		glog.Infof("Caught signal %v, stopping sensor", sig)
 		Sensor.Stop()
 	}()
+
+	// Start up process monitor
+	_ = subscription.ProcessMonitor()
 
 	err := Sensor.Serve()
 	if err != nil {
