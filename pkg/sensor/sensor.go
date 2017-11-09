@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	api "github.com/capsule8/api/v0"
@@ -51,6 +52,13 @@ type Sensor struct {
 	// If temporary fs mounts are made at startup, they're stored here.
 	perfEventMountPoint string
 	traceFSMountPoint   string
+
+	// A sensor-global event monitor that is used for events to aid in
+	// caching process information
+	monitor *perf.EventMonitor
+
+	// Per-sensor process cache.
+	processCache *ProcessInfoCache
 }
 
 func NewSensor() (*Sensor, error) {
@@ -113,10 +121,46 @@ func (s *Sensor) Start() error {
 		}
 	}
 
+	// Create the sensor-global event monitor. This EventMonitor instance
+	// will be used for perf_event events that affect sensor-wide caching
+	monitor, err := s.createEventMonitor(nil)
+	if err != nil {
+		s.Stop()
+		return err
+	}
+	s.monitor = monitor
+
+	s.processCache, err = NewProcessInfoCache(s)
+	if err != nil {
+		return err
+	}
+
+	// This should be last. It shouldn't be started until everything else
+	// has been successfully started
+	go func() {
+		err := monitor.Run(func(sample interface{}, err error) {
+			if err != nil {
+				glog.Error(err)
+			}
+		})
+		if err != nil {
+			glog.Fatal(err)
+		}
+	}()
+
+	s.monitor.Enable()
+
 	return nil
 }
 
 func (s *Sensor) Stop() {
+	if s.monitor != nil {
+		glog.V(2).Info("Stopping sensor-global EventMonitor")
+		s.monitor.Close(true)
+		s.monitor = nil
+		glog.V(2).Info("Sensor-global EventMonitor stopped successfully")
+	}
+
 	if len(s.traceFSMountPoint) > 0 {
 		s.unmountTraceFS()
 	}
@@ -220,10 +264,10 @@ func (s *Sensor) NewEventFromSample(sample *perf.SampleRecord,
 	e.ProcessPid = data["common_pid"].(int32)
 	e.ProcessTid = int32(sample.Tid)
 	e.Cpu = int32(sample.CPU)
-	e.ProcessId = processId(e.ProcessPid)
+	e.ProcessId = s.processCache.ProcessId(int(e.ProcessPid))
 
 	// Add an associated containerId
-	containerId := processContainerId(e.ProcessPid)
+	containerId := s.processCache.ProcessContainerId(int(e.ProcessPid))
 	if len(containerId) > 0 {
 		// Add the container Id if we have it and then try
 		// using it to look up additional container info
@@ -258,16 +302,15 @@ func (s *Sensor) buildMonitorGroups() ([]string, []int, error) {
 		}
 		cgroups[cgroup] = true
 		cgroupList = append(cgroupList, cgroup)
-		glog.V(1).Infof("Creating new perf event monitor on cgroup %s", cgroup)
 	}
-	if !system && len(cgroups) == 0 && inContainer() {
+	if !system && len(cgroups) == 0 && sys.InContainer() {
 		cgroups["docker"] = true
 		cgroupList = append(cgroupList, "docker")
 	}
 
 	// Try a system-wide perf event monitor if requested or as
 	// a fallback if no cgroups were requested
-	if system || len(cgroupList) == 0 {
+	if system || len(sys.PerfEventDir()) == 0 || len(cgroupList) == 0 {
 		glog.V(1).Info("Creating new system-wide event monitor")
 		pidList = append(pidList, -1)
 	}
@@ -278,15 +321,29 @@ func (s *Sensor) buildMonitorGroups() ([]string, []int, error) {
 func (s *Sensor) createEventMonitor(sub *api.Subscription) (*perf.EventMonitor, error) {
 	var perfEventDir string
 
-	if len(s.perfEventMountPoint) > 0 {
-		perfEventDir = s.perfEventMountPoint
-	} else {
-		perfEventDir = sys.PerfEventDir()
-	}
+	eventMonitorOptions := []perf.EventMonitorOption{}
 
 	cgroups, pids, err := s.buildMonitorGroups()
 	if err != nil {
 		return nil, err
+	}
+
+	if len(cgroups) > 0 {
+		perfEventDir := sys.PerfEventDir()
+		if len(perfEventDir) > 0 {
+			glog.V(1).Infof("Creating new perf event monitor on cgroups %s",
+				strings.Join(cgroups, ","))
+
+			eventMonitorOptions = append(eventMonitorOptions,
+				perf.WithPerfEventDir(perfEventDir),
+				perf.WithCgroups(cgroups))
+		}
+	} else if len(pids) > 0 {
+		glog.V(1).Info("Creating new system-wide event monitor")
+		eventMonitorOptions = append(eventMonitorOptions,
+			perf.WithPids(pids))
+	} else {
+		glog.Fatal("Can't create event monitor with no cgroups or pids")
 	}
 
 	monitor, err := perf.NewEventMonitor(
@@ -294,14 +351,17 @@ func (s *Sensor) createEventMonitor(sub *api.Subscription) (*perf.EventMonitor, 
 		perf.WithCgroups(cgroups),
 		perf.WithPids(pids))
 	if err != nil {
+		glog.V(1).Infof("Couldn't create event monitor: %s", err)
 		return nil, err
 	}
 
-	registerFileEvents(monitor, s, sub.EventFilter.FileEvents)
-	registerKernelEvents(monitor, s, sub.EventFilter.KernelEvents)
-	registerNetworkEvents(monitor, s, sub.EventFilter.NetworkEvents)
-	registerProcessEvents(monitor, s, sub.EventFilter.ProcessEvents)
-	registerSyscallEvents(monitor, s, sub.EventFilter.SyscallEvents)
+	if sub != nil {
+		registerFileEvents(monitor, s, sub.EventFilter.FileEvents)
+		registerKernelEvents(monitor, s, sub.EventFilter.KernelEvents)
+		registerNetworkEvents(monitor, s, sub.EventFilter.NetworkEvents)
+		registerProcessEvents(monitor, s, sub.EventFilter.ProcessEvents)
+		registerSyscallEvents(monitor, s, sub.EventFilter.SyscallEvents)
+	}
 
 	return monitor, nil
 }
@@ -440,21 +500,4 @@ func filterNils(e interface{}) bool {
 		return ev != nil
 	}
 	return false
-}
-
-func inContainer() bool {
-	procFS := sys.ProcFS()
-	initCgroups, err := procFS.Cgroups(1)
-	if err != nil {
-		glog.Fatalf("Couldn't get cgroups for pid 1: %s", err)
-	}
-
-	for _, cg := range initCgroups {
-		if cg.Path == "/" {
-			// /proc is a host procfs, return it
-			return false
-		}
-	}
-
-	return true
 }

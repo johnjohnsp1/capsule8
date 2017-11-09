@@ -93,13 +93,13 @@ func (fs *FileSystem) ReadFile(relativePath string) ([]byte, error) {
 
 // CommandLine gets the full command-line arguments for the process
 // indicated by the given PID.
-func CommandLine(pid int32) []string {
+func CommandLine(pid int) []string {
 	return FS().CommandLine(pid)
 }
 
 // CommandLine gets the full command-line arguments for the process
 // indicated by the given PID.
-func (fs *FileSystem) CommandLine(pid int32) []string {
+func (fs *FileSystem) CommandLine(pid int) []string {
 	//
 	// This misses the command-line arguments for short-lived processes,
 	// which is clearly not ideal.
@@ -131,13 +131,13 @@ func (fs *FileSystem) CommandLine(pid int32) []string {
 
 // Cgroups returns the cgroup membership of the process
 // indicated by the given PID.
-func Cgroups(pid int32) ([]Cgroup, error) {
+func Cgroups(pid int) ([]Cgroup, error) {
 	return FS().Cgroups(pid)
 }
 
 // Cgroups returns the cgroup membership of the process
 // indicated by the given PID.
-func (fs *FileSystem) Cgroups(pid int32) ([]Cgroup, error) {
+func (fs *FileSystem) Cgroups(pid int) ([]Cgroup, error) {
 	filename := fmt.Sprintf("%d/cgroup", pid)
 	cgroup, err := fs.ReadFile(filename)
 	if err != nil {
@@ -184,7 +184,7 @@ type Cgroup struct {
 // by the given PID. Returns the empty string if the process is not
 // running within a container. Returns a non-nil error if the process
 // indicated by the given PID wasn't found.
-func ContainerID(pid int32) (string, error) {
+func ContainerID(pid int) (string, error) {
 	return FS().ContainerID(pid)
 }
 
@@ -192,7 +192,7 @@ func ContainerID(pid int32) (string, error) {
 // by the given PID. Returns the empty string if the process is not
 // running within a container. Returns a  non-nil error if the process
 // indicated by the given PID wasn't found.
-func (fs *FileSystem) ContainerID(pid int32) (string, error) {
+func (fs *FileSystem) ContainerID(pid int) (string, error) {
 	cgroups, err := fs.Cgroups(pid)
 	if err != nil {
 		return "", err
@@ -212,13 +212,13 @@ func (fs *FileSystem) ContainerID(pid int32) (string, error) {
 
 // UniqueID returns a reproducible namespace-independent
 // unique identifier for the process indicated by the given PID.
-func UniqueID(pid int32) string {
+func UniqueID(pid int) string {
 	return FS().UniqueID(pid)
 }
 
 // UniqueID returns a reproducible namespace-independent
 // unique identifier for the process indicated by the given PID.
-func (fs *FileSystem) UniqueID(pid int32) string {
+func (fs *FileSystem) UniqueID(pid int) string {
 	ps := fs.Stat(pid)
 	if ps == nil {
 		return ""
@@ -230,7 +230,7 @@ func (fs *FileSystem) UniqueID(pid int32) string {
 // Stat reads the given process's status and returns a ProcessStatus
 // with methods to parse and return information from that status as
 // needed.
-func Stat(pid int32) *ProcessStatus {
+func Stat(pid int) *ProcessStatus {
 	return FS().Stat(pid)
 }
 
@@ -259,7 +259,7 @@ func statFields(stat string) []string {
 // Stat reads the given process's status from the ProcFS receiver and
 // returns a ProcessStatus with methods to parse and return
 // information from that status as needed.
-func (fs *FileSystem) Stat(pid int32) *ProcessStatus {
+func (fs *FileSystem) Stat(pid int) *ProcessStatus {
 	stat, err := fs.ReadFile(fmt.Sprintf("%d/stat", pid))
 	if err != nil {
 		return nil
@@ -273,16 +273,16 @@ func (fs *FileSystem) Stat(pid int32) *ProcessStatus {
 // ProcessStatus represents process status available via /proc/[pid]/stat
 type ProcessStatus struct {
 	statFields []string
-	pid        int32
+	pid        int
 	comm       string
-	ppid       int32
+	ppid       int
 	startTime  uint64
 	startStack uint64
 	uniqueID   string
 }
 
 // PID returns the PID of the process.
-func (ps *ProcessStatus) PID() int32 {
+func (ps *ProcessStatus) PID() int {
 	if ps.pid == 0 {
 		pid := ps.statFields[0]
 		i, err := strconv.ParseInt(pid, 0, 32)
@@ -290,7 +290,7 @@ func (ps *ProcessStatus) PID() int32 {
 			glog.Fatalf("Couldn't parse PID: %s", pid)
 		}
 
-		ps.pid = int32(i)
+		ps.pid = int(i)
 	}
 
 	return ps.pid
@@ -307,7 +307,7 @@ func (ps *ProcessStatus) Command() string {
 }
 
 // ParentPID returns the PID of the parent of the process.
-func (ps *ProcessStatus) ParentPID() int32 {
+func (ps *ProcessStatus) ParentPID() int {
 	if ps.ppid == 0 {
 		ppid := ps.statFields[3]
 		i, err := strconv.ParseInt(ppid, 0, 32)
@@ -315,7 +315,7 @@ func (ps *ProcessStatus) ParentPID() int32 {
 			glog.Fatalf("Couldn't parse PPID: %s", ppid)
 		}
 
-		ps.ppid = int32(i)
+		ps.ppid = int(i)
 	}
 
 	return ps.ppid
@@ -356,21 +356,37 @@ func (ps *ProcessStatus) StartStack() uint64 {
 // process indicated by the given PID.
 func (ps *ProcessStatus) UniqueID() string {
 	if len(ps.uniqueID) == 0 {
-		// Hash the bootID, PID, and start time to create a
-		// unique process identifier that has the same value
-		// regardless of the pid namespace (i.e. same value
-		// from within the container and from the underlying
-		// host).
-		h := sha256.New()
-
-		binary.Write(h, binary.LittleEndian, BootID())
-		binary.Write(h, binary.LittleEndian, ps.PID())
-		binary.Write(h, binary.LittleEndian, ps.StartTime())
-
-		ps.uniqueID = fmt.Sprintf("%x", h.Sum(nil))
+		ps.uniqueID = DeriveUniqueID(ps.PID(), ps.ParentPID())
 	}
 
 	return ps.uniqueID
+}
+
+// DeriveUniqueID returns a unique ID for thye process with the given
+// PID and parent PID
+func DeriveUniqueID(pid, ppid int) string {
+	// Hash the bootID, PID, and parent PID to create a
+	// unique process identifier that can also be calculated
+	// from perf records and trace events
+
+	h := sha256.New()
+
+	err := binary.Write(h, binary.LittleEndian, []byte(BootID()))
+	if err != nil {
+		glog.Fatal(err)
+	}
+
+	err = binary.Write(h, binary.LittleEndian, int32(pid))
+	if err != nil {
+		glog.Fatal(err)
+	}
+
+	err = binary.Write(h, binary.LittleEndian, int32(ppid))
+	if err != nil {
+		glog.Fatal(err)
+	}
+
+	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
 // BootID gets the host system boot identifier

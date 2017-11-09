@@ -6,7 +6,7 @@ package sensor
 // when process or container information can't be retrieved from
 // procfs.
 //
-// The process stat and container Id lookups through processId and
+// The process stat and container ID lookups through processId and
 // processContainerId are highly impacting on sensor performance since
 // every event emitted will require at least one call to them. Any
 // changes to this path should be considered along with benchmarking
@@ -20,208 +20,257 @@ import (
 	"sync"
 
 	"github.com/capsule8/capsule8/pkg/sys"
+	"github.com/capsule8/capsule8/pkg/sys/perf"
 	"github.com/capsule8/capsule8/pkg/sys/proc"
 	"github.com/golang/glog"
 )
 
-const cacheArraySize = 32768
-
 var (
-	fs   *proc.FileSystem
-	once sync.Once
+	procFS *proc.FileSystem
+	once   sync.Once
 )
 
-type processInfoCache interface {
-	status(int32) *proc.ProcessStatus
-	setStatus(int32, *proc.ProcessStatus)
+const arrayTaskCacheSize = 32768
 
-	containerId(int32) string
-	setContainerId(int32, string)
+type taskCache interface {
+	LookupTask(int, *task) bool
+	InsertTask(int, task)
+	SetTaskContainerId(int, string)
 }
 
-type arrayProcessInfoCache struct {
-	entries [cacheArraySize]processCacheEntry
+type arrayTaskCache struct {
+	entries [arrayTaskCacheSize]task
 }
 
-func newArrayProcessInfoCache() *arrayProcessInfoCache {
-	return &arrayProcessInfoCache{}
+func newArrayTaskCache() *arrayTaskCache {
+	return &arrayTaskCache{}
 }
 
-func (c *arrayProcessInfoCache) status(pid int32) *proc.ProcessStatus {
-	return c.entries[pid].status
-}
+func (c *arrayTaskCache) LookupTask(pid int, t *task) bool {
+	*t = c.entries[pid]
+	ok := t.tgid != 0
 
-func (c *arrayProcessInfoCache) setStatus(pid int32, status *proc.ProcessStatus) {
-	c.entries[pid].status = status
-}
-
-func (c *arrayProcessInfoCache) containerId(pid int32) string {
-	return c.entries[pid].containerId
-}
-
-func (c *arrayProcessInfoCache) setContainerId(pid int32, containerId string) {
-	c.entries[pid].containerId = containerId
-}
-
-type mapProcessInfoCache struct {
-	sync.Mutex
-	entries map[int32]processCacheEntry
-}
-
-type processCacheEntry struct {
-	status      *proc.ProcessStatus
-	containerId string
-}
-
-func newMapProcessInfoCache() *mapProcessInfoCache {
-	return &mapProcessInfoCache{
-		entries: make(map[int32]processCacheEntry),
-	}
-}
-
-func (c *mapProcessInfoCache) status(pid int32) *proc.ProcessStatus {
-	c.Lock()
-	defer c.Unlock()
-
-	entry, ok := c.entries[pid]
 	if ok {
-		return entry.status
-	}
-
-	return nil
-}
-
-func (c *mapProcessInfoCache) setStatus(pid int32, status *proc.ProcessStatus) {
-	c.Lock()
-	defer c.Unlock()
-
-	entry, ok := c.entries[pid]
-	if ok {
-		entry.status = status
+		glog.V(10).Infof("LookupTask(%d) -> %+v", pid, t)
 	} else {
-		entry := processCacheEntry{
-			status: status,
-		}
-		c.entries[pid] = entry
+		glog.V(10).Infof("LookupTask(%d) -> nil", pid)
+	}
+
+	return ok
+}
+
+func (c *arrayTaskCache) InsertTask(pid int, t task) {
+	glog.V(10).Infof("InsertTask(%d, %+v)", pid, t)
+	c.entries[pid] = t
+}
+
+func (c *arrayTaskCache) SetTaskContainerId(pid int, cID string) {
+	glog.V(10).Infof("SetTaskContainerId(%d) = %s", pid, cID)
+	c.entries[pid].containerId = cID
+}
+
+type mapTaskCache struct {
+	sync.Mutex
+	entries map[int]task
+}
+
+func newMapTaskCache() *mapTaskCache {
+	return &mapTaskCache{
+		entries: make(map[int]task),
 	}
 }
 
-func (c *mapProcessInfoCache) containerId(pid int32) string {
+func (c *mapTaskCache) LookupTask(pid int, t *task) (ok bool) {
 	c.Lock()
 	defer c.Unlock()
 
-	entry, ok := c.entries[pid]
+	*t, ok = c.entries[pid]
+
 	if ok {
-		return entry.containerId
+		glog.V(10).Infof("LookupTask(%d) -> %+v", pid, t)
+	} else {
+		glog.V(10).Infof("LookupTask(%d) -> nil", pid)
+	}
+
+	return ok
+}
+
+func (c *mapTaskCache) InsertTask(pid int, t task) {
+	glog.V(10).Infof("InsertTask(%d, %+v)", pid, t)
+
+	c.Lock()
+	defer c.Unlock()
+
+	c.entries[pid] = t
+}
+
+func (c *mapTaskCache) SetTaskContainerId(pid int, cID string) {
+	glog.V(10).Infof("SetTaskContainerId(%d) = %s", pid, cID)
+
+	c.Lock()
+	defer c.Unlock()
+	t, ok := c.entries[pid]
+	if ok {
+		t.containerId = cID
+		c.entries[pid] = t
+	}
+}
+
+type ProcessInfoCache struct {
+	sensor *Sensor
+	cache  taskCache
+}
+
+func NewProcessInfoCache(sensor *Sensor) (*ProcessInfoCache, error) {
+	once.Do(func() {
+		procFS = sys.HostProcFS()
+		if procFS == nil {
+			glog.Fatal("Couldn't find a host procfs")
+		}
+	})
+
+	cache := &ProcessInfoCache{
+		sensor: sensor,
+	}
+
+	maxPid := proc.MaxPid()
+	if maxPid > arrayTaskCacheSize {
+		cache.cache = newMapTaskCache()
+	} else {
+		cache.cache = newArrayTaskCache()
+	}
+
+	// Register with the sensor's global event monitor...
+	eventName := "task/task_newtask"
+	err := sensor.monitor.RegisterEvent(eventName, cache.decodeNewTask, "", nil)
+	if err != nil {
+		glog.V(1).Infof("Couldn't register process info cache event: %s", err)
+		return nil, err
+	}
+
+	return cache, nil
+}
+
+// lookupLeader finds the task info for the thread group leader of the given pid
+func (pc *ProcessInfoCache) lookupLeader(pid int) (task, bool) {
+	var t task
+
+	for p := pid; pc.cache.LookupTask(p, &t) && t.pid != t.tgid; p = t.ppid {
+		// Do nothing
+	}
+
+	return t, t.pid == t.tgid
+}
+
+// processId returns the unique ID for the process indicated by the
+// given PID. This process ID is identical whether it is derived
+// inside or outside a container.
+func (pc *ProcessInfoCache) ProcessId(pid int) string {
+	leader, ok := pc.lookupLeader(pid)
+	if ok {
+		return leader.processId
 	}
 
 	return ""
 }
 
-func (c *mapProcessInfoCache) setContainerId(pid int32, containerId string) {
-	c.Lock()
-	defer c.Unlock()
-
-	entry, ok := c.entries[pid]
-	if ok {
-		entry.containerId = containerId
-	} else {
-		entry := processCacheEntry{
-			containerId: containerId,
-		}
-		c.entries[pid] = entry
-	}
-}
-
-//
-// In order to avoid needing to lock, we pre-allocate two arrays of
-// strings for the last-seen UniqueId and ContainerId for a given PID,
-// respectively.
-//
-var cache processInfoCache
-
-func procFS() *proc.FileSystem {
-	once.Do(func() {
-		fs = sys.HostProcFS()
-		maxPid := proc.MaxPid()
-
-		if maxPid > cacheArraySize {
-			cache = newMapProcessInfoCache()
-		} else {
-			cache = newArrayProcessInfoCache()
-		}
-	})
-
-	return fs
-}
-
-// processId returns the unique Id for the process indicated by the
-// given PID. The unique Id is identical whether it is derived inside
-// or outside a container.
-func processId(pid int32) string {
-	var uid string
-
-	ps := procFS().Stat(pid)
-	if ps != nil {
-		glog.V(10).Infof("setStatus(%d)", pid)
-		cache.setStatus(pid, ps)
-	} else {
-		ps = cache.status(pid)
-	}
-
-	if ps != nil {
-		uid = ps.UniqueID()
-	}
-
-	glog.V(10).Infof("processId(%d) -> %s", pid, uid)
-	return uid
-}
-
-// processContainerId returns the container Id that the process
+// processContainerId returns the container ID that the process
 // indicated by the given host PID.
-func processContainerId(pid int32) string {
-	var cid string
-	var err error
+func (pc *ProcessInfoCache) ProcessContainerId(pid int) string {
+	var t task
+	for p := pid; pc.cache.LookupTask(p, &t); p = t.ppid {
+		if len(t.containerId) > 0 {
+			return t.containerId
+		}
+	}
 
-	cid, err = procFS().ContainerID(pid)
-	if err == nil {
-		if len(cid) > 0 {
-			//
-			// If the process was found *and* it is in a container,
-			// cache the container Id for the given PID.
-			//
-			glog.V(10).Infof("setContainerId(%d) = [%s]", pid, cid)
-			cache.setContainerId(pid, cid)
+	return ""
+}
+
+const CLONE_THREAD = 0x10000
+
+//
+// task represents a schedulable task
+//
+type task struct {
+	pid, ppid, tgid int
+	cloneFlags      uint64
+	command         string
+	processId       string
+	containerId     string
+}
+
+//
+// Decodes each task/task_newtask tracepoint event into a processCacheEntry
+//
+func (pc *ProcessInfoCache) decodeNewTask(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+	parentPid := int(data["common_pid"].(int32))
+	childPid := int(data["pid"].(int32))
+	cloneFlags := data["clone_flags"].(uint64)
+
+	// This is not ideal
+	comm := data["comm"].([]interface{})
+	comm2 := make([]byte, len(comm))
+	for i, c := range comm {
+		b := c.(int8)
+		if b == 0 {
+			break
 		}
 
-		glog.V(10).Infof("processContainerId(%d) -> %s", pid, cid)
-		return cid
+		comm2[i] = byte(b)
+	}
+	command := string(comm2)
+
+	var tgid int
+	var uniqueId, containerId string
+
+	if (cloneFlags & CLONE_THREAD) != 0 {
+		tgid = parentPid
+
+		//
+		// Inherit containerId from tgid if possible
+		//
+		containerId = pc.ProcessContainerId(tgid)
+		if len(containerId) == 0 {
+			//
+			// This is a bit aggressive to check /proc for every new
+			// thread, but it's what helps us tag the container init
+			// process
+			//
+			containerId, _ = procFS.ContainerID(tgid)
+			if len(containerId) > 0 {
+				pc.cache.SetTaskContainerId(tgid, containerId)
+			}
+		}
+
+		uniqueId = pc.ProcessId(tgid)
+	} else {
+		//
+		// This is a new thread group leader, tgid is the new pid
+		//
+		tgid = childPid
+
+		//
+		// Create unique ID for thread group leaders
+		//
+		uniqueId = proc.DeriveUniqueID(tgid, parentPid)
+		containerId = pc.ProcessContainerId(parentPid)
+		if len(containerId) == 0 {
+			containerId, _ = procFS.ContainerID(tgid)
+		}
 	}
 
-	//
-	// If the process was not found, check the cache for a
-	// last-seen container Id.
-	//
-	cid = cache.containerId(pid)
-	if len(cid) > 0 {
-		glog.V(10).Infof("processContainerId(%d) -> %s", pid, cid)
-		return cid
+	t := task{
+		pid:         childPid,
+		ppid:        parentPid,
+		tgid:        tgid,
+		cloneFlags:  cloneFlags,
+		command:     command,
+		processId:   uniqueId,
+		containerId: containerId,
 	}
 
-	//
-	// If we never saw a ContainerId from /proc, then the process
-	// is a container init that is already gone. Check the cache
-	// for its status to find its parent and return the parent's
-	// containerId.
-	//
-	status := cache.status(pid)
-	if status != nil {
-		ppid := status.ParentPID()
-		cid = processContainerId(ppid)
-		glog.V(10).Infof("processContainerId(%d) -> %s", pid, cid)
-		return cid
-	}
+	pc.cache.InsertTask(t.pid, t)
 
-	glog.V(10).Infof("processContainerId(%d) -> %s", pid, cid)
-	return cid
+	return nil, nil
 }
