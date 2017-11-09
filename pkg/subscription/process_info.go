@@ -233,8 +233,7 @@ func ProcessMonitor() *processMonitor {
 		go func() {
 			err := em.Run(func(sample interface{}, err error) {
 				if err != nil {
-					glog.Error(err)
-					em.Stop(false)
+					glog.Warning(err)
 				}
 			})
 
