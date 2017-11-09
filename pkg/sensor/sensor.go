@@ -3,64 +3,84 @@
 package sensor
 
 import (
-	"net"
+	"bytes"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"os"
 	"path/filepath"
-	"sync"
+	"time"
 
-	"golang.org/x/sys/unix"
-
-	"google.golang.org/grpc"
+	api "github.com/capsule8/api/v0"
 
 	"github.com/capsule8/capsule8/pkg/config"
+	"github.com/capsule8/capsule8/pkg/container"
+	"github.com/capsule8/capsule8/pkg/filter"
+	"github.com/capsule8/capsule8/pkg/stream"
 	"github.com/capsule8/capsule8/pkg/sys"
+	"github.com/capsule8/capsule8/pkg/sys/perf"
 	"github.com/golang/glog"
+
+	"golang.org/x/sys/unix"
 )
 
-// Globals
-var (
-	// Sensor is the global Sensor instance
-	Sensor sensor
-)
-
-// Server represents a server that can be registered to be run by the Sensor.
-type Server interface {
-	Name() string
-	Serve() error
-	Stop()
-}
+// Number of random bytes to generate for Sensor Id
+const sensorIdLengthBytes = 32
 
 // Sensor represents the state of the singleton Sensor instance
-type sensor struct {
-	sync.Mutex
+type Sensor struct {
+	// Unique Id for this sensor. Sensor Ids are ephemeral.
+	Id string
 
-	id                  string
+	// Sensor-unique event sequence number. Each event sent from this
+	// sensor to any subscription has a unique sequence number for the
+	// indicated sensor Id.
+	sequenceNumber uint64
+
+	// Record the value of CLOCK_MONOTONIC_RAW when the sensor starts.
+	// All event monotimes are relative to this value.
+	bootMonotimeNanos int64
+
+	// Metrics counters for this sensor
+	Metrics MetricsCounters
+
+	// Repeater used for container event subscriptions
+	containerEventRepeater *ContainerEventRepeater
+
+	// If temporary fs mounts are made at startup, they're stored here.
 	perfEventMountPoint string
 	traceFSMountPoint   string
-	servers             []Server
-	grpcListener        net.Listener
-	grpcServer          *grpc.Server
-	stopped             bool
-
-	// Channel that signals stopping the sensor
-	stopChan chan struct{}
 }
 
-func (s *sensor) RegisterServer(server Server) {
-	s.Lock()
-	Sensor.servers = append(Sensor.servers, server)
-	s.Unlock()
+func NewSensor() (*Sensor, error) {
+	randomBytes := make([]byte, sensorIdLengthBytes)
+	rand.Read(randomBytes)
+	sensorId := hex.EncodeToString(randomBytes[:])
+
+	ts := unix.Timespec{}
+	unix.ClockGettime(unix.CLOCK_MONOTONIC_RAW, &ts)
+	bootMonotimeNanos := ts.Nsec + (ts.Sec * int64(time.Second))
+
+	s := &Sensor{
+		Id:                sensorId,
+		bootMonotimeNanos: bootMonotimeNanos,
+	}
+
+	cer, err := NewContainerEventRepeater(s)
+	if err != nil {
+		return nil, err
+	}
+	s.containerEventRepeater = cer
+
+	return s, nil
 }
 
-// Serve listens for subscriptions over configured interfaces (i.e. gRPC, STAN).
-// Serve always returns non-nill error.
-func (s *sensor) Serve() error {
+func (s *Sensor) Start() error {
 	var err error
 
-	//
 	// We require that our run dir (usually /var/run/capsule8) exists.
 	// Ensure that now before proceeding any further.
-	//
 	err = os.MkdirAll(config.Global.RunDir, 0700)
 	if err != nil {
 		glog.Warningf("Couldn't mkdir %s: %s",
@@ -68,10 +88,8 @@ func (s *sensor) Serve() error {
 		return err
 	}
 
-	//
 	// If there is no mounted tracefs, the Sensor really can't do anything.
 	// Try mounting our own private mount of it.
-	//
 	if !config.Sensor.DontMountTracing && len(sys.TracingDir()) == 0 {
 		// If we couldn't find one, try mounting our own private one
 		glog.V(2).Info("Can't find mounted tracefs, mounting one")
@@ -82,12 +100,10 @@ func (s *sensor) Serve() error {
 		}
 	}
 
-	//
 	// If there is no mounted cgroupfs for the perf_event cgroup, we can't
 	// efficiently separate processes in monitored containers from host
 	// processes. We can run without it, but it's better performance when
 	// available.
-	//
 	if !config.Sensor.DontMountPerfEvent && len(sys.PerfEventDir()) == 0 {
 		glog.V(2).Info("Can't find mounted perf_event cgroupfs, mounting one")
 		err = s.mountPerfEventCgroupFS()
@@ -97,139 +113,348 @@ func (s *sensor) Serve() error {
 		}
 	}
 
-	s.Lock()
-	s.stopChan = make(chan struct{})
-	servers := s.servers
-	s.Unlock()
+	return nil
+}
 
-	wg := sync.WaitGroup{}
-
-	go func() {
-		<-s.stopChan
-
-		for _, server := range servers {
-			glog.V(1).Infof("Stopping %s", server.Name())
-			server.Stop()
-		}
-
-		s.stopped = true
-	}()
-
-	glog.Info("Starting servers...")
-	for _, server := range servers {
-		wg.Add(1)
-
-		s := server
-		go func() {
-			glog.V(1).Infof("Starting %s", s.Name())
-			serveErr := s.Serve()
-			glog.V(1).Infof("%s Serve(): %v", s.Name(), serveErr)
-			wg.Done()
-		}()
-	}
-
-	// Block until goroutines have exited and then clean up after ourselves
-	glog.Info("Sensor is ready")
-	wg.Wait()
-
+func (s *Sensor) Stop() {
 	if len(s.traceFSMountPoint) > 0 {
-		err = s.unmountTraceFS()
+		s.unmountTraceFS()
 	}
 
 	if len(s.perfEventMountPoint) > 0 {
-		err = s.unmountPerfEventCgroupFS()
+		s.unmountPerfEventCgroupFS()
 	}
+}
 
+func (s *Sensor) mountTraceFS() error {
+	dir := filepath.Join(config.Global.RunDir, "tracing")
+	err := sys.MountTempFS("tracefs", dir, "tracefs", 0, "")
+	if err == nil {
+		s.traceFSMountPoint = dir
+	}
 	return err
 }
 
-func (s *sensor) mountTraceFS() error {
-	dir := filepath.Join(config.Global.RunDir, "tracing")
-	err := os.MkdirAll(dir, 0500)
-	if err != nil {
-		glog.V(2).Infof("Couldn't create temp tracefs mountpoint: %s", err)
-		return err
+func (s *Sensor) unmountTraceFS() {
+	err := sys.UnmountTempFS(s.traceFSMountPoint, "tracefs")
+	if err == nil {
+		s.traceFSMountPoint = ""
+	} else {
+		glog.V(2).Infof("Could not unmount %s: %s",
+			s.traceFSMountPoint, err)
 	}
-
-	err = unix.Mount("tracefs", dir, "tracefs", 0, "")
-	if err != nil {
-		glog.V(2).Infof("Couldn't mount tracefs on %s: %s", dir, err)
-		return err
-	}
-
-	s.traceFSMountPoint = dir
-	return nil
 }
 
-func (s *sensor) unmountTraceFS() error {
-	err := unix.Unmount(s.traceFSMountPoint, 0)
-	if err != nil {
-		glog.V(2).Infof("Couldn't unmount tracefs at %s: %s",
-			s.traceFSMountPoint, err)
-		return err
-	}
-
-	err = os.Remove(s.traceFSMountPoint)
-	if err != nil {
-		glog.V(2).Infof("Couldn't remove %s: %s",
-			s.traceFSMountPoint, err)
-
-		return err
-	}
-
-	s.traceFSMountPoint = ""
-	return nil
-}
-
-func (s *sensor) mountPerfEventCgroupFS() error {
+func (s *Sensor) mountPerfEventCgroupFS() error {
 	dir := filepath.Join(config.Global.RunDir, "perf_event")
-	err := os.MkdirAll(dir, 0500)
-	if err != nil {
-		glog.V(2).Infof("Couldn't create perf_event cgroup mountpoint: %s",
-			err)
-		return err
+	err := sys.MountTempFS("cgroup", dir, "cgroup", 0, "perf_event")
+	if err == nil {
+		s.perfEventMountPoint = dir
 	}
-
-	err = unix.Mount("cgroup", dir, "cgroup", 0, "perf_event")
-	if err != nil {
-		glog.V(2).Infof("Couldn't mount perf_event cgroup on %s: %s", dir, err)
-		return err
-	}
-
-	s.perfEventMountPoint = dir
-	return nil
+	return err
 }
 
-func (s *sensor) unmountPerfEventCgroupFS() error {
-	err := unix.Unmount(s.perfEventMountPoint, 0)
-	if err != nil {
-		glog.V(2).Infof("Couldn't unmount perf_event cgroup at %s: %s",
+func (s *Sensor) unmountPerfEventCgroupFS() {
+	err := sys.UnmountTempFS(s.perfEventMountPoint, "cgroup")
+	if err == nil {
+		s.perfEventMountPoint = ""
+	} else {
+		glog.V(2).Infof("Could not unmount %s: %s",
 			s.perfEventMountPoint, err)
-		return err
 	}
-
-	err = os.Remove(s.perfEventMountPoint)
-	if err != nil {
-		glog.V(2).Infof("Couldn't remove %s: %s",
-			s.perfEventMountPoint, err)
-
-		return err
-	}
-
-	s.perfEventMountPoint = ""
-	return nil
 }
 
-// Stop signals for the Sensor to stop listening for subscriptions and shut down
-func (s *sensor) Stop() {
-	s.Lock()
-	defer s.Unlock()
+func (s *Sensor) currentMonotimeNanos() int64 {
+	ts := unix.Timespec{}
+	unix.ClockGettime(unix.CLOCK_MONOTONIC_RAW, &ts)
+	d := ts.Nsec + (ts.Sec * int64(time.Second))
+	return d - s.bootMonotimeNanos
+}
 
-	//
-	// It's ok to call Stop multiple times, so only close the stopChan if
-	// the Sensor is running.
-	//
-	if !s.stopped {
-		close(s.stopChan)
+func (s *Sensor) nextSequenceNumber() uint64 {
+	// The first sequence number is intentionally 1 to disambiguate
+	// from no sequence number being included in the protobuf message.
+	s.sequenceNumber++
+	return s.sequenceNumber
+}
+
+func (s *Sensor) NewEvent() *api.Event {
+	monotime := s.currentMonotimeNanos()
+	sequenceNumber := s.nextSequenceNumber()
+
+	var b []byte
+	buf := bytes.NewBuffer(b)
+
+	binary.Write(buf, binary.LittleEndian, s.Id)
+	binary.Write(buf, binary.LittleEndian, sequenceNumber)
+	binary.Write(buf, binary.LittleEndian, monotime)
+
+	h := sha256.Sum256(buf.Bytes())
+	eventId := hex.EncodeToString(h[:])
+
+	s.Metrics.Events++
+
+	return &api.Event{
+		Id:                   eventId,
+		SensorId:             s.Id,
+		SensorMonotimeNanos:  monotime,
+		SensorSequenceNumber: sequenceNumber,
 	}
+}
+
+func (s *Sensor) NewEventFromContainer(containerId string) *api.Event {
+	e := s.NewEvent()
+	e.ContainerId = containerId
+	return e
+}
+
+func (s *Sensor) NewEventFromSample(sample *perf.SampleRecord,
+	data perf.TraceEventSampleData) *api.Event {
+
+	e := s.NewEvent()
+	e.SensorMonotimeNanos = int64(sample.Time) - s.bootMonotimeNanos
+
+	// When both the sensor and the process generating the sample are in
+	// containers, the sample.Pid and sample.Tid fields will be zero.
+	// Use "common_pid" from the trace event data instead.
+	e.ProcessPid = data["common_pid"].(int32)
+	e.ProcessTid = int32(sample.Tid)
+	e.Cpu = int32(sample.CPU)
+	e.ProcessId = processId(e.ProcessPid)
+
+	// Add an associated containerId
+	containerId := processContainerId(e.ProcessPid)
+	if len(containerId) > 0 {
+		// Add the container Id if we have it and then try
+		// using it to look up additional container info
+		e.ContainerId = containerId
+
+		containerInfo := container.GetInfo(containerId)
+		if containerInfo != nil {
+			e.ContainerName = containerInfo.Name
+			e.ImageId = containerInfo.ImageID
+			e.ImageName = containerInfo.ImageName
+		}
+	}
+
+	return e
+}
+
+func (s *Sensor) buildMonitorGroups() ([]string, []int, error) {
+	var (
+		cgroupList []string
+		pidList    []int
+		system     bool
+	)
+
+	cgroups := make(map[string]bool)
+	for _, cgroup := range config.Sensor.CgroupName {
+		if len(cgroup) == 0 || cgroup == "/" {
+			system = true
+			continue
+		}
+		if cgroups[cgroup] {
+			continue
+		}
+		cgroups[cgroup] = true
+		cgroupList = append(cgroupList, cgroup)
+		glog.V(1).Infof("Creating new perf event monitor on cgroup %s", cgroup)
+	}
+	if !system && len(cgroups) == 0 && inContainer() {
+		cgroups["docker"] = true
+		cgroupList = append(cgroupList, "docker")
+	}
+
+	// Try a system-wide perf event monitor if requested or as
+	// a fallback if no cgroups were requested
+	if system || len(cgroupList) == 0 {
+		glog.V(1).Info("Creating new system-wide event monitor")
+		pidList = append(pidList, -1)
+	}
+
+	return cgroupList, pidList, nil
+}
+
+func (s *Sensor) createEventMonitor(sub *api.Subscription) (*perf.EventMonitor, error) {
+	var perfEventDir string
+
+	if len(s.perfEventMountPoint) > 0 {
+		perfEventDir = s.perfEventMountPoint
+	} else {
+		perfEventDir = sys.PerfEventDir()
+	}
+
+	cgroups, pids, err := s.buildMonitorGroups()
+	if err != nil {
+		return nil, err
+	}
+
+	monitor, err := perf.NewEventMonitor(0, nil,
+		perf.WithPerfEventDir(perfEventDir),
+		perf.WithCgroups(cgroups),
+		perf.WithPids(pids))
+	if err != nil {
+		return nil, err
+	}
+
+	registerFileEvents(monitor, s, sub.EventFilter.FileEvents)
+	registerKernelEvents(monitor, s, sub.EventFilter.KernelEvents)
+	registerNetworkEvents(monitor, s, sub.EventFilter.NetworkEvents)
+	registerProcessEvents(monitor, s, sub.EventFilter.ProcessEvents)
+	registerSyscallEvents(monitor, s, sub.EventFilter.SyscallEvents)
+
+	return monitor, nil
+}
+
+func (s *Sensor) createPerfEventStream(sub *api.Subscription) (*stream.Stream, error) {
+	monitor, err := s.createEventMonitor(sub)
+	if err != nil {
+		return nil, err
+	}
+
+	ctrl := make(chan interface{})
+	data := make(chan interface{}, config.Sensor.ChannelBufferLength)
+
+	go func() {
+		defer close(data)
+
+		for {
+			_, ok := <-ctrl
+			if !ok {
+				glog.V(2).Info("Control channel closed; closing EventMonitor")
+
+				// Wait until Close() full terminates before
+				// allowing data channel to close
+				monitor.Close(true)
+				return
+			}
+		}
+	}()
+
+	go func() {
+		monitor.Run(func(sample interface{}, err error) {
+			if event, ok := sample.(*api.Event); ok && event != nil {
+				data <- event
+			}
+		})
+		glog.V(2).Info("EventMonitor.Run() returned; exiting goroutine")
+	}()
+
+	if monitor != nil {
+		glog.V(2).Info("Enabling EventMonitor")
+		monitor.Enable()
+	}
+
+	return &stream.Stream{
+		Ctrl: ctrl,
+		Data: data,
+	}, nil
+}
+
+func (s *Sensor) applyModifiers(eventStream *stream.Stream, modifier api.Modifier) *stream.Stream {
+	if modifier.Throttle != nil {
+		eventStream = stream.Throttle(eventStream, *modifier.Throttle)
+	}
+
+	if modifier.Limit != nil {
+		eventStream = stream.Limit(eventStream, *modifier.Limit)
+	}
+
+	return eventStream
+}
+
+// NewSubscription creates a new telemetry subscription from the given
+// api.Subscription descriptor. NewSubscription returns a stream.Stream of
+// api.Events matching the specified filters. Closing the Stream cancels the
+// subscription.
+func (s *Sensor) NewSubscription(sub *api.Subscription) (*stream.Stream, error) {
+	glog.V(1).Infof("Subscribing to %+v", sub)
+
+	eventStream, joiner := stream.NewJoiner()
+	joiner.Off()
+
+	if len(sub.EventFilter.FileEvents) > 0 ||
+		len(sub.EventFilter.KernelEvents) > 0 ||
+		len(sub.EventFilter.NetworkEvents) > 0 ||
+		len(sub.EventFilter.ProcessEvents) > 0 ||
+		len(sub.EventFilter.SyscallEvents) > 0 {
+
+		pes, err := s.createPerfEventStream(sub)
+		if err != nil {
+			joiner.Close()
+			return nil, err
+		}
+		joiner.Add(pes)
+	}
+
+	if len(sub.EventFilter.ContainerEvents) > 0 {
+		ces, err := s.containerEventRepeater.NewEventStream(sub)
+		if err != nil {
+			joiner.Close()
+			return nil, err
+		}
+		joiner.Add(ces)
+	}
+
+	for _, cf := range sub.EventFilter.ChargenEvents {
+		cs, err := newChargenSource(s, cf)
+		if err != nil {
+			joiner.Close()
+			return nil, err
+		}
+		joiner.Add(cs)
+	}
+
+	for _, tf := range sub.EventFilter.TickerEvents {
+		ts, err := newTickerSource(s, tf)
+		if err != nil {
+			joiner.Close()
+			return nil, err
+		}
+		joiner.Add(ts)
+	}
+
+	if sub.ContainerFilter != nil {
+		// Filter stream as requested by subscriber in the
+		// specified ContainerFilter to restrict the events to
+		// those matching the specified container ids, names,
+		// images, etc.
+		cef := filter.NewContainerFilter(sub.ContainerFilter)
+		eventStream = stream.Filter(eventStream, cef.FilterFunc)
+		eventStream = stream.Do(eventStream, cef.DoFunc)
+	}
+
+	if sub.Modifier != nil {
+		eventStream = s.applyModifiers(eventStream, *sub.Modifier)
+	}
+
+	s.Metrics.Subscriptions++
+	joiner.On()
+
+	return eventStream, nil
+}
+
+func filterNils(e interface{}) bool {
+	if e != nil {
+		ev := e.(*api.Event)
+		return ev != nil
+	}
+	return false
+}
+
+func inContainer() bool {
+	procFS := sys.ProcFS()
+	initCgroups, err := procFS.Cgroups(1)
+	if err != nil {
+		glog.Fatalf("Couldn't get cgroups for pid 1: %s", err)
+	}
+
+	for _, cg := range initCgroups {
+		if cg.Path == "/" {
+			// /proc is a host procfs, return it
+			return false
+		}
+	}
+
+	return true
 }

@@ -6,36 +6,58 @@ import (
 	"strings"
 
 	api "github.com/capsule8/api/v0"
-	"github.com/capsule8/capsule8/pkg/config"
-	"github.com/capsule8/capsule8/pkg/subscription"
 	"github.com/golang/glog"
+
 	"golang.org/x/sys/unix"
+
 	"google.golang.org/grpc"
 )
 
-type gRPCServer struct {
-	listener net.Listener
-	server   *grpc.Server
+type TelemetryService struct {
+	server *grpc.Server
+	sensor *Sensor
+
+	address string
 }
 
-func (g *gRPCServer) Name() string {
-	return "gRPC Server"
+func NewTelemetryService(address string) (*TelemetryService, error) {
+	sensor, err := NewSensor()
+	if err != nil {
+		return nil, err
+	}
+
+	ts := &TelemetryService{
+		address: address,
+		sensor:  sensor,
+	}
+
+	return ts, nil
 }
 
-func (g *gRPCServer) Serve() error {
-	var err error
-	var lis net.Listener
+func (ts *TelemetryService) Name() string {
+	return "gRPC Telemetry Server"
+}
 
-	glog.Info("Serving gRPC API on ", config.Sensor.ListenAddr)
+func (ts *TelemetryService) Serve() error {
+	var (
+		err error
+		lis net.Listener
+	)
 
-	parts := strings.Split(config.Sensor.ListenAddr, ":")
+	err = ts.sensor.Start()
+	if err != nil {
+		return err
+	}
+	defer ts.sensor.Stop()
+
+	glog.V(1).Info("Serving gRPC API on ", ts.address)
+
+	parts := strings.Split(ts.address, ":")
 	if len(parts) > 1 && parts[0] == "unix" {
 		socketPath := parts[1]
 
-		//
 		// Check whether socket already exists and if someone
 		// is already listening on it.
-		//
 		_, err = os.Stat(socketPath)
 		if err == nil {
 			var ua *net.UnixAddr
@@ -46,15 +68,13 @@ func (g *gRPCServer) Serve() error {
 
 				c, err = net.DialUnix("unix", nil, ua)
 				if err == nil {
-					// There is another running
-					// Sensor, try to listen below
-					// and return the error.
-
+					// There is another running service.
+					// Try to listen below and return the
+					// error.
 					c.Close()
 				} else {
-					// Remove the stale socket so
-					// the listen below will
-					// succed.
+					// Remove the stale socket so the
+					// listen below will succeed.
 					os.Remove(socketPath)
 				}
 			}
@@ -64,29 +84,30 @@ func (g *gRPCServer) Serve() error {
 		lis, err = net.Listen("unix", socketPath)
 		unix.Umask(oldMask)
 	} else {
-		lis, err = net.Listen("tcp", config.Sensor.ListenAddr)
+		lis, err = net.Listen("tcp", ts.address)
 	}
 
 	if err != nil {
 		return err
 	}
+	defer lis.Close()
 
 	// Start local gRPC service on listener
-	server := grpc.NewServer()
-	t := &telemetryServiceServer{}
-	api.RegisterTelemetryServiceServer(server, t)
-	g.server = server
+	ts.server = grpc.NewServer()
+	t := &telemetryServiceServer{
+		sensor: ts.sensor,
+	}
+	api.RegisterTelemetryServiceServer(ts.server, t)
 
-	serveErr := server.Serve(lis)
-	lis.Close()
-	return serveErr
+	return ts.server.Serve(lis)
 }
 
-func (g *gRPCServer) Stop() {
-	g.server.GracefulStop()
+func (ts *TelemetryService) Stop() {
+	ts.server.GracefulStop()
 }
 
 type telemetryServiceServer struct {
+	sensor *Sensor
 }
 
 func (t *telemetryServiceServer) GetEvents(req *api.GetEventsRequest, stream api.TelemetryService_GetEventsServer) error {
@@ -94,7 +115,7 @@ func (t *telemetryServiceServer) GetEvents(req *api.GetEventsRequest, stream api
 
 	glog.V(1).Infof("GetEvents(%+v)", sub)
 
-	eventStream, err := subscription.NewSubscription(sub)
+	eventStream, err := t.sensor.NewSubscription(sub)
 	if err != nil {
 		glog.Errorf("Failed to get events for subscription %+v: %s",
 			sub, err.Error())

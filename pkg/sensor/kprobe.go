@@ -1,17 +1,62 @@
-package subscription
+package sensor
 
 import (
 	"fmt"
-	"reflect"
 	"regexp"
 	"strings"
 
 	api "github.com/capsule8/api/v0"
+
 	"github.com/capsule8/capsule8/pkg/sys/perf"
+
 	"github.com/golang/glog"
 )
 
-func decodeKprobe(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+type kprobeFilter struct {
+	name      string
+	symbol    string
+	onReturn  bool
+	arguments map[string]string
+	filter    string
+	sensor    *Sensor
+}
+
+var validSymbolRegex *regexp.Regexp = regexp.MustCompile("^[A-Za-z_]{1}[\\w]*$")
+
+func newKprobeFilter(kef *api.KernelFunctionCallFilter) *kprobeFilter {
+	// The symbol must begin with [A-Za-z_] and contain only [A-Za-z0-9_]
+	// We do not accept addresses or offsets
+	if !validSymbolRegex.MatchString(kef.Symbol) {
+		return nil
+	}
+
+	// Choose a name to refer to the kprobe by. We could allow the kernel
+	// to assign a name, but getting the right name back from the kernel
+	// can be somewhat unreliable. Choosing our own random name ensures
+	// that we're always dealing with the right event and that we're not
+	// stomping on some other process's probe
+	name := perf.UniqueProbeName("capsule8", kef.Symbol)
+
+	filter := &kprobeFilter{
+		name:      name,
+		symbol:    kef.Symbol,
+		arguments: kef.Arguments,
+		filter:    kef.Filter,
+	}
+
+	switch kef.Type {
+	case api.KernelFunctionCallEventType_KERNEL_FUNCTION_CALL_EVENT_TYPE_ENTER:
+		filter.onReturn = false
+	case api.KernelFunctionCallEventType_KERNEL_FUNCTION_CALL_EVENT_TYPE_EXIT:
+		filter.onReturn = true
+	default:
+		return nil
+	}
+
+	return filter
+}
+
+func (f *kprobeFilter) decodeKprobe(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
 	args := make(map[string]*api.KernelFunctionCallEvent_FieldValue)
 	for k, v := range data {
 		value := &api.KernelFunctionCallEvent_FieldValue{}
@@ -50,7 +95,7 @@ func decodeKprobe(sample *perf.SampleRecord, data perf.TraceEventSampleData) (in
 		args[k] = value
 	}
 
-	ev := newEventFromSample(sample, data)
+	ev := f.sensor.NewEventFromSample(sample, data)
 	ev.Event = &api.Event_KernelCall{
 		KernelCall: &api.KernelFunctionCallEvent{
 			Arguments: args,
@@ -58,49 +103,6 @@ func decodeKprobe(sample *perf.SampleRecord, data perf.TraceEventSampleData) (in
 	}
 
 	return ev, nil
-}
-
-type kprobeFilter struct {
-	name      string
-	symbol    string
-	onReturn  bool
-	arguments map[string]string
-	filter    string
-}
-
-var validSymbolRegex *regexp.Regexp = regexp.MustCompile("^[A-Za-z_]{1}[\\w]*$")
-
-func newKprobeFilter(kef *api.KernelFunctionCallFilter) *kprobeFilter {
-	// The symbol must begin with [A-Za-z_] and contain only [A-Za-z0-9_]
-	// We do not accept addresses or offsets
-	if !validSymbolRegex.MatchString(kef.Symbol) {
-		return nil
-	}
-
-	// Choose a name to refer to the kprobe by. We could allow the kernel
-	// to assign a name, but getting the right name back from the kernel
-	// can be somewhat unreliable. Choosing our own random name ensures
-	// that we're always dealing with the right event and that we're not
-	// stomping on some other process's probe
-	name := perf.UniqueProbeName("capsule8", kef.Symbol)
-
-	filter := &kprobeFilter{
-		name:      name,
-		symbol:    kef.Symbol,
-		arguments: kef.Arguments,
-		filter:    kef.Filter,
-	}
-
-	switch kef.Type {
-	case api.KernelFunctionCallEventType_KERNEL_FUNCTION_CALL_EVENT_TYPE_ENTER:
-		filter.onReturn = false
-	case api.KernelFunctionCallEventType_KERNEL_FUNCTION_CALL_EVENT_TYPE_EXIT:
-		filter.onReturn = true
-	default:
-		return nil
-	}
-
-	return filter
 }
 
 func (f *kprobeFilter) fetchargs() string {
@@ -112,38 +114,18 @@ func (f *kprobeFilter) fetchargs() string {
 	return strings.Join(args, " ")
 }
 
-func (f *kprobeFilter) String() string {
-	return f.filter
-}
-
-type kprobeFilterSet struct {
-	filters []*kprobeFilter
-}
-
-func (kes *kprobeFilterSet) add(kef *api.KernelFunctionCallFilter) {
-	filter := newKprobeFilter(kef)
-	if filter == nil {
-		return
-	}
-
-	for _, v := range kes.filters {
-		if reflect.DeepEqual(filter, v) {
-			return
+func registerKernelEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*api.KernelFunctionCallFilter) {
+	for _, kef := range events {
+		f := newKprobeFilter(kef)
+		if f == nil {
+			glog.V(1).Infof("Invalid kprobe symbol: %s", kef.Symbol)
+			continue
 		}
-	}
 
-	kes.filters = append(kes.filters, filter)
-}
-
-func (kes *kprobeFilterSet) len() int {
-	return len(kes.filters)
-}
-
-func (kes *kprobeFilterSet) registerEvents(monitor *perf.EventMonitor) {
-	for _, f := range kes.filters {
+		f.sensor = sensor
 		name, err := monitor.RegisterKprobe(
 			f.name, f.symbol, f.onReturn, f.fetchargs(),
-			decodeKprobe,
+			f.decodeKprobe,
 			f.filter,
 			nil)
 		if err != nil {
@@ -154,7 +136,7 @@ func (kes *kprobeFilterSet) registerEvents(monitor *perf.EventMonitor) {
 				loc = "entry"
 			}
 
-			glog.Infof("Couldn't register kprobe on %s %s [%s]: %v",
+			glog.V(1).Infof("Couldn't register kprobe on %s %s [%s]: %v",
 				f.symbol, loc, f.fetchargs(), err)
 			continue
 		}
