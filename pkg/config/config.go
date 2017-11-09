@@ -59,7 +59,7 @@ var Sensor struct {
 	RingBufferPages int `split_words:"true" default:"8"`
 
 	// The default buffer length for Go channels used internally
-	ChannelBufferLength int `split_words:"true" default:"0"`
+	ChannelBufferLength int `split_words:"true" default:"1024"`
 }
 
 func init() {

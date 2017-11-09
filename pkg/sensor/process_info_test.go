@@ -32,29 +32,29 @@ func TestCaches(t *testing.T) {
 	arrayCache := newArrayTaskCache()
 	mapCache := newMapTaskCache()
 
-	for i := 0; i < cacheArraySize; i++ {
+	for i := 0; i < arrayTaskCacheSize; i++ {
 		arrayCache.InsertTask(i, values[i%4])
 		mapCache.InsertTask(i, values[i%4])
 	}
 
-	for i := cacheArraySize - 1; i >= 0; i-- {
+	for i := arrayTaskCacheSize - 1; i >= 0; i-- {
 		var tk task
 		if arrayCache.LookupTask(i, &tk) {
-			cid := tk.containerID
+			cid := tk.containerId
 
-			if cid != values[i%4].containerID {
+			if cid != values[i%4].containerId {
 				t.Fatalf("Expected %s for pid %d, got %s",
-					values[i%4].containerID, i, cid)
+					values[i%4].containerId, i, cid)
 			}
 
 		}
 
 		if mapCache.LookupTask(i, &tk) {
-			cid := tk.containerID
+			cid := tk.containerId
 
-			if cid != values[i%4].containerID {
+			if cid != values[i%4].containerId {
 				t.Fatalf("Expected %s for pid %d, got %s",
-					values[i%4].containerID, i, cid)
+					values[i%4].containerId, i, cid)
 			}
 
 		}
@@ -66,11 +66,11 @@ func BenchmarkArrayCache(b *testing.B) {
 	var tk task
 
 	for i := 0; i < b.N; i++ {
-		cache.InsertTask((i % cacheArraySize), values[i%4])
+		cache.InsertTask((i % arrayTaskCacheSize), values[i%4])
 	}
 
 	for i := 0; i < b.N; i++ {
-		_ = cache.LookupTask((i % cacheArraySize), &tk)
+		_ = cache.LookupTask((i % arrayTaskCacheSize), &tk)
 	}
 }
 
@@ -79,11 +79,11 @@ func BenchmarkMapCache(b *testing.B) {
 	var tk task
 
 	for i := 0; i < b.N; i++ {
-		cache.InsertTask((i % cacheArraySize), values[i%4])
+		cache.InsertTask((i % arrayTaskCacheSize), values[i%4])
 	}
 
 	for i := 0; i < b.N; i++ {
-		_ = cache.LookupTask((i % cacheArraySize), &tk)
+		_ = cache.LookupTask((i % arrayTaskCacheSize), &tk)
 	}
 }
 
@@ -93,7 +93,7 @@ func BenchmarkArrayCacheParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
-			cache.InsertTask((i % cacheArraySize), values[i%4])
+			cache.InsertTask((i % arrayTaskCacheSize), values[i%4])
 			i++
 		}
 	})
@@ -103,7 +103,7 @@ func BenchmarkArrayCacheParallel(b *testing.B) {
 
 		i := 0
 		for pb.Next() {
-			_ = cache.LookupTask((i % cacheArraySize), &tk)
+			_ = cache.LookupTask((i % arrayTaskCacheSize), &tk)
 			i++
 		}
 	})
@@ -115,7 +115,7 @@ func BenchmarkMapCacheParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
-			cache.InsertTask((i % cacheArraySize), values[i%4])
+			cache.InsertTask((i % arrayTaskCacheSize), values[i%4])
 			i++
 		}
 	})
@@ -125,7 +125,7 @@ func BenchmarkMapCacheParallel(b *testing.B) {
 
 		i := 0
 		for pb.Next() {
-			_ = cache.LookupTask((i % cacheArraySize), &tk)
+			_ = cache.LookupTask((i % arrayTaskCacheSize), &tk)
 			i++
 		}
 	})
