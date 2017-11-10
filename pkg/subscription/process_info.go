@@ -185,8 +185,6 @@ func ProcessMonitor() *processMonitor {
 			glog.Fatal("Couldn't find a host procfs")
 		}
 
-		var eventMonitorOptions []perf.EventMonitorOption
-
 		var cgroupList []string
 
 		// If a list of cgroups have been specified, only monitor those
@@ -204,34 +202,40 @@ func ProcessMonitor() *processMonitor {
 			cgroupList = append(cgroupList, "docker")
 		}
 
+		var eventMonitor *perf.EventMonitor
+		var err error
+
 		if len(sys.PerfEventDir()) > 0 && len(cgroupList) > 0 {
 			glog.V(1).Infof("Creating process monitor on cgroups %s",
 				strings.Join(cgroupList, ","))
-			eventMonitorOptions = append(eventMonitorOptions,
+			eventMonitorOptions := []perf.EventMonitorOption{
 				perf.WithPerfEventDir(sys.PerfEventDir()),
-				perf.WithCgroups(cgroupList))
-		} else {
-			//
-			// Otherwise, monitor the entire system
-			//
-			glog.V(1).Info("Creating new system-wide process monitor")
-			eventMonitorOptions = append(eventMonitorOptions,
-				perf.WithPid(-1))
+				perf.WithCgroups(cgroupList),
+			}
+
+			eventMonitor, err = perf.NewEventMonitor(0, nil, eventMonitorOptions...)
 		}
 
-		em, err := perf.NewEventMonitor(0, nil, eventMonitorOptions...)
-		if err != nil {
-			glog.Fatal(err)
+		if err != nil || len(sys.PerfEventDir()) == 0 || len(cgroupList) == 0 {
+			glog.V(1).Info("Creating new system-wide process monitor")
+			eventMonitorOptions := []perf.EventMonitorOption{
+				perf.WithPid(-1),
+			}
+
+			eventMonitor, err = perf.NewEventMonitor(0, nil, eventMonitorOptions...)
+			if err != nil {
+				glog.Fatal(err)
+			}
 		}
 
 		eventName := "task/task_newtask"
-		err = em.RegisterEvent(eventName, decodeNewTask, "", nil)
+		err = eventMonitor.RegisterEvent(eventName, decodeNewTask, "", nil)
 		if err != nil {
 			glog.Fatal(err)
 		}
 
 		go func() {
-			err := em.Run(func(sample interface{}, err error) {
+			err := eventMonitor.Run(func(sample interface{}, err error) {
 				if err != nil {
 					glog.Warning(err)
 				}
@@ -244,8 +248,8 @@ func ProcessMonitor() *processMonitor {
 			glog.Fatal("Exiting EventMonitor.Run goroutine")
 		}()
 
-		globalProcessMonitor.eventMonitor = em
-		em.Enable()
+		globalProcessMonitor.eventMonitor = eventMonitor
+		eventMonitor.Enable()
 	})
 
 	return &globalProcessMonitor
