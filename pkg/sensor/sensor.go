@@ -289,7 +289,7 @@ func (s *Sensor) createEventMonitor(sub *api.Subscription) (*perf.EventMonitor, 
 		return nil, err
 	}
 
-	monitor, err := perf.NewEventMonitor(0, nil,
+	monitor, err := perf.NewEventMonitor(
 		perf.WithPerfEventDir(perfEventDir),
 		perf.WithCgroups(cgroups),
 		perf.WithPids(pids))

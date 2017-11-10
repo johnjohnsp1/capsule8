@@ -157,7 +157,7 @@ func createStream(monitor *perf.EventMonitor) (*stream.Stream, error) {
 }
 
 func newPidStream(pids ...int) (*stream.Stream, error) {
-	monitor, err := perf.NewEventMonitor(0, nil,
+	monitor, err := perf.NewEventMonitor(
 		perf.WithPids(pids))
 
 	if err != nil {
@@ -179,7 +179,7 @@ func newCgroupStream(cgroups ...string) (*stream.Stream, error) {
 		return nil, errors.New("Must specify at least one cgroup name")
 	}
 
-	monitor, err := perf.NewEventMonitor(0, nil,
+	monitor, err := perf.NewEventMonitor(
 		perf.WithCgroups(cgroups))
 
 	if err != nil {

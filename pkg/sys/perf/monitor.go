@@ -19,6 +19,8 @@ import (
 )
 
 type eventMonitorOptions struct {
+	flags              uintptr
+	defaultEventAttr   *EventAttr
 	perfEventDir       string
 	ringBufferNumPages int
 	cgroups            []string
@@ -26,6 +28,18 @@ type eventMonitorOptions struct {
 }
 
 type EventMonitorOption func(*eventMonitorOptions)
+
+func WithFlags(flags uintptr) EventMonitorOption {
+	return func(o *eventMonitorOptions) {
+		o.flags = flags
+	}
+}
+
+func WithDefaultEventAttr(defaultEventAttr *EventAttr) EventMonitorOption {
+	return func(o *eventMonitorOptions) {
+		o.defaultEventAttr = defaultEventAttr
+	}
+}
 
 func WithPerfEventDir(dir string) EventMonitorOption {
 	return func(o *eventMonitorOptions) {
@@ -143,10 +157,6 @@ type EventMonitor struct {
 
 	// Immutable, used only when adding new tracepoints/probes
 	defaultAttr EventAttr
-
-	// Used only during initial monitor configuration
-	ringBufferNumPages int
-	perfEventDir       string
 
 	// Used only once during shutdown
 	cond *sync.Cond
@@ -814,7 +824,7 @@ func (monitor *EventMonitor) cpuTimeOffset(cpu int, groupfd int, rb *ringBuffer)
 	}
 }
 
-func (monitor *EventMonitor) initializeGroupLeaders(pid int, flags uintptr) error {
+func (monitor *EventMonitor) initializeGroupLeaders(pid int, flags uintptr, ringBufferNumPages int) error {
 	groupEventAttr := &EventAttr{
 		Type:            PERF_TYPE_SOFTWARE,
 		Size:            sizeofPerfEventAttr,
@@ -846,7 +856,7 @@ func (monitor *EventMonitor) initializeGroupLeaders(pid int, flags uintptr) erro
 			newGroup.cgroup = true
 		}
 
-		rb, err := newRingBuffer(groupfd, monitor.ringBufferNumPages)
+		rb, err := newRingBuffer(groupfd, ringBufferNumPages)
 		if err == nil {
 			var offset uint64
 
@@ -876,28 +886,28 @@ func (monitor *EventMonitor) initializeGroupLeaders(pid int, flags uintptr) erro
 	return nil
 }
 
-func NewEventMonitor(flags uintptr, defaultEventAttr *EventAttr, options ...EventMonitorOption) (*EventMonitor, error) {
+func NewEventMonitor(options ...EventMonitorOption) (*EventMonitor, error) {
+	// Process options
+	opts := eventMonitorOptions{}
+	for _, option := range options {
+		option(&opts)
+	}
+
 	var eventAttr EventAttr
 
-	if defaultEventAttr == nil {
+	if opts.defaultEventAttr == nil {
 		eventAttr = EventAttr{
 			SampleType:  PERF_SAMPLE_TID | PERF_SAMPLE_TIME | PERF_SAMPLE_CPU | PERF_SAMPLE_RAW,
 			Inherit:     true,
 			SampleIDAll: true,
 		}
 	} else {
-		eventAttr = *defaultEventAttr
+		eventAttr = *opts.defaultEventAttr
 	}
 	fixupEventAttr(&eventAttr)
 
 	// Only allow certain flags to be passed
-	flags &= PERF_FLAG_FD_CLOEXEC
-
-	// Process options
-	opts := eventMonitorOptions{}
-	for _, option := range options {
-		option(&opts)
-	}
+	opts.flags &= PERF_FLAG_FD_CLOEXEC
 
 	if len(opts.perfEventDir) == 0 {
 		opts.perfEventDir = sys.PerfEventDir()
@@ -907,15 +917,13 @@ func NewEventMonitor(flags uintptr, defaultEventAttr *EventAttr, options ...Even
 	}
 
 	monitor := &EventMonitor{
-		groups:             make(map[int]perfEventGroup),
-		eventAttrs:         newSafeEventAttrMap(),
-		decoders:           NewTraceEventDecoderMap(),
-		events:             make(map[string]*registeredEvent),
-		eventfds:           make(map[int]int),
-		eventIDs:           make(map[int]uint64),
-		defaultAttr:        eventAttr,
-		ringBufferNumPages: opts.ringBufferNumPages,
-		perfEventDir:       opts.perfEventDir,
+		groups:      make(map[int]perfEventGroup),
+		eventAttrs:  newSafeEventAttrMap(),
+		decoders:    NewTraceEventDecoderMap(),
+		events:      make(map[string]*registeredEvent),
+		eventfds:    make(map[int]int),
+		eventIDs:    make(map[int]uint64),
+		defaultAttr: eventAttr,
 	}
 	monitor.lock = &sync.Mutex{}
 	monitor.cond = sync.NewCond(monitor.lock)
@@ -928,10 +936,12 @@ func NewEventMonitor(flags uintptr, defaultEventAttr *EventAttr, options ...Even
 		}
 		cgroups[cgroup] = true
 
-		path := filepath.Join(monitor.perfEventDir, cgroup)
+		path := filepath.Join(opts.perfEventDir, cgroup)
 		fd, err := unix.Open(path, unix.O_RDONLY, 0)
 		if err == nil {
-			err = monitor.initializeGroupLeaders(fd, flags|PERF_FLAG_PID_CGROUP)
+			err = monitor.initializeGroupLeaders(fd,
+				opts.flags|PERF_FLAG_PID_CGROUP,
+				opts.ringBufferNumPages)
 			if err == nil {
 				continue
 			}
@@ -951,7 +961,8 @@ func NewEventMonitor(flags uintptr, defaultEventAttr *EventAttr, options ...Even
 		}
 		pids[pid] = true
 
-		err := monitor.initializeGroupLeaders(pid, flags)
+		err := monitor.initializeGroupLeaders(pid, opts.flags,
+			opts.ringBufferNumPages)
 		if err == nil {
 			continue
 		}
