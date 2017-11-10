@@ -81,8 +81,9 @@ func filterForTestData(fe *api.FileEvent) *api.FileEventFilter {
 }
 
 //
-// TestChargen checks that the sensor generates file open events when requested
-// by the subscription. The C header file/filedata.h specifies the test cases.
+// TestFile checks that the sensor generates file open events when requested by
+// the subscription. The file file/testdata/filedata.txt specifies the test
+// cases.
 //
 func TestFile(t *testing.T) {
 	ft, err := newFileTest()
