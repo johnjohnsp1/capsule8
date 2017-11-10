@@ -104,7 +104,7 @@ contain:
 	--volume=/var/lib/docker:/var/lib/docker:ro \
 	--volume=/var/run/docker:/var/run/docker:ro \
 	--volume=/var/run/docker.sock:/var/run/docker.sock:ro \
-	--privileged --rm -it busybox
+	--privileged --rm -it alpine
 
 #
 # Run all unit tests quickly
