@@ -28,7 +28,8 @@ func (c *Container) Build() error {
 		return err
 	}
 
-	c.ImageID = strings.TrimSpace(string(dockerOutput))
+	trimmed := strings.TrimSpace(string(dockerOutput))
+	c.ImageID = strings.TrimPrefix(trimmed, "sha256:")
 
 	return nil
 }

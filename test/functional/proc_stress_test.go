@@ -8,7 +8,7 @@ import (
 	"github.com/golang/protobuf/ptypes/wrappers"
 )
 
-const testExecFilename = "./test-proc"
+const testExecFilename = "./main"
 
 type procStressTest struct {
 	testContainer *Container
@@ -16,7 +16,7 @@ type procStressTest struct {
 }
 
 func (st *procStressTest) BuildContainer(t *testing.T) {
-	c := NewContainer(t, "stress")
+	c := NewContainer(t, "proc_stress")
 	err := c.Build()
 	if err != nil {
 		t.Error(err)
@@ -44,8 +44,17 @@ func (st *procStressTest) CreateSubscription(t *testing.T) *api.Subscription {
 		},
 	}
 
+	// Subscribing to container created events are currently necessary
+	// to get imageIDs in other events.
+	containerEvents := []*api.ContainerEventFilter{
+		&api.ContainerEventFilter{
+			Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED,
+		},
+	}
+
 	eventFilter := &api.EventFilter{
-		ProcessEvents: processEvents,
+		ContainerEvents: containerEvents,
+		ProcessEvents:   processEvents,
 	}
 
 	return &api.Subscription{
@@ -57,16 +66,19 @@ func (st *procStressTest) HandleTelemetryEvent(t *testing.T, telemetryEvent *api
 	glog.V(2).Infof("%+v", telemetryEvent)
 
 	switch event := telemetryEvent.Event.Event.(type) {
+	case *api.Event_Container:
+		// Ignore
+
 	case *api.Event_Process:
 		glog.V(2).Infof("%+v", *event.Process)
 		switch event.Process.Type {
 		case api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC:
-			if event.Process.ExecFilename != testExecFilename {
+			if telemetryEvent.Event.ImageId == st.testContainer.ImageID &&
+				event.Process.ExecFilename != testExecFilename {
 				t.Errorf("Unexpected exec file name %s", event.Process.ExecFilename)
 				return false
 			}
 			st.processCount++
-			glog.V(2).Infof("HEY image is %q, process count is %d", telemetryEvent.Event.ImageId, st.processCount)
 		default:
 			t.Errorf("Unexpected process event %s", event.Process.Type)
 			return false

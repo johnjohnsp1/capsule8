@@ -2,5 +2,7 @@
 
 for ((N=0; N<256; ++N))
 do
-    ./test-proc $N &
+    ./main $N &
 done
+
+exit 0

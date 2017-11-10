@@ -7,8 +7,8 @@ RUN apt-get update && \
 
 WORKDIR /stress
 
-COPY test-proc.c stress.sh ./
+COPY main.c stress.sh ./
 
-RUN make test-proc
+RUN make main
 
 CMD ["./stress.sh"]
