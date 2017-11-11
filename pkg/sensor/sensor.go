@@ -140,7 +140,7 @@ func (s *Sensor) Start() error {
 	go func() {
 		err := monitor.Run(func(sample interface{}, err error) {
 			if err != nil {
-				glog.Error(err)
+				glog.Warning(err)
 			}
 		})
 		if err != nil {
