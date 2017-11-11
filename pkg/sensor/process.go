@@ -120,7 +120,7 @@ func registerProcessEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 				s := fmt.Sprintf("filename == %s", pef.ExecFilename.Value)
 				execFilters[s] = true
 			} else if pef.ExecFilenamePattern != nil {
-				s := fmt.Sprintf("filenamePattern ~ %s", pef.ExecFilenamePattern.Value)
+				s := fmt.Sprintf("filename ~ %s", pef.ExecFilenamePattern.Value)
 				execFilters[s] = true
 			} else {
 				execWildcard = true
