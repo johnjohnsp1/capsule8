@@ -11,6 +11,18 @@ import (
 
 // SensorConn() returns a client connection to the sensor.
 func SensorConn() (*grpc.ClientConn, error) {
+	// Most tests are done in Docker containers
+	has_docker := false
+	for _, cgroup := range config.Sensor.CgroupName {
+		if cgroup == "docker" {
+			has_docker = true
+			break
+		}
+	}
+	if !has_docker {
+		config.Sensor.CgroupName = append(config.Sensor.CgroupName, "docker")
+	}
+
 	return grpc.Dial(config.Sensor.ListenAddr,
 		grpc.WithDialer(dialer),
 		grpc.WithDefaultCallOptions(grpc.FailFast(true)),
