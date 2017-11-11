@@ -789,7 +789,7 @@ func (s *SampleRecord) read(reader *bytes.Reader, eventAttr *EventAttr, formatMa
 	// has been specified in every EventAttr (it must be!). Read the first
 	// 8 bytes (uint64) from the data and look up the identifier in the
 	// format map to get the EventAttr to use
-	if eventAttr == nil && formatMap != nil {
+	if eventAttr == nil {
 		var (
 			ok       bool
 			sampleID uint64
