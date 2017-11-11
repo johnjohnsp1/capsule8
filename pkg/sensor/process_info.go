@@ -1,22 +1,18 @@
 package sensor
 
 //
-// The purpose of this cache at present is to maintain process and
-// container information after they have exited. It is only consulted
-// when process or container information can't be retrieved from
-// procfs.
-//
-// The process stat and container ID lookups through processId and
-// processContainerId are highly impacting on sensor performance since
-// every event emitted will require at least one call to them. Any
-// changes to this path should be considered along with benchmarking
-// in order catch any performance regressions early.
+// This file implements a process information cache that uses a sensor's
+// system-global EventMonitor to keep it up-to-date. The cache also monitors
+// for runc container starts to identify the containerID for a given PID
+// namespace. Process information gathered by the cache may be retrieved via
+// the processId and processContainerId methods.
 //
 // glog levels used:
 //   10 = cache operation level tracing for debugging
 //
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/capsule8/capsule8/pkg/sys"
@@ -121,7 +117,7 @@ type ProcessInfoCache struct {
 	cache  taskCache
 }
 
-func NewProcessInfoCache(sensor *Sensor) (*ProcessInfoCache, error) {
+func NewProcessInfoCache(sensor *Sensor) ProcessInfoCache {
 	once.Do(func() {
 		procFS = sys.HostProcFS()
 		if procFS == nil {
@@ -129,7 +125,7 @@ func NewProcessInfoCache(sensor *Sensor) (*ProcessInfoCache, error) {
 		}
 	})
 
-	cache := &ProcessInfoCache{
+	cache := ProcessInfoCache{
 		sensor: sensor,
 	}
 
@@ -144,11 +140,19 @@ func NewProcessInfoCache(sensor *Sensor) (*ProcessInfoCache, error) {
 	eventName := "task/task_newtask"
 	err := sensor.monitor.RegisterEvent(eventName, cache.decodeNewTask, "", nil)
 	if err != nil {
-		glog.V(1).Infof("Couldn't register process info cache event: %s", err)
-		return nil, err
+		glog.Fatalf("Couldn't register event %s: %s", eventName, err)
 	}
 
-	return cache, nil
+	// Attach a probe for task_renamse involving the runc
+	// init processes to trigger containerId lookups
+	f := "oldcomm ~ runc* || newcomm ~ runc:*"
+	eventName = "task/task_rename"
+	err = sensor.monitor.RegisterEvent(eventName, cache.decodeRuncTaskRename, f, nil)
+	if err != nil {
+		glog.Fatalf("Couldn't register event %s: %s", eventName, err)
+	}
+
+	return cache
 }
 
 // lookupLeader finds the task info for the thread group leader of the given pid
@@ -165,29 +169,27 @@ func (pc *ProcessInfoCache) lookupLeader(pid int) (task, bool) {
 // processId returns the unique ID for the process indicated by the
 // given PID. This process ID is identical whether it is derived
 // inside or outside a container.
-func (pc *ProcessInfoCache) ProcessId(pid int) string {
+func (pc *ProcessInfoCache) ProcessId(pid int) (string, bool) {
 	leader, ok := pc.lookupLeader(pid)
 	if ok {
-		return leader.processId
+		return leader.processId, true
 	}
 
-	return ""
+	return "", false
 }
 
 // processContainerId returns the container ID that the process
 // indicated by the given host PID.
-func (pc *ProcessInfoCache) ProcessContainerId(pid int) string {
+func (pc *ProcessInfoCache) ProcessContainerId(pid int) (string, bool) {
 	var t task
 	for p := pid; pc.cache.LookupTask(p, &t); p = t.ppid {
 		if len(t.containerId) > 0 {
-			return t.containerId
+			return t.containerId, true
 		}
 	}
 
-	return ""
+	return "", false
 }
-
-const CLONE_THREAD = 0x10000
 
 //
 // task represents a schedulable task
@@ -203,7 +205,10 @@ type task struct {
 //
 // Decodes each task/task_newtask tracepoint event into a processCacheEntry
 //
-func (pc *ProcessInfoCache) decodeNewTask(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+func (pc *ProcessInfoCache) decodeNewTask(
+	sample *perf.SampleRecord,
+	data perf.TraceEventSampleData,
+) (interface{}, error) {
 	parentPid := int(data["common_pid"].(int32))
 	childPid := int(data["pid"].(int32))
 	cloneFlags := data["clone_flags"].(uint64)
@@ -224,39 +229,32 @@ func (pc *ProcessInfoCache) decodeNewTask(sample *perf.SampleRecord, data perf.T
 	var tgid int
 	var uniqueId, containerId string
 
+	const CLONE_THREAD = 0x10000
 	if (cloneFlags & CLONE_THREAD) != 0 {
 		tgid = parentPid
 
-		//
-		// Inherit containerId from tgid if possible
-		//
-		containerId = pc.ProcessContainerId(tgid)
-		if len(containerId) == 0 {
-			//
-			// This is a bit aggressive to check /proc for every new
-			// thread, but it's what helps us tag the container init
-			// process
-			//
-			containerId, _ = procFS.ContainerID(tgid)
-			if len(containerId) > 0 {
-				pc.cache.SetTaskContainerId(tgid, containerId)
-			}
-		}
-
-		uniqueId = pc.ProcessId(tgid)
+		uniqueId, _ = pc.ProcessId(tgid)
 	} else {
-		//
 		// This is a new thread group leader, tgid is the new pid
-		//
 		tgid = childPid
 
-		//
 		// Create unique ID for thread group leaders
-		//
 		uniqueId = proc.DeriveUniqueID(tgid, parentPid)
-		containerId = pc.ProcessContainerId(parentPid)
-		if len(containerId) == 0 {
-			containerId, _ = procFS.ContainerID(tgid)
+	}
+
+	// Inherit containerId from parent
+	containerId, _ = pc.ProcessContainerId(parentPid)
+
+	// Lookup containerId from /proc filesystem for runc inits
+	if len(containerId) == 0 && strings.HasPrefix(command, "runc:") {
+		var err error
+
+		containerId, err = procFS.ContainerID(parentPid)
+		if err == nil && len(containerId) > 0 {
+			// Set it in the parent as well
+			pc.cache.SetTaskContainerId(parentPid, containerId)
+		} else {
+			containerId, err = procFS.ContainerID(childPid)
 		}
 	}
 
@@ -271,6 +269,40 @@ func (pc *ProcessInfoCache) decodeNewTask(sample *perf.SampleRecord, data perf.T
 	}
 
 	pc.cache.InsertTask(t.pid, t)
+
+	return nil, nil
+}
+
+//
+// decodeRuncTaskRename is called when runc exec's and obtains the containerID
+// from /procfs and caches it.
+//
+func (pc *ProcessInfoCache) decodeRuncTaskRename(
+	sample *perf.SampleRecord,
+	data perf.TraceEventSampleData,
+) (interface{}, error) {
+	pid := int(data["pid"].(int32))
+
+	var t task
+	pc.cache.LookupTask(pid, &t)
+
+	if len(t.containerId) == 0 {
+		containerId, err := procFS.ContainerID(pid)
+		if err == nil && len(containerId) > 0 {
+			pc.cache.SetTaskContainerId(pid, containerId)
+		}
+	} else {
+		var parent task
+		pc.cache.LookupTask(t.ppid, &parent)
+
+		if len(parent.containerId) == 0 {
+			containerId, err := procFS.ContainerID(parent.pid)
+			if err == nil && len(containerId) > 0 {
+				pc.cache.SetTaskContainerId(parent.pid, containerId)
+			}
+
+		}
+	}
 
 	return nil, nil
 }

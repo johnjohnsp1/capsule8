@@ -58,7 +58,7 @@ type Sensor struct {
 	monitor *perf.EventMonitor
 
 	// Per-sensor process cache.
-	processCache *ProcessInfoCache
+	processCache ProcessInfoCache
 }
 
 func NewSensor() (*Sensor, error) {
@@ -130,10 +130,7 @@ func (s *Sensor) Start() error {
 	}
 	s.monitor = monitor
 
-	s.processCache, err = NewProcessInfoCache(s)
-	if err != nil {
-		return err
-	}
+	s.processCache = NewProcessInfoCache(s)
 
 	// This should be last. It shouldn't be started until everything else
 	// has been successfully started
@@ -264,11 +261,15 @@ func (s *Sensor) NewEventFromSample(sample *perf.SampleRecord,
 	e.ProcessPid = data["common_pid"].(int32)
 	e.ProcessTid = int32(sample.Tid)
 	e.Cpu = int32(sample.CPU)
-	e.ProcessId = s.processCache.ProcessId(int(e.ProcessPid))
+
+	processId, ok := s.processCache.ProcessId(int(e.ProcessPid))
+	if ok {
+		e.ProcessId = processId
+	}
 
 	// Add an associated containerId
-	containerId := s.processCache.ProcessContainerId(int(e.ProcessPid))
-	if len(containerId) > 0 {
+	containerId, ok := s.processCache.ProcessContainerId(int(e.ProcessPid))
+	if ok {
 		// Add the container Id if we have it and then try
 		// using it to look up additional container info
 		e.ContainerId = containerId

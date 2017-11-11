@@ -25,15 +25,18 @@ type processFilter struct {
 
 func (f *processFilter) decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
 	childPid := data["child_pid"].(int32)
-	childID := f.sensor.processCache.ProcessId(int(childPid))
 
 	ev := f.sensor.NewEventFromSample(sample, data)
 	ev.Event = &api.Event_Process{
 		Process: &api.ProcessEvent{
 			Type:         api.ProcessEventType_PROCESS_EVENT_TYPE_FORK,
 			ForkChildPid: childPid,
-			ForkChildId:  childID,
 		},
+	}
+
+	childId, ok := f.sensor.processCache.ProcessId(int(childPid))
+	if ok {
+		ev.GetProcess().ForkChildId = childId
 	}
 
 	return ev, nil
