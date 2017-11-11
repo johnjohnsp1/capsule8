@@ -1,0 +1,15 @@
+[Unit]
+Description=Capsule8 standalone sensor
+Documentation=https://github.com/capsule8/capsule8
+
+[Service]
+Type=simple
+ExecStartPre=/bin/rm -rf /var/run/capsule8/*
+ExecStart=/usr/bin/capsule8
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+
+# To view logs: journalctl -u capsule8
