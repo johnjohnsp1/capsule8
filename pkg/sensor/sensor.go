@@ -319,8 +319,6 @@ func (s *Sensor) buildMonitorGroups() ([]string, []int, error) {
 }
 
 func (s *Sensor) createEventMonitor(sub *api.Subscription) (*perf.EventMonitor, error) {
-	var perfEventDir string
-
 	eventMonitorOptions := []perf.EventMonitorOption{}
 
 	cgroups, pids, err := s.buildMonitorGroups()
@@ -328,8 +326,17 @@ func (s *Sensor) createEventMonitor(sub *api.Subscription) (*perf.EventMonitor, 
 		return nil, err
 	}
 
+	if len(cgroups) == 0 && len(pids) == 0 {
+		glog.Fatal("Can't create event monitor with no cgroups or pids")
+	}
+
 	if len(cgroups) > 0 {
-		perfEventDir := sys.PerfEventDir()
+		var perfEventDir string
+		if len(s.perfEventMountPoint) > 0 {
+			perfEventDir = s.perfEventMountPoint
+		} else {
+			perfEventDir = sys.PerfEventDir()
+		}
 		if len(perfEventDir) > 0 {
 			glog.V(1).Infof("Creating new perf event monitor on cgroups %s",
 				strings.Join(cgroups, ","))
@@ -338,21 +345,31 @@ func (s *Sensor) createEventMonitor(sub *api.Subscription) (*perf.EventMonitor, 
 				perf.WithPerfEventDir(perfEventDir),
 				perf.WithCgroups(cgroups))
 		}
-	} else if len(pids) > 0 {
+	}
+
+	if len(pids) > 0 {
 		glog.V(1).Info("Creating new system-wide event monitor")
 		eventMonitorOptions = append(eventMonitorOptions,
 			perf.WithPids(pids))
-	} else {
-		glog.Fatal("Can't create event monitor with no cgroups or pids")
 	}
 
-	monitor, err := perf.NewEventMonitor(
-		perf.WithPerfEventDir(perfEventDir),
-		perf.WithCgroups(cgroups),
-		perf.WithPids(pids))
+	monitor, err := perf.NewEventMonitor(eventMonitorOptions...)
 	if err != nil {
-		glog.V(1).Infof("Couldn't create event monitor: %s", err)
-		return nil, err
+		// If a cgroup-specific event monitor could not be created,
+		// fall back to a system-wide event monitor.
+		if len(cgroups) > 0 &&
+			(len(pids) == 0 || (len(pids) == 1 && pids[0] == -1)) {
+
+			glog.Warningf("Couldn't create perf event monitor on cgroups %s: %s",
+				strings.Join(cgroups, ","), err)
+
+			glog.V(1).Info("Creating new system-wide event monitor")
+			monitor, err = perf.NewEventMonitor()
+		}
+		if err != nil {
+			glog.V(1).Infof("Couldn't create event monitor: %s", err)
+			return nil, err
+		}
 	}
 
 	if sub != nil {
