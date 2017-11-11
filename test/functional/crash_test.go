@@ -135,12 +135,6 @@ func (ct *crashTest) HandleTelemetryEvent(t *testing.T, telemetryEvent *api.Tele
 				return false
 			}
 
-			if event.Process.ExitCoreDumped != true {
-				t.Errorf("Expected ExitCoreDumped %v, got %v",
-					true, event.Process.ExitCoreDumped)
-				return false
-			}
-
 			ct.processExited = true
 			glog.V(1).Infof("processExited = true")
 		}
