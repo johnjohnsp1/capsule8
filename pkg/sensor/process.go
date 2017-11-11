@@ -25,15 +25,18 @@ type processFilter struct {
 
 func (f *processFilter) decodeSchedProcessFork(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
 	childPid := data["child_pid"].(int32)
-	childID := processId(childPid)
 
 	ev := f.sensor.NewEventFromSample(sample, data)
 	ev.Event = &api.Event_Process{
 		Process: &api.ProcessEvent{
 			Type:         api.ProcessEventType_PROCESS_EVENT_TYPE_FORK,
 			ForkChildPid: childPid,
-			ForkChildId:  childID,
 		},
+	}
+
+	childId, ok := f.sensor.processCache.ProcessId(int(childPid))
+	if ok {
+		ev.GetProcess().ForkChildId = childId
 	}
 
 	return ev, nil
@@ -45,7 +48,7 @@ func (f *processFilter) decodeSchedProcessExec(sample *perf.SampleRecord, data p
 	//
 	hostPid := data["common_pid"].(int32)
 	filename := data["filename"].(string)
-	commandLine := sys.HostProcFS().CommandLine(hostPid)
+	commandLine := sys.HostProcFS().CommandLine(int(hostPid))
 
 	ev := f.sensor.NewEventFromSample(sample, data)
 	processEvent := &api.ProcessEvent{
@@ -120,7 +123,7 @@ func registerProcessEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 				s := fmt.Sprintf("filename == %s", pef.ExecFilename.Value)
 				execFilters[s] = true
 			} else if pef.ExecFilenamePattern != nil {
-				s := fmt.Sprintf("filenamePattern ~ %s", pef.ExecFilenamePattern.Value)
+				s := fmt.Sprintf("filename ~ %s", pef.ExecFilenamePattern.Value)
 				execFilters[s] = true
 			} else {
 				execWildcard = true

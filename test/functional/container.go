@@ -28,18 +28,27 @@ func (c *Container) Build() error {
 		return err
 	}
 
-	c.ImageID = strings.TrimSpace(string(dockerOutput))
+	trimmed := strings.TrimSpace(string(dockerOutput))
+	c.ImageID = strings.TrimPrefix(trimmed, "sha256:")
 
 	return nil
 }
 
-func (c *Container) Start() error {
-	c.command = exec.Command("docker", "run", "--rm", c.ImageID)
+func (c *Container) dockerRunArgs(runargs []string) []string {
+	args := append([]string{"run", "--rm"}, runargs...)
+	args = append(args, c.ImageID)
+	return args
+}
+
+func (c *Container) Start(runargs ...string) error {
+	dockerArgs := c.dockerRunArgs(runargs)
+	c.command = exec.Command("docker", dockerArgs...)
 	return c.command.Start()
 }
 
-func (c *Container) StartContext(ctx context.Context) error {
-	c.command = exec.CommandContext(ctx, "docker", "run", "--rm", c.ImageID)
+func (c *Container) StartContext(ctx context.Context, runargs ...string) error {
+	dockerArgs := c.dockerRunArgs(runargs)
+	c.command = exec.CommandContext(ctx, "docker", dockerArgs...)
 	return c.command.Start()
 }
 
@@ -47,13 +56,15 @@ func (c *Container) Wait() error {
 	return c.command.Wait()
 }
 
-func (c *Container) Run() error {
-	c.command = exec.Command("docker", "run", "--rm", c.ImageID)
+func (c *Container) Run(runargs ...string) error {
+	dockerArgs := c.dockerRunArgs(runargs)
+	c.command = exec.Command("docker", dockerArgs...)
 	return c.command.Run()
 }
 
-func (c *Container) RunContext(ctx context.Context) error {
-	c.command = exec.CommandContext(ctx, "docker", "run", "--rm", c.ImageID)
+func (c *Container) RunContext(ctx context.Context, runargs ...string) error {
+	dockerArgs := c.dockerRunArgs(runargs)
+	c.command = exec.CommandContext(ctx, "docker", dockerArgs...)
 	return c.command.Run()
 }
 

@@ -915,9 +915,18 @@ func NewEventMonitor(options ...EventMonitorOption) (*EventMonitor, error) {
 	// Only allow certain flags to be passed
 	opts.flags &= PERF_FLAG_FD_CLOEXEC
 
-	if len(opts.perfEventDir) == 0 {
+	// If no perf_event cgroup mountpoint was specified, scan mounts for one
+	if len(opts.perfEventDir) == 0 && len(opts.cgroups) > 0 {
 		opts.perfEventDir = sys.PerfEventDir()
+
+		// If we didn't find one, we can't monitor specific cgroups
+		if len(opts.perfEventDir) == 0 {
+			return nil, errors.New("Can't monitor specific cgroups without perf_event cgroupfs")
+		}
 	}
+
+	// If no pids or cgroups were specified, default to monitoring the
+	// whole system (pid -1)
 	if len(opts.pids) == 0 && len(opts.cgroups) == 0 {
 		opts.pids = append(opts.pids, -1)
 	}

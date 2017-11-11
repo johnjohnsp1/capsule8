@@ -19,8 +19,11 @@ BUILD=$(shell echo ${BUILD_ID})
 
 BUILD_IMAGE ?= golang:1.9-alpine
 
+# 'go build' flags
+BUILDFLAGS +=
+
 # we export the variables so you only have to update the version here in the top level Makefile
-LDFLAGS=-ldflags "-X $(PKG)/pkg/version.Version=$(VERSION) -X $(PKG)/pkg/version.Build=$(BUILD)"
+LDFLAGS=-X $(PKG)/pkg/version.Version=$(VERSION) -X $(PKG)/pkg/version.Build=$(BUILD)
 
 # Need to use clang instead of gcc for -msan, specify its path here
 CLANG=clang
@@ -57,7 +60,7 @@ ci:
 # Build all executables as static executables
 #
 static:
-	CGO_ENABLED=0 $(MAKE) $(CMDS)
+	CGO_ENABLED=0 BUILDFLAGS=-a $(MAKE) $(CMDS)
 
 #
 # Make a distribution tarball
@@ -69,7 +72,7 @@ dist: static
 # Pattern rules to allow 'make foo' to build ./cmd/foo or ./test/cmd/foo (whichever exists)
 #
 % : cmd/% cmd/%/*.go
-	go build $(LDFLAGS) -o bin/$@ ./$<
+	go build $(BUILDFLAGS) -ldflags "$(LDFLAGS)" -o bin/$@ ./$<
 
 #
 # Check that all main packages build successfully

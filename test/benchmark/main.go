@@ -17,6 +17,8 @@ import (
 	"google.golang.org/grpc"
 
 	api "github.com/capsule8/api/v0"
+	sensorConfig "github.com/capsule8/capsule8/pkg/config"
+
 	"github.com/capsule8/capsule8/pkg/sensor"
 	"github.com/capsule8/capsule8/pkg/subscription"
 	"github.com/capsule8/capsule8/pkg/version"
@@ -194,6 +196,9 @@ func main() {
 	// Set "alsologtostderr" flag so that glog messages go stderr as well as /tmp.
 	//flag.Set("alsologtostderr", "true")
 	flag.Parse()
+
+	// Enable profiling by default
+	sensorConfig.Global.ProfilingPort = 6060
 
 	// Log version and build at "Starting ..." for debugging
 	version.InitialBuildLog("benchmark")

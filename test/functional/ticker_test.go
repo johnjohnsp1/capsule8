@@ -19,12 +19,12 @@ type tickerTest struct {
 }
 
 func (tickTest *tickerTest) BuildContainer(t *testing.T) {
-	// No container is needed for testing, nothing to do.
+	// No container is needed for testing, use this to set the deadline.
+	tickTest.deadline = time.Now().Add(expectedEvents * testInterval)
 }
 
 func (tickTest *tickerTest) RunContainer(t *testing.T) {
-	// No container is needed for testing, use this to set the deadline.
-	tickTest.deadline = time.Now().Add(expectedEvents * testInterval)
+	// No container is needed for testing, nothing to do.
 }
 
 func (tickTest *tickerTest) CreateSubscription(t *testing.T) *api.Subscription {
