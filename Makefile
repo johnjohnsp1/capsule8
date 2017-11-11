@@ -17,50 +17,104 @@ endif
 # Automated build unique identifier (if any)
 BUILD=$(shell echo ${BUILD_ID})
 
-BUILD_IMAGE ?= golang:1.9-alpine
+# These get set by specific Makefile targets and used by others
+CONTAINER_ID=
+CONTAINER_IMAGE=
 
 # 'go build' flags
-BUILDFLAGS +=
-
-# we export the variables so you only have to update the version here in the top level Makefile
-LDFLAGS=-X $(PKG)/pkg/version.Version=$(VERSION) -X $(PKG)/pkg/version.Build=$(BUILD)
+GOBUILDFLAGS+=-ldflags "-X $(PKG)/pkg/version.Version=$(VERSION) -X $(PKG)/pkg/version.Build=$(BUILD)"
+GOVETFLAGS=-shadow
 
 # Need to use clang instead of gcc for -msan, specify its path here
 CLANG=clang
 
-GOVETFLAGS=-shadow
-
 # All command-line executables in cmd/
 CMDS=$(notdir $(wildcard ./cmd/*))
+BINS=$(patsubst %,bin/%,$(CMDS)) bin/functional.test
+
+#
+# Docker flags to use in CI
+#
+DOCKER_RUN_CI=docker run                                                    \
+	--network host                                                      \
+	-ti                                                                 \
+	--rm                                                                \
+	-v "$$(pwd):/go/src/$(PKG)"                                         \
+	-v /var/run/docker.sock:/var/run/docker.sock:ro                     \
+	-w /go/src/$(PKG)                                                   \
+	$(BUILD_IMAGE)
+
+.PHONY: all ci ci_shell builder build_image container load save run shell \
+	static dist check test test_verbose test_all test_msan test_race \
+	test_functional clean
 
 #
 # Default target: build all executables
 #
-all: $(CMDS)
+all: $(BINS)
 
 #
 # Default CI target
 #
-ci:
-	@docker run                                                             \
-	    -ti                                                                 \
-	    --rm                                                                \
-	    -v "$$(pwd):/go/src/$(PKG)"                                         \
-	    -v /var/run/docker.sock:/var/run/docker.sock:ro                     \
-	    -v /var/run/capsule8/sensor.sock:/var/run/capsule8/sensor.sock:ro   \
-	    -w /go/src/$(PKG)                                                   \
-	    $(BUILD_IMAGE)                                                      \
-	    /bin/sh -c "                                                        \
-		apk add -U docker &&                                            \
-		apk add -U make &&                                              \
-		make check test_verbose                                         \
+ci: | builder build_image
+	$(DOCKER_RUN_CI) /bin/sh -c "                                           \
+		./build/build.sh &&                                             \
+		./build/test.sh                                                 \
 	    "
+
+ci_shell: | builder build_image
+	$(DOCKER_RUN_CI) /bin/sh
+
+builder: build/Dockerfile
+	docker build build/
+
+build_image:
+	$(eval BUILD_IMAGE=$(shell docker build -q build/))
+
+container: Dockerfile static
+	docker build --build-arg vcsref=$(SHA) --build-arg version=$(VERSION) .
+	$(eval CONTAINER_IMAGE=$(shell docker build -q .))
+
+load: capsule8-$(VERSION).tar
+	docker load -i
+
+save: capsule8-$(VERSION).tar
+
+capsule8-$(VERSION).tar: container
+	docker save -o $@ $(CONTAINER_IMAGE)
+
+run: container
+	docker run --rm -it                                                    \
+		--privileged                                                   \
+		--publish 8484:8484                                            \
+		--volume=/proc:/var/run/capsule8/proc/:ro                      \
+		--volume=/sys/kernel/debug:/sys/kernel/debug                   \
+		--volume=/sys/fs/cgroup:/sys/fs/cgroup                         \
+		--volume=/var/lib/docker:/var/lib/docker:ro                    \
+		--volume=/var/run/docker:/var/run/docker:ro                    \
+		$(CONTAINER_IMAGE)
+
+#
+# Run an interactive shell within the docker container with the
+# required ports and mounts. This is useful for debugging and testing
+# the environment within the continer.
+#
+shell: container
+	docker run --rm -it                                                    \
+		--privileged                                                   \
+		--publish 8484:8484                                            \
+		--volume=/proc:/var/run/capsule8/proc/:ro                      \
+		--volume=/sys/kernel/debug:/sys/kernel/debug                   \
+		--volume=/sys/fs/cgroup:/sys/fs/cgroup                         \
+		--volume=/var/lib/docker:/var/lib/docker:ro                    \
+		--volume=/var/run/docker:/var/run/docker:ro                    \
+		$(CONTAINER_IMAGE) /bin/sh
 
 #
 # Build all executables as static executables
 #
 static:
-	CGO_ENABLED=0 BUILDFLAGS=-a $(MAKE) $(CMDS)
+	CGO_ENABLED=0 GOBUILDFLAGS=-a $(MAKE) $<
 
 #
 # Make a distribution tarball
@@ -71,45 +125,29 @@ dist: static
 #
 # Pattern rules to allow 'make foo' to build ./cmd/foo or ./test/cmd/foo (whichever exists)
 #
-% : cmd/% cmd/%/*.go
-	go build $(BUILDFLAGS) -ldflags "$(LDFLAGS)" -o bin/$@ ./$<
+bin/% : cmd/% cmd/%/*.go
+	go build $(GOBUILDFLAGS) -o $@ ./$<
+
+# Build the functional test binary
+bin/functional.test: $(wildcard ./test/functional/*_test.go)
+	go test $(GOBUILDFLAGS) -c -o $@ ./test/functional
 
 #
-# Check that all main packages build successfully
+# Check that all sources build successfully, gofmt, go vet, golint, etc)
 #
 check:
-	go build ./cmd/... ./examples/...
+	echo "--- Checking source code formatting"
+	find ./cmd ./pkg ./examples -name '*.go' | xargs gofmt -d
+	echo "--- Checking that all sources build"
+	go build ./cmd/... ./pkg/... ./examples/...
+	echo "--- Checking that all sources vet clean"
 	go vet $(GOVETFLAGS) ./cmd/... ./pkg/... ./examples/...
-
-#
-# Run an interactive busybox container with top-level directory mounted into
-# it. This is useful for testing built command-line executables within a
-# container.
-#
-# NB:
-# - We mount most host directories read-only into the same paths inside the
-#   container so that most sensor code can be written obvlivious to its
-#   containerized or non-containerized state.
-# - Host /sys must be mounted on /sys in container or else /sys/fs/cgroups will
-#   be empty.
-# - Mounting /proc on /proc is not allowed by OCI, so we mount it on /host/proc
-#
-contain:
-	docker run \
-	--volume=$(shell pwd):/$(REPO):ro -w /$(REPO) \
-	--volume=/proc:/host/proc/:ro \
-	--volume=/sys:/sys:ro \
-	--volume=/sys/kernel/debug/tracing:/sys/kernel/debug/tracing \
-	--volume=/var/run/capsule8:/var/run/capsule8 \
-	--volume=/var/lib/docker:/var/lib/docker:ro \
-	--volume=/var/run/docker:/var/run/docker:ro \
-	--volume=/var/run/docker.sock:/var/run/docker.sock:ro \
-	--privileged --rm -it busybox
+	echo "--- Checking sources for lint"
+	golint ./cmd/... ./pkg/... ./examples/...
 
 #
 # Run all unit tests quickly
 #
-.PHONY: test
 test:
 	go test ./cmd/... ./pkg/...
 
@@ -134,7 +172,7 @@ test_race:
 	go test -race ./cmd/... ./pkg/...
 
 test_functional:
-	go test -v ./test/functional
+	go test ./test/functional
 
 clean:
 	rm -rf ./bin $(CMDS)

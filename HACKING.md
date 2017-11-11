@@ -10,16 +10,26 @@ TODO: glog v-levels and vmodules
 
 The functional tests in `test/functional` require privileges to run
 the `docker` command and reach the Sensor's local Unix socket gRPC API
-endpoint. In order to facilitate testing, it is recommended to
-separate the compilation of the test binary and the running of it with
-`sudo`. The functional tests assume that the sensor is already
-running.
+endpoint by default. In order to facilitate running the tests with
+privilege, the functional test binary is compiled into
+`bin/functional.test`. That binary should be run with privileges
+sufficient to run `docker` and access `/var/run/capsule8/sensor.socket`.
+
 
 ```
-$ cd test/functional
-$ go test -c
-$ sudo ./functional.test
+$ make bin/functional.test
+$ sudo ./bin/functional.test
 [...]
+```
+
+#### Running Functional Tests on a Remote Host
+
+The functional tests have been designed to support being run against a
+remote Capsule8 API and Docker host.
+
+```
+env CAPSULE8_API_SERVER=127.0.0.1:8484 DOCKER_HOST=tcp://127.0.0.1:2375 make test_functional
+
 ```
 
 #### Debugging Functional Tests
