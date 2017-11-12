@@ -9,13 +9,13 @@ import (
 // Main is the main entrypoint for the sensor
 func Main() {
 	manager := services.NewServiceManager()
-	if config.Global.ProfilingPort > 0 {
+	if len(config.Global.ProfilingAddr) > 0 {
 		service := services.NewProfilingService(
-			"127.0.0.1", config.Global.ProfilingPort)
+			config.Global.ProfilingAddr)
 		manager.RegisterService(service)
 	}
-	if len(config.Sensor.ListenAddr) > 0 {
-		service, err := NewTelemetryService(config.Sensor.ListenAddr)
+	if len(config.Sensor.ServerAddr) > 0 {
+		service, err := NewTelemetryService(config.Sensor.ServerAddr)
 		if err != nil {
 			glog.Fatalf("Could not create telemetry service: %s", err)
 		}
