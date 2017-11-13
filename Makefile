@@ -17,20 +17,20 @@ endif
 # Automated build unique identifier (if any)
 BUILD=$(shell echo ${BUILD_ID})
 
-# These get set by specific Makefile targets and used by others
-CONTAINER_ID=
-CONTAINER_IMAGE=
-
 # 'go build' flags
 GOBUILDFLAGS+=-ldflags "-X $(PKG)/pkg/version.Version=$(VERSION) -X $(PKG)/pkg/version.Build=$(BUILD)"
-GOVETFLAGS=-shadow
+GOVETFLAGS+=-shadow
+GOTESTFLAGS+=
 
 # Need to use clang instead of gcc for -msan, specify its path here
 CLANG=clang
 
 # All command-line executables in cmd/
 CMDS=$(notdir $(wildcard ./cmd/*))
-BINS=$(patsubst %,bin/%,$(CMDS)) bin/functional.test
+BINS=$(patsubst %,bin/%,$(CMDS))
+
+# All source directories that need to be checked, compiled, tested, etc.
+SRC=./cmd/... ./pkg/... ./examples/...
 
 #
 # Docker flags to use in CI
@@ -45,7 +45,7 @@ DOCKER_RUN_CI=docker run                                                    \
 	$(BUILD_IMAGE)
 
 .PHONY: all ci ci_shell builder build_image container load save run shell \
-	static dist check test test_verbose test_all test_msan test_race \
+	static dist check test test_verbose test_all test_msan test_race  \
 	test_functional clean
 
 #
@@ -128,10 +128,6 @@ dist: static
 bin/% : cmd/% cmd/%/*.go
 	go build $(GOBUILDFLAGS) -o $@ ./$<
 
-# Build the functional test binary
-bin/functional.test: $(wildcard ./test/functional/*_test.go)
-	go test $(GOBUILDFLAGS) -c -o $@ ./test/functional
-
 #
 # Check that all sources build successfully, gofmt, go vet, golint, etc)
 #
@@ -139,20 +135,22 @@ check:
 	echo "--- Checking source code formatting"
 	find ./cmd ./pkg ./examples -name '*.go' | xargs gofmt -d
 	echo "--- Checking that all sources build"
-	go build ./cmd/... ./pkg/... ./examples/...
+	go build $(SRC)
 	echo "--- Checking that all sources vet clean"
-	go vet $(GOVETFLAGS) ./cmd/... ./pkg/... ./examples/...
+	go vet $(GOVETFLAGS) $(SRC)
 	echo "--- Checking sources for lint"
-	golint ./cmd/... ./pkg/... ./examples/...
+	golint $(SRC)
 
 #
 # Run all unit tests quickly
 #
+test: GOTESTFLAGS+=-cover
 test:
-	go test ./cmd/... ./pkg/...
+	go test $(SRC) $(GOTESTFLAGS) 
 
+test_verbose: GOTESTFLAGS+=-v
 test_verbose:
-	go test -v ./cmd/... ./pkg/...
+	go test $(SRC) $(GOTESTFLAGS)
 
 #
 # Run all tests
@@ -162,17 +160,22 @@ test_all: test test_msan test_race
 #
 # Run all unit tests in pkg/ under memory sanitizer
 #
+test_msan: GOTESTFLAGS+=-msan
 test_msan:
-	CC=${CLANG} go test -msan ./cmd/... ./pkg/...
+	CC=${CLANG} go test $(SRC) $(GOTESTFLAGS) 
 
 #
 # Run all unit tests in pkg/ under race detector
 #
+test_race: GOTESTFLAGS+=-race
 test_race:
-	go test -race ./cmd/... ./pkg/...
+	go test $(SRC) $(GOTESTFLAGS)
 
+#
+# Run functional test suite
+#
 test_functional:
-	go test ./test/functional
+	go test ./test/functional $(GOTESTFLAGS)
 
 clean:
 	rm -rf ./bin $(CMDS)
