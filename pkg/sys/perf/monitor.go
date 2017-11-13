@@ -780,7 +780,6 @@ func (monitor *EventMonitor) cpuTimeOffset(cpu int, groupfd int, rb *ringBuffer)
 		glog.V(3).Infof("Couldn't open reference event: %s", err)
 		return 0, err
 	}
-	defer unix.Close(fd)
 
 	// Wait for the event to be ready, then pull it immediately and
 	// remember the timestamp. That's our reference for this CPU.
@@ -793,6 +792,7 @@ func (monitor *EventMonitor) cpuTimeOffset(cpu int, groupfd int, rb *ringBuffer)
 	for {
 		n, err := unix.Poll(pollfds, -1)
 		if err != nil && err != unix.EINTR {
+			unix.Close(fd)
 			return 0, err
 		}
 		if n == 0 {
@@ -800,12 +800,18 @@ func (monitor *EventMonitor) cpuTimeOffset(cpu int, groupfd int, rb *ringBuffer)
 		}
 
 		rb.read(monitor.readReferenceSamples)
-		if len(monitor.samples) < 0 {
+		if len(monitor.samples) == 0 {
 			continue
 		}
-
 		ds := monitor.samples[0]
-		monitor.samples = monitor.samples[:0]
+
+		// Close the event to prevent any more samples from being
+		// added to the ring buffer. Remove anything from the ring
+		// buffer that remains and discard it.
+		unix.Close(fd)
+		rb.read(monitor.readReferenceSamples)
+		monitor.samples = nil
+
 		if ds.err != nil {
 			return 0, err
 		}
