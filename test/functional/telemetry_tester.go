@@ -14,8 +14,8 @@ import (
 const telemetryTestTimeout = 10 * time.Second
 
 var (
-	sensorConn *grpc.ClientConn
-	connOnce   sync.Once
+	conn     *grpc.ClientConn
+	connOnce sync.Once
 )
 
 type TelemetryTest interface {
@@ -53,7 +53,7 @@ func (tt *TelemetryTester) runTelemetryTest(t *testing.T) {
 	//
 	connOnce.Do(func() {
 		var err error
-		sensorConn, err = SensorConn()
+		conn, err = apiConn()
 		if err != nil {
 			glog.Fatal(err)
 		}
@@ -65,7 +65,7 @@ func (tt *TelemetryTester) runTelemetryTest(t *testing.T) {
 	//
 	// Connect to telemetry service first
 	//
-	c := api.NewTelemetryServiceClient(sensorConn)
+	c := api.NewTelemetryServiceClient(conn)
 	stream, err := c.GetEvents(ctx, &api.GetEventsRequest{
 		Subscription: tt.test.CreateSubscription(t),
 	})
@@ -79,6 +79,10 @@ func (tt *TelemetryTester) runTelemetryTest(t *testing.T) {
 
 	tt.waitGroup.Add(1)
 	go func() {
+		// There is no deterministic way to sychronously know
+		// when the telemetry subscription is active, so we
+		// need a decent sized sleep here.
+		time.Sleep(1 * time.Second)
 		receiverStarted.Done()
 
 		for {

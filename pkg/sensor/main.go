@@ -1,7 +1,6 @@
 package sensor
 
 import (
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -27,13 +26,11 @@ func (p *profilingServer) Name() string {
 }
 
 func (p *profilingServer) Serve() error {
-	glog.Infof("Serving profiling HTTP endpoints on 127.0.0.1:%d",
-		config.Global.ProfilingPort)
-
-	addr := fmt.Sprintf("127.0.0.1:%d", config.Global.ProfilingPort)
+	glog.Infof("Serving profiling HTTP endpoints on %s",
+		config.Global.ProfilingAddr)
 
 	p.server = &http.Server{
-		Addr: addr,
+		Addr: config.Global.ProfilingAddr,
 	}
 
 	serveErr := p.server.ListenAndServe()
@@ -48,12 +45,12 @@ func (p *profilingServer) Stop() {
 
 // Main is the main entrypoint for the sensor
 func Main() {
-	if len(config.Sensor.ListenAddr) > 0 {
+	if len(config.Sensor.ServerAddr) > 0 {
 		s := &gRPCServer{}
 		Sensor.RegisterServer(s)
 	}
 
-	if config.Global.ProfilingPort > 0 {
+	if len(config.Global.ProfilingAddr) > 0 {
 		s := &profilingServer{}
 		Sensor.RegisterServer(s)
 	}

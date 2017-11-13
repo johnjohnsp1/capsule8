@@ -26,9 +26,9 @@ func (g *gRPCServer) Serve() error {
 	var err error
 	var lis net.Listener
 
-	glog.Info("Serving gRPC API on ", config.Sensor.ListenAddr)
+	glog.Info("Serving gRPC API on ", config.Sensor.ServerAddr)
 
-	parts := strings.Split(config.Sensor.ListenAddr, ":")
+	parts := strings.Split(config.Sensor.ServerAddr, ":")
 	if len(parts) > 1 && parts[0] == "unix" {
 		socketPath := parts[1]
 
@@ -64,7 +64,7 @@ func (g *gRPCServer) Serve() error {
 		lis, err = net.Listen("unix", socketPath)
 		unix.Umask(oldMask)
 	} else {
-		lis, err = net.Listen("tcp", config.Sensor.ListenAddr)
+		lis, err = net.Listen("tcp", config.Sensor.ServerAddr)
 	}
 
 	if err != nil {

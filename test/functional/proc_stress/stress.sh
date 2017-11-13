@@ -2,7 +2,7 @@
 
 for ((N=0; N<256; ++N))
 do
-    ./main $N &
+    ./main $N
 done
 
 exit 0

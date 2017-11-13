@@ -14,13 +14,12 @@ const (
 )
 
 type tickerTest struct {
-	count    int
-	deadline time.Time
+	firstEventNanos int64
+	count           int
 }
 
 func (tickTest *tickerTest) BuildContainer(t *testing.T) {
-	// No container is needed for testing, use this to set the deadline.
-	tickTest.deadline = time.Now().Add(expectedEvents * testInterval)
+	// No container is needed for testing
 }
 
 func (tickTest *tickerTest) RunContainer(t *testing.T) {
@@ -48,8 +47,30 @@ func (tickTest *tickerTest) HandleTelemetryEvent(t *testing.T, te *api.Telemetry
 
 	switch event := te.Event.Event.(type) {
 	case *api.Event_Ticker:
+		if tickTest.count == 0 {
+			tickTest.firstEventNanos = event.Ticker.Nanoseconds
+		}
 		tickTest.count++
-		return time.Now().Before(tickTest.deadline)
+
+		glog.V(1).Infof("tickTest.count = %d", tickTest.count)
+
+		if tickTest.count == expectedEvents {
+			nanos := event.Ticker.Nanoseconds
+
+			d := time.Duration(nanos - tickTest.firstEventNanos)
+			glog.V(1).Infof("Duration: %s", d)
+
+			//
+			// Duration should be =~ (expectedEvents - 1) * testInterval
+			//
+			if d < (expectedEvents-2)*testInterval ||
+				d > expectedEvents*testInterval {
+				t.Error("Observed event duration out of range")
+				return false
+			}
+		}
+
+		return tickTest.count < expectedEvents
 
 	default:
 		t.Errorf("Unexpected event type %T\n", event)
@@ -63,13 +84,12 @@ func (tickTest *tickerTest) HandleTelemetryEvent(t *testing.T, te *api.Telemetry
 // interval.
 //
 func TestTicker(t *testing.T) {
-
 	tickTest := &tickerTest{}
 
 	tt := NewTelemetryTester(tickTest)
 	tt.RunTest(t)
 
-	if diff := tickTest.count - expectedEvents; diff < -1 || diff > 1 {
+	if tickTest.count != expectedEvents {
 		t.Errorf("Expected %d ticker events, got %d\n", expectedEvents, tickTest.count)
 	}
 }

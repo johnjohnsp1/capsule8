@@ -10,8 +10,8 @@ var Global struct {
 	// RunDir is the path to the runtime state directory for Capsule8
 	RunDir string `split_words:"true" default:"/var/run/capsule8"`
 
-	// HTTP port for the pprof runtime profiling endpoint.
-	ProfilingPort int `split_words:"true"`
+	// HTTP address and port for the pprof runtime profiling endpoint.
+	ProfilingAddr string `split_words:"true"`
 }
 
 // Sensor contains overridable configuration options for the sensor
@@ -35,7 +35,7 @@ var Sensor struct {
 	//   unix:/path/to/socket
 	//   127.0.0.1:8484
 	//   :8484
-	ListenAddr string `split_words:"true" default:"unix:/var/run/capsule8/sensor.sock"`
+	ServerAddr string `split_words:"true" default:"unix:/var/run/capsule8/sensor.sock"`
 
 	// Names of cgroups to monitor for events. Each cgroup specified must
 	// exist within the perf_event cgroup hierarchy. For example, if this
@@ -63,12 +63,12 @@ var Sensor struct {
 }
 
 func init() {
-	err := envconfig.Process("C8", &Global)
+	err := envconfig.Process("CAPSULE8", &Global)
 	if err != nil {
 		glog.Fatal(err)
 	}
 
-	err = envconfig.Process("C8_SENSOR", &Sensor)
+	err = envconfig.Process("CAPSULE8_SENSOR", &Sensor)
 	if err != nil {
 		glog.Fatal(err)
 	}
