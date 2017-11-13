@@ -21,7 +21,7 @@ func (st *procStressTest) BuildContainer(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	} else {
-		glog.V(2).Infof("Build container %s\n", c.ImageID[1:12])
+		glog.V(2).Infof("Built container %s\n", c.ImageID[0:12])
 		st.testContainer = c
 	}
 }
@@ -31,7 +31,7 @@ func (st *procStressTest) RunContainer(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	glog.V(2).Infof("Running container %s\n", st.testContainer.ImageID[1:12])
+	glog.V(2).Infof("Running container %s\n", st.testContainer.ImageID[0:12])
 }
 
 func (st *procStressTest) CreateSubscription(t *testing.T) *api.Subscription {
@@ -91,6 +91,8 @@ func (st *procStressTest) HandleTelemetryEvent(t *testing.T, telemetryEvent *api
 	return st.processCount < 256
 }
 
+// TestProcStress is a stress test for process events. It also exercises
+// filtering PROCESS_EVENT_TYPE_EXEC events by ExecFilename.
 func TestProcStress(t *testing.T) {
 	st := &procStressTest{}
 

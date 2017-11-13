@@ -27,7 +27,7 @@ func (ft *fileTest) BuildContainer(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	} else {
-		glog.V(2).Infof("Build container %s\n", c.ImageID[1:12])
+		glog.V(2).Infof("Built container %s\n", c.ImageID[0:12])
 		ft.testContainer = c
 	}
 }
@@ -37,7 +37,7 @@ func (ft *fileTest) RunContainer(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	glog.V(2).Infof("Running container %s\n", ft.testContainer.ImageID[1:12])
+	glog.V(2).Infof("Running container %s\n", ft.testContainer.ImageID[0:12])
 }
 
 func (ft *fileTest) CreateSubscription(t *testing.T) *api.Subscription {

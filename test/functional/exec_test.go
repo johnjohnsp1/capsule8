@@ -110,6 +110,7 @@ func (ct *execTest) HandleTelemetryEvent(t *testing.T, telemetryEvent *api.Telem
 	return !(ct.containerExited && len(ct.processID) > 0)
 }
 
+// TestExec exercises filtering PROCESS_EVENT_TYPE_EXEC by ExecFilenamePattern
 func TestExec(t *testing.T) {
 	et := &execTest{}
 	tt := NewTelemetryTester(et)

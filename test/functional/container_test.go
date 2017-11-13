@@ -23,7 +23,7 @@ func (ct *containerTest) BuildContainer(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	} else {
-		glog.V(2).Infof("Build container %s\n", c.ImageID[0:12])
+		glog.V(2).Infof("Built container %s\n", c.ImageID[0:12])
 		ct.testContainer = c
 	}
 }
@@ -67,13 +67,10 @@ func (ct *containerTest) HandleTelemetryEvent(t *testing.T, te *api.TelemetryEve
 	case *api.Event_Container:
 		switch event.Container.Type {
 		case api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED:
-
-			if event.Container.ImageName == ct.testContainer.ImageID {
+			if event.Container.ImageId == ct.testContainer.ImageID {
 				if ct.containerID != "" {
-					t.Errorf("Already saw container creation for %v",
-						event.Container.Type)
+					t.Errorf("Already seen container event %s", event.Container.Type)
 				}
-
 				ct.containerID = te.Event.ContainerId
 				ct.seenEvts[event.Container.Type] = true
 
@@ -84,8 +81,7 @@ func (ct *containerTest) HandleTelemetryEvent(t *testing.T, te *api.TelemetryEve
 		case api.ContainerEventType_CONTAINER_EVENT_TYPE_RUNNING,
 			api.ContainerEventType_CONTAINER_EVENT_TYPE_EXITED,
 			api.ContainerEventType_CONTAINER_EVENT_TYPE_DESTROYED:
-
-			if ct.containerID != "" && ct.containerID == te.Event.ContainerId {
+			if ct.containerID != "" && te.Event.ContainerId == ct.containerID {
 				if ct.seenEvts[event.Container.Type] {
 					t.Errorf("Already saw container event type %v",
 						event.Container.Type)
