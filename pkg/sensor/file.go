@@ -118,13 +118,11 @@ func registerFileEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*ap
 		sensor: sensor,
 	}
 
-	err := monitor.RegisterEvent("fs/do_sys_open", f.decodeDoSysOpen, filterString, nil)
+	_, err := monitor.RegisterTracepoint("fs/do_sys_open", f.decodeDoSysOpen, filterString, nil)
 	if err != nil {
 		glog.V(1).Infof("Tracepoint fs/do_sys_open not found, adding a kprobe to emulate")
 
-		name := perf.UniqueProbeName("capsule8", "do_sys_open")
 		_, err = monitor.RegisterKprobe(
-			name,
 			fsDoSysOpenKprobeAddress,
 			false,
 			fsDoSysOpenKprobeFetchargs,

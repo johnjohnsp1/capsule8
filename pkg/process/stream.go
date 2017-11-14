@@ -90,15 +90,15 @@ func setupMonitor(monitor *perf.EventMonitor) error {
 	//
 	// - cgroup_attach_task?
 	//
-	err := monitor.RegisterEvent("sched/sched_process_exec", decodeSchedProcessExec, "", nil)
+	_, err := monitor.RegisterTracepoint("sched/sched_process_exec", decodeSchedProcessExec, "", nil)
 	if err != nil {
 		return err
 	}
-	err = monitor.RegisterEvent("sched/sched_process_fork", decodeSchedProcessFork, "", nil)
+	_, err = monitor.RegisterTracepoint("sched/sched_process_fork", decodeSchedProcessFork, "", nil)
 	if err != nil {
 		return err
 	}
-	err = monitor.RegisterEvent("syscalls/sys_enter_exit_group", decodeSysEnterExitGroup, "", nil)
+	_, err = monitor.RegisterTracepoint("syscalls/sys_enter_exit_group", decodeSysEnterExitGroup, "", nil)
 	if err != nil {
 		return err
 	}
@@ -128,9 +128,9 @@ func createStream(monitor *perf.EventMonitor) (*stream.Stream, error) {
 				if ok {
 					enable := e.(bool)
 					if enable {
-						monitor.Enable()
+						monitor.EnableAll()
 					} else {
-						monitor.Disable()
+						monitor.DisableAll()
 					}
 				} else {
 					monitor.Stop(true)
@@ -142,7 +142,7 @@ func createStream(monitor *perf.EventMonitor) (*stream.Stream, error) {
 
 	// Data loop
 	go func() {
-		monitor.Enable()
+		monitor.EnableAll()
 
 		// This consumes everything in the loop
 		monitor.Run(ps.onSample)

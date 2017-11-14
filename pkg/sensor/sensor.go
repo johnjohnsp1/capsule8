@@ -144,7 +144,7 @@ func (s *Sensor) Start() error {
 		}
 	}()
 
-	s.monitor.Enable()
+	s.monitor.EnableAll()
 
 	return nil
 }
@@ -418,7 +418,7 @@ func (s *Sensor) createPerfEventStream(sub *api.Subscription) (*stream.Stream, e
 
 	if monitor != nil {
 		glog.V(2).Info("Enabling EventMonitor")
-		monitor.Enable()
+		monitor.EnableAll()
 	}
 
 	return &stream.Stream{

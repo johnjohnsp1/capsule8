@@ -179,7 +179,7 @@ func registerSyscallEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 		filter := strings.Join(filters, " || ")
 
 		eventName := "raw_syscalls/sys_enter"
-		err := monitor.RegisterEvent(eventName, f.decodeSysEnter,
+		_, err := monitor.RegisterTracepoint(eventName, f.decodeSysEnter,
 			filter, nil)
 		if err != nil {
 			glog.V(1).Infof("Couldn't get %s event id: %v", eventName, err)
@@ -194,7 +194,7 @@ func registerSyscallEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 		filter := strings.Join(filters, " || ")
 
 		eventName := "raw_syscalls/sys_exit"
-		err := monitor.RegisterEvent(eventName, f.decodeSysExit,
+		_, err := monitor.RegisterTracepoint(eventName, f.decodeSysExit,
 			filter, nil)
 		if err != nil {
 			glog.V(1).Infof("Couldn't get %s event id: %v", eventName, err)

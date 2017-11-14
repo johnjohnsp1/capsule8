@@ -14,7 +14,6 @@ import (
 )
 
 type kprobeFilter struct {
-	name      string
 	symbol    string
 	onReturn  bool
 	arguments map[string]string
@@ -31,13 +30,6 @@ func newKprobeFilter(kef *api.KernelFunctionCallFilter) *kprobeFilter {
 		return nil
 	}
 
-	// Choose a name to refer to the kprobe by. We could allow the kernel
-	// to assign a name, but getting the right name back from the kernel
-	// can be somewhat unreliable. Choosing our own random name ensures
-	// that we're always dealing with the right event and that we're not
-	// stomping on some other process's probe
-	name := perf.UniqueProbeName("capsule8", kef.Symbol)
-
 	var filterString string
 
 	if kef.FilterExpression != nil {
@@ -51,7 +43,6 @@ func newKprobeFilter(kef *api.KernelFunctionCallFilter) *kprobeFilter {
 	}
 
 	filter := &kprobeFilter{
-		name:      name,
 		symbol:    kef.Symbol,
 		arguments: kef.Arguments,
 		filter:    filterString,
@@ -136,8 +127,8 @@ func registerKernelEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*
 		}
 
 		f.sensor = sensor
-		name, err := monitor.RegisterKprobe(
-			f.name, f.symbol, f.onReturn, f.fetchargs(),
+		_, err := monitor.RegisterKprobe(
+			f.symbol, f.onReturn, f.fetchargs(),
 			f.decodeKprobe,
 			f.filter,
 			nil)
@@ -153,6 +144,5 @@ func registerKernelEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*
 				f.symbol, loc, f.fetchargs(), err)
 			continue
 		}
-		f.name = name
 	}
 }

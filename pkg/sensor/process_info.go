@@ -160,7 +160,7 @@ func NewProcessInfoCache(sensor *Sensor) ProcessInfoCache {
 
 	// Register with the sensor's global event monitor...
 	eventName := "task/task_newtask"
-	err := sensor.monitor.RegisterEvent(eventName, cache.decodeNewTask, "", nil)
+	_, err := sensor.monitor.RegisterTracepoint(eventName, cache.decodeNewTask, "", nil)
 	if err != nil {
 		glog.Fatalf("Couldn't register event %s: %s", eventName, err)
 	}
@@ -174,7 +174,7 @@ func NewProcessInfoCache(sensor *Sensor) ProcessInfoCache {
 	// init processes to trigger containerId lookups
 	f := "oldcomm == exe || oldcomm == runc:[2:INIT]"
 	eventName = "task/task_rename"
-	err = sensor.monitor.RegisterEvent(eventName, cache.decodeRuncTaskRename, f, nil)
+	_, err = sensor.monitor.RegisterTracepoint(eventName, cache.decodeRuncTaskRename, f, nil)
 	if err != nil {
 		glog.Fatalf("Couldn't register event %s: %s", eventName, err)
 	}
