@@ -1,3 +1,5 @@
 [submodule "vendor"]
 	path = vendor
 	url = git@github.com:capsule8/vendor.git
+[submodule "Submod"]
+	url = git@github.com:capsule8/capsule8_vendor.git
