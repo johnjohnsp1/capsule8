@@ -203,7 +203,9 @@ func (fs *FileSystem) ContainerID(pid int) (string, error) {
 	for _, pci := range cgroups {
 		if strings.HasPrefix(pci.Path, "/docker") {
 			pathParts := strings.Split(pci.Path, "/")
-			return pathParts[2], nil
+			if len(pathParts) > 2 {
+				return pathParts[2], nil
+			}
 		}
 	}
 
