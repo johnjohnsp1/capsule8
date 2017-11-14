@@ -2,24 +2,36 @@
 
 ## Sensor
 
-### Tracing
+### Logging and Tracing
 
-TODO: glog v-levels and vmodules
+Capsule8 uses [glog](https://github.com/golang/glog) for logging and
+all executables accept the `-v` and `-vmodule` flags. In general, log
+levels 1-9 increase verbosity of logging while >10 increase verbosity
+of event and request-specific tracing. These log levels may be set
+globally with a command-line argument like `-v=9` or on a specific
+file with `-vmodule=process_info=11`.
 
 ### Functional Tests
 
 The functional tests in `test/functional` require privileges to run
-the `docker` command and reach the Sensor's local Unix socket gRPC API
-endpoint. In order to facilitate testing, it is recommended to
-separate the compilation of the test binary and the running of it with
-`sudo`. The functional tests assume that the sensor is already
-running.
+the `docker` command and reach the Sensor's gRPC API endpoint so they
+can be run with `sudo` if necessary:
 
 ```
-$ cd test/functional
-$ go test -c
-$ sudo ./functional.test
+$ env GOTESTFLAGS="-exec sudo" make test_functional
+go test -exec sudo ./test/functional
+[sudo] password for user:
 [...]
+```
+
+#### Running Functional Tests on a Remote Host
+
+The functional tests have been designed to support being run against a
+remote Capsule8 API and Docker host.
+
+```
+make CAPSULE8_API_SERVER=127.0.0.1:8484 DOCKER_HOST=tcp://127.0.0.1:2375 test_functional
+
 ```
 
 #### Debugging Functional Tests
@@ -29,7 +41,7 @@ individually with `v=1`. This V-level causes the test to log
 intermediate status information.
 
 ```
-sudo ./functional.test -test.v -test.parallel 1 -v=1 -test.run Crash 2>test.out
+$ make GOTESTFLAGS="-test.v -test.parallel 1 -test.run Crash -args -v=1" test_functional 2>test.out
 === RUN   TestCrash
 === RUN   TestExit
 === RUN   TestSignal
@@ -69,7 +81,7 @@ of information, so it's highly recommended that stderr be redirected
 to a file.
 
 ```
-sudo ./functional.test -test.v -test.parallel 1 -v=2 2>test.out
+$ make GOTESTFLAGS="-test.v -test.parallel 1 -args -v=2" test_functional 2>test.out
 ```
 
 ### Performance Tests

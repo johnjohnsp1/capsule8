@@ -1,8 +1,6 @@
 package services
 
 import (
-	"fmt"
-
 	"net/http"
 
 	// Include pprof
@@ -17,13 +15,11 @@ type ProfilingService struct {
 	server *http.Server
 
 	address string
-	port    int
 }
 
-func NewProfilingService(address string, port int) *ProfilingService {
+func NewProfilingService(address string) *ProfilingService {
 	return &ProfilingService{
 		address: address,
-		port:    port,
 	}
 }
 
@@ -32,11 +28,11 @@ func (ps *ProfilingService) Name() string {
 }
 
 func (ps *ProfilingService) Serve() error {
-	glog.V(1).Infof("Serving profiling HTTP endpoints on %s:%d",
-		ps.address, ps.port)
+	glog.V(1).Infof("Serving profiling HTTP endpoints on %s",
+		ps.address)
 
 	ps.server = &http.Server{
-		Addr: fmt.Sprintf("%s:%d", ps.address, ps.port),
+		Addr: ps.address,
 	}
 
 	err := ps.server.ListenAndServe()
