@@ -1,6 +1,8 @@
 package subscription
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"reflect"
 	"strings"
@@ -13,17 +15,50 @@ import (
 func decodeSysEnter(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
 	var args = data["args"].([]interface{})
 
+	// Some kernel versions misreport the args type information
+	var parsedArgs []uint64
+	if len(args) > 0 {
+		switch args[0].(type) {
+		case int8:
+			buf := []byte{}
+			for _, v := range args {
+				buf = append(buf, byte(v.(int8)))
+			}
+			parsedArgs = make([]uint64, len(buf)/8)
+			r := bytes.NewReader(buf)
+			binary.Read(r, binary.LittleEndian, parsedArgs)
+		case uint8:
+			buf := []byte{}
+			for _, v := range args {
+				buf = append(buf, byte(v.(uint8)))
+			}
+			parsedArgs = make([]uint64, len(buf)/8)
+			r := bytes.NewReader(buf)
+			binary.Read(r, binary.LittleEndian, parsedArgs)
+		case int64:
+			parsedArgs = make([]uint64, len(args))
+			for i, v := range args {
+				parsedArgs[i] = uint64(v.(int64))
+			}
+		case uint64:
+			parsedArgs = make([]uint64, len(args))
+			for i, v := range args {
+				parsedArgs[i] = v.(uint64)
+			}
+		}
+	}
+
 	ev := newEventFromSample(sample, data)
 	ev.Event = &api.Event_Syscall{
 		Syscall: &api.SyscallEvent{
 			Type: api.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER,
 			Id:   data["id"].(int64),
-			Arg0: args[0].(uint64),
-			Arg1: args[1].(uint64),
-			Arg2: args[2].(uint64),
-			Arg3: args[3].(uint64),
-			Arg4: args[4].(uint64),
-			Arg5: args[5].(uint64),
+			Arg0: parsedArgs[0],
+			Arg1: parsedArgs[1],
+			Arg2: parsedArgs[2],
+			Arg3: parsedArgs[3],
+			Arg4: parsedArgs[4],
+			Arg5: parsedArgs[5],
 		},
 	}
 
