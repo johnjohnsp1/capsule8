@@ -5,7 +5,7 @@
   branch = "master"
   name = "github.com/capsule8/api"
   packages = ["v0"]
-  revision = "53fb028086ef2a784ac470f7b0216d89848b6875"
+  revision = "0e407282463bdef6a0a28a233939badfd80d0fab"
 
 [[projects]]
   name = "github.com/gobwas/glob"
