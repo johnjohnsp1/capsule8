@@ -521,7 +521,7 @@ func (monitor *EventMonitor) Disable(eventid uint64) {
 
 	event, ok := monitor.events[eventid]
 	if ok {
-		for fd := range event.fds {
+		for _, fd := range event.fds {
 			disable(fd)
 		}
 	}
@@ -543,7 +543,7 @@ func (monitor *EventMonitor) Enable(eventid uint64) {
 
 	event, ok := monitor.events[eventid]
 	if ok {
-		for fd := range event.fds {
+		for _, fd := range event.fds {
 			enable(fd)
 		}
 	}
@@ -557,6 +557,23 @@ func (monitor *EventMonitor) EnableAll() {
 	for fd := range monitor.eventfds {
 		enable(fd)
 	}
+}
+
+func (monitor *EventMonitor) SetFilter(eventid uint64, filter string) error {
+	monitor.lock.Lock()
+	defer monitor.lock.Unlock()
+
+	event, ok := monitor.events[eventid]
+	if ok {
+		for _, fd := range event.fds {
+			err := setFilter(fd, filter)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func (monitor *EventMonitor) stopWithSignal() {
