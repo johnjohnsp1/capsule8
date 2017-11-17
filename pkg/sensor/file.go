@@ -118,7 +118,8 @@ func registerFileEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*ap
 		sensor: sensor,
 	}
 
-	_, err := monitor.RegisterTracepoint("fs/do_sys_open", f.decodeDoSysOpen, filterString, nil)
+	_, err := monitor.RegisterTracepoint("fs/do_sys_open", f.decodeDoSysOpen,
+		perf.WithFilter(filterString))
 	if err != nil {
 		glog.V(1).Infof("Tracepoint fs/do_sys_open not found, adding a kprobe to emulate")
 
@@ -127,8 +128,7 @@ func registerFileEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*ap
 			false,
 			fsDoSysOpenKprobeFetchargs,
 			f.decodeDoSysOpen,
-			filterString,
-			nil)
+			perf.WithFilter(filterString))
 		if err != nil {
 			glog.Warning("Couldn't register kprobe fs/do_sys_open")
 			return

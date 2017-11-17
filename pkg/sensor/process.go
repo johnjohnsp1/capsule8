@@ -199,7 +199,7 @@ func registerProcessEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 	if forkFilter {
 		eventName := "sched/sched_process_fork"
 		_, err := monitor.RegisterTracepoint(eventName,
-			f.decodeSchedProcessFork, "", nil)
+			f.decodeSchedProcessFork)
 
 		if err != nil {
 			glog.V(1).Infof("Couldn't get %s event id: %v",
@@ -212,7 +212,7 @@ func registerProcessEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 
 		eventName := "sched/sched_process_exec"
 		_, err := monitor.RegisterTracepoint(eventName,
-			f.decodeSchedProcessExec, filterString, nil)
+			f.decodeSchedProcessExec, perf.WithFilter(filterString))
 		if err != nil {
 			glog.V(1).Infof("Couldn't get %s event id: %v",
 				eventName, err)
@@ -223,7 +223,8 @@ func registerProcessEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 		filterString := processFilterString(exitWildcard, exitFilters)
 
 		_, err := monitor.RegisterKprobe(exitSymbol,
-			false, exitFetchargs, f.decodeDoExit, filterString, nil)
+			false, exitFetchargs, f.decodeDoExit,
+			perf.WithFilter(filterString))
 		if err != nil {
 			glog.Errorf("Couldn't register kprobe for %s: %s",
 				exitSymbol, err)

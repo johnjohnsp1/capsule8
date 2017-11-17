@@ -291,7 +291,7 @@ func registerEvent(monitor *perf.EventMonitor, name string, fn perf.TraceEventDe
 		return
 	}
 
-	_, err := monitor.RegisterTracepoint(name, fn, f, nil)
+	_, err := monitor.RegisterTracepoint(name, fn, perf.WithFilter(f))
 	if err != nil {
 		glog.Warningf("Could not register tracepoint %s", name)
 	}
@@ -303,7 +303,8 @@ func registerKprobe(monitor *perf.EventMonitor, symbol string, fetchargs string,
 		return
 	}
 
-	_, err := monitor.RegisterKprobe(symbol, false, fetchargs, fn, f, nil)
+	_, err := monitor.RegisterKprobe(symbol, false, fetchargs, fn,
+		perf.WithFilter(f))
 	if err != nil {
 		glog.Warningf("Could not register network kprobe %s", symbol)
 	}

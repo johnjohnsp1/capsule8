@@ -77,6 +77,38 @@ func WithPids(pids []int) EventMonitorOption {
 	}
 }
 
+type registerEventOptions struct {
+	disabled  bool
+	eventAttr *EventAttr
+	filter    string
+}
+
+type RegisterEventOption func(*registerEventOptions)
+
+func WithEventsDisabled() RegisterEventOption {
+	return func (o *registerEventOptions) {
+		o.disabled = true
+	}
+}
+
+func WithEventsEnabled() RegisterEventOption {
+	return func (o *registerEventOptions) {
+		o.disabled = false
+	}
+}
+
+func WithEventAttr(eventAttr *EventAttr) RegisterEventOption {
+	return func (o *registerEventOptions) {
+		o.eventAttr = eventAttr
+	}
+}
+
+func WithFilter(filter string) RegisterEventOption {
+	return func (o *registerEventOptions) {
+		o.filter = filter
+	}
+}
+
 const (
 	eventTypeTracepoint int = iota
 	eventTypeKprobe
@@ -84,10 +116,7 @@ const (
 
 type registeredEvent struct {
 	name      string
-	filter    string
-	decoderfn TraceEventDecoderFn
 	fds       []int
-	eventAttr *EventAttr
 	eventType int
 }
 
@@ -290,7 +319,7 @@ func (monitor *EventMonitor) perfEventOpen(eventAttr *EventAttr, filter string) 
 }
 
 // This should be called with monitor.lock held.
-func (monitor *EventMonitor) newRegisteredEvent(name string, fn TraceEventDecoderFn, filter string, eventAttr *EventAttr, eventType int) (uint64, error) {
+func (monitor *EventMonitor) newRegisteredEvent(name string, fn TraceEventDecoderFn, opts registerEventOptions, eventType int) (uint64, error) {
 	id, err := monitor.decoders.AddDecoder(name, fn)
 	if err != nil {
 		return 0, err
@@ -298,15 +327,16 @@ func (monitor *EventMonitor) newRegisteredEvent(name string, fn TraceEventDecode
 
 	var attr EventAttr
 
-	if eventAttr == nil {
+	if opts.eventAttr == nil {
 		attr = monitor.defaultAttr
 	} else {
-		attr = *eventAttr
+		attr = *opts.eventAttr
 		fixupEventAttr(&attr)
 	}
 	attr.Config = uint64(id)
+	attr.Disabled = opts.disabled
 
-	newfds, err := monitor.perfEventOpen(&attr, filter)
+	newfds, err := monitor.perfEventOpen(&attr, opts.filter)
 	if err != nil {
 		monitor.decoders.RemoveDecoder(name)
 		return 0, err
@@ -338,10 +368,7 @@ func (monitor *EventMonitor) newRegisteredEvent(name string, fn TraceEventDecode
 
 	event := registeredEvent{
 		name:      name,
-		filter:    filter,
-		decoderfn: fn,
 		fds:       newfds,
-		eventAttr: &attr,
 		eventType: eventType,
 	}
 
@@ -351,11 +378,19 @@ func (monitor *EventMonitor) newRegisteredEvent(name string, fn TraceEventDecode
 	return eventid, nil
 }
 
-func (monitor *EventMonitor) RegisterTracepoint(name string, fn TraceEventDecoderFn, filter string, eventAttr *EventAttr) (uint64, error) {
+func (monitor *EventMonitor) RegisterTracepoint(name string,
+	fn TraceEventDecoderFn, options ...RegisterEventOption) (uint64, error) {
+
+	// Process options
+	opts := registerEventOptions{}
+	for _, option := range options {
+		option(&opts)
+	}
+
 	monitor.lock.Lock()
 	defer monitor.lock.Unlock()
 
-	eventid, err := monitor.newRegisteredEvent(name, fn, filter, eventAttr, eventTypeTracepoint)
+	eventid, err := monitor.newRegisteredEvent(name, fn, opts, eventTypeTracepoint)
 	if err != nil {
 		return 0, err
 	}
@@ -364,7 +399,13 @@ func (monitor *EventMonitor) RegisterTracepoint(name string, fn TraceEventDecode
 }
 
 func (monitor *EventMonitor) RegisterKprobe(address string, onReturn bool, output string,
-	fn TraceEventDecoderFn, filter string, eventAttr *EventAttr) (uint64, error) {
+	fn TraceEventDecoderFn, options ...RegisterEventOption) (uint64, error) {
+
+	// Process options
+	opts := registerEventOptions{}
+	for _, option := range options {
+		option(&opts)
+	}
 
 	monitor.lock.Lock()
 	defer monitor.lock.Unlock()
@@ -383,7 +424,7 @@ func (monitor *EventMonitor) RegisterKprobe(address string, onReturn bool, outpu
 		return 0, err
 	}
 
-	eventid, err := monitor.newRegisteredEvent(name, fn, filter, eventAttr, eventTypeKprobe)
+	eventid, err := monitor.newRegisteredEvent(name, fn, opts, eventTypeKprobe)
 	if err != nil {
 		RemoveKprobe(name)
 		return 0, err

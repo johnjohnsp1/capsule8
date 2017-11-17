@@ -130,8 +130,7 @@ func registerKernelEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*
 		_, err := monitor.RegisterKprobe(
 			f.symbol, f.onReturn, f.fetchargs(),
 			f.decodeKprobe,
-			f.filter,
-			nil)
+			perf.WithFilter(f.filter))
 		if err != nil {
 			var loc string
 			if f.onReturn {

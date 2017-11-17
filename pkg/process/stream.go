@@ -90,15 +90,15 @@ func setupMonitor(monitor *perf.EventMonitor) error {
 	//
 	// - cgroup_attach_task?
 	//
-	_, err := monitor.RegisterTracepoint("sched/sched_process_exec", decodeSchedProcessExec, "", nil)
+	_, err := monitor.RegisterTracepoint("sched/sched_process_exec", decodeSchedProcessExec)
 	if err != nil {
 		return err
 	}
-	_, err = monitor.RegisterTracepoint("sched/sched_process_fork", decodeSchedProcessFork, "", nil)
+	_, err = monitor.RegisterTracepoint("sched/sched_process_fork", decodeSchedProcessFork)
 	if err != nil {
 		return err
 	}
-	_, err = monitor.RegisterTracepoint("syscalls/sys_enter_exit_group", decodeSysEnterExitGroup, "", nil)
+	_, err = monitor.RegisterTracepoint("syscalls/sys_enter_exit_group", decodeSysEnterExitGroup)
 	if err != nil {
 		return err
 	}
