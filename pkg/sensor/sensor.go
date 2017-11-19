@@ -451,6 +451,16 @@ func (s *Sensor) NewSubscription(sub *api.Subscription) (*stream.Stream, error) 
 	eventStream, joiner := stream.NewJoiner()
 	joiner.Off()
 
+	//
+	// The first event in the subscription is empty except for the
+	// event_id, sensor_id, sensor_sequence_number, and
+	// sensor_monotime_nanos. This event assists subscribers in
+	// identifying the point at which a particular sensor started
+	// serving that subscription. Create it here before any other
+	// events get created.
+	//
+	firstEvent := s.NewEvent()
+
 	if len(sub.EventFilter.FileEvents) > 0 ||
 		len(sub.EventFilter.KernelEvents) > 0 ||
 		len(sub.EventFilter.NetworkEvents) > 0 ||
@@ -507,9 +517,60 @@ func (s *Sensor) NewSubscription(sub *api.Subscription) (*stream.Stream, error) 
 	}
 
 	s.Metrics.Subscriptions++
+
 	joiner.On()
 
+	// Create a subscription stream out of the upstream joiner so
+	// that we can control its buffer length here.
+	eventStream = newSubscriptionStream(s, firstEvent, eventStream,
+		config.Sensor.ChannelBufferLength)
+
 	return eventStream, nil
+}
+
+//
+// newSubscriptionStream creates a dedicated subscription stream so
+// that we can specialize its behavior. In particular, we control the
+// buffer size per subscription and send a special first element in
+// the stream to acknowledge the creation of the subscription.
+//
+func newSubscriptionStream(
+	s *Sensor,
+	firstEvent *api.Event,
+	input *stream.Stream,
+	streamBufferLength int,
+) *stream.Stream {
+	//
+	// Create a dedicated subscription stream
+	//
+	ctrl := make(chan interface{})
+	data := make(chan interface{}, streamBufferLength)
+
+	data <- firstEvent
+
+	go func() {
+		defer close(data)
+
+		for {
+			select {
+			case _, ok := <-ctrl:
+				if !ok {
+					return
+				}
+			case e, ok := <-input.Data:
+				if ok {
+					data <- e
+				} else {
+					return
+				}
+			}
+		}
+	}()
+
+	return &stream.Stream{
+		Ctrl: ctrl,
+		Data: data,
+	}
 }
 
 func filterNils(e interface{}) bool {
