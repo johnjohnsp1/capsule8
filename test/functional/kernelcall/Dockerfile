@@ -5,10 +5,8 @@ RUN apt-get update && \
     apt-get -y install netcat-openbsd && \
     apt-get clean
 
-WORKDIR /network
+WORKDIR /kernelcall
 
-COPY network.sh ./
+COPY testdata/*.txt ./
 
-EXPOSE 1234 12345
-
-CMD ./network.sh 1234; ./network.sh 12345
+CMD cat goodbye.txt hello.txt

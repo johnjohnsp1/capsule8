@@ -91,7 +91,6 @@ func (nt *networkTest) CreateSubscription(t *testing.T) *api.Subscription {
 }
 
 func (nt *networkTest) HandleTelemetryEvent(t *testing.T, te *api.TelemetryEvent) bool {
-	glog.V(2).Infof("Got Event %+v\n", te.Event)
 	switch event := te.Event.Event.(type) {
 	case *api.Event_Container:
 		return true
@@ -99,6 +98,7 @@ func (nt *networkTest) HandleTelemetryEvent(t *testing.T, te *api.TelemetryEvent
 	case *api.Event_Network:
 		// TODO after adding network event filters, check that they work.
 		if te.Event.ImageId == nt.testContainer.ImageID {
+			glog.V(2).Infof("Got Event %+v\n", te.Event)
 			nt.seenEvents[event.Network.Type] = true
 		}
 
@@ -110,7 +110,7 @@ func (nt *networkTest) HandleTelemetryEvent(t *testing.T, te *api.TelemetryEvent
 	}
 }
 
-// TestNetwork exercises the network events, including filtering.
+// TestNetwork exercises the network events.
 func TestNetwork(t *testing.T) {
 	nt := &networkTest{seenEvents: make(map[api.NetworkEventType]bool)}
 
