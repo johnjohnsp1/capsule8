@@ -259,7 +259,6 @@ func (s *Sensor) NewEventFromSample(sample *perf.SampleRecord,
 	// containers, the sample.Pid and sample.Tid fields will be zero.
 	// Use "common_pid" from the trace event data instead.
 	e.ProcessPid = data["common_pid"].(int32)
-	e.ProcessTid = int32(sample.Tid)
 	e.Cpu = int32(sample.CPU)
 
 	processId, ok := s.processCache.ProcessId(int(e.ProcessPid))

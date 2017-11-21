@@ -7,6 +7,7 @@ import (
 
 	api "github.com/capsule8/api/v0"
 
+	"github.com/capsule8/capsule8/pkg/filter"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 
 	"github.com/golang/glog"
@@ -37,11 +38,23 @@ func newKprobeFilter(kef *api.KernelFunctionCallFilter) *kprobeFilter {
 	// stomping on some other process's probe
 	name := perf.UniqueProbeName("capsule8", kef.Symbol)
 
+	var filterString string
+
+	if kef.FilterExpression != nil {
+		expr, err := filter.NewExpression(kef.FilterExpression)
+		if err != nil {
+			glog.V(1).Infof("Bad kprobe filter expression: %s", err)
+			return nil
+		}
+
+		filterString = expr.KernelFilterString()
+	}
+
 	filter := &kprobeFilter{
 		name:      name,
 		symbol:    kef.Symbol,
 		arguments: kef.Arguments,
-		filter:    kef.Filter,
+		filter:    filterString,
 	}
 
 	switch kef.Type {

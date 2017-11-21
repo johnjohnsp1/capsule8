@@ -191,14 +191,14 @@ type networkFilterSet struct {
 func (nfs *networkFilterSet) add(nef *api.NetworkEventFilter) {
 	var filterString string
 
-	if nef.Filter != nil {
-		filterString = filter.FilterExpressionString(nef.Filter)
-		if filterString == "" {
-			// An empty filter string here is indicative of an error
-			// in converting the filter into a valid kernel filter
-			// string
+	if nef.FilterExpression != nil {
+		expr, err := filter.NewExpression(nef.FilterExpression)
+		if err != nil {
+			glog.V(1).Infof("Bad network filter expression: %s", err)
 			return
 		}
+
+		filterString = expr.KernelFilterString()
 	}
 
 	switch nef.Type {

@@ -87,24 +87,26 @@ func syscallEnterFilterString(sef *api.SyscallEventFilter) string {
 	parts := make([]string, 1, 7)
 	parts[0] = fmt.Sprintf("id == %d", sef.Id.Value)
 
-	if sef.Arg0 != nil {
-		parts = append(parts, fmt.Sprintf("args[0] == %d", sef.Arg0.Value))
-	}
-	if sef.Arg1 != nil {
-		parts = append(parts, fmt.Sprintf("args[1] == %d", sef.Arg1.Value))
-	}
-	if sef.Arg2 != nil {
-		parts = append(parts, fmt.Sprintf("args[2] == %d", sef.Arg2.Value))
-	}
-	if sef.Arg3 != nil {
-		parts = append(parts, fmt.Sprintf("args[3] == %d", sef.Arg3.Value))
-	}
-	if sef.Arg4 != nil {
-		parts = append(parts, fmt.Sprintf("args[4] == %d", sef.Arg4.Value))
-	}
-	if sef.Arg5 != nil {
-		parts = append(parts, fmt.Sprintf("args[5] == %d", sef.Arg5.Value))
-	}
+	/*
+		if sef.Arg0 != nil {
+			parts = append(parts, fmt.Sprintf("args[0] == %d", sef.Arg0.Value))
+		}
+		if sef.Arg1 != nil {
+			parts = append(parts, fmt.Sprintf("args[1] == %d", sef.Arg1.Value))
+		}
+		if sef.Arg2 != nil {
+			parts = append(parts, fmt.Sprintf("args[2] == %d", sef.Arg2.Value))
+		}
+		if sef.Arg3 != nil {
+			parts = append(parts, fmt.Sprintf("args[3] == %d", sef.Arg3.Value))
+		}
+		if sef.Arg4 != nil {
+			parts = append(parts, fmt.Sprintf("args[4] == %d", sef.Arg4.Value))
+		}
+		if sef.Arg5 != nil {
+			parts = append(parts, fmt.Sprintf("args[5] == %d", sef.Arg5.Value))
+		}
+	*/
 
 	return strings.Join(parts, " && ")
 }

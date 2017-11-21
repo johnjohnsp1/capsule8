@@ -2,104 +2,158 @@ package filter
 
 import (
 	"fmt"
+	"time"
 
 	api "github.com/capsule8/api/v0"
 )
 
-func FilterExpressionString(f *api.FilterExpression) string {
-	var joiner string
+func valueAsString(value *api.Value) string {
+	switch value.GetType() {
+	case api.ValueType_STRING:
+		return fmt.Sprintf("%q", value.GetStringValue())
+	case api.ValueType_SINT8, api.ValueType_SINT16,
+		api.ValueType_SINT32, api.ValueType_SINT64:
 
-	switch f.Type {
-	case api.FilterExpression_PREDICATE:
-		if f.Predicate == nil {
-			return ""
+		return fmt.Sprintf("%d", value.GetSignedValue())
+
+	case api.ValueType_UINT8, api.ValueType_UINT16,
+		api.ValueType_UINT32, api.ValueType_UINT64:
+
+		return fmt.Sprintf("%d", value.GetUnsignedValue())
+
+	case api.ValueType_BOOL:
+		if value.GetBoolValue() {
+			return "TRUE"
+		} else {
+			return "FALSE"
 		}
-		return FilterPredicateString(f.Predicate)
-	case api.FilterExpression_AND:
-		joiner = "&&"
-		break
-	case api.FilterExpression_OR:
-		joiner = "||"
-		break
-	default:
-		return ""
+
+	case api.ValueType_DOUBLE:
+		return fmt.Sprintf("%f", value.GetDoubleValue())
+
+	case api.ValueType_TIMESTAMP:
+		v := value.GetTimestampValue()
+		return fmt.Sprintf("TIMESTAMP(%d)",
+			time.Duration(v.Seconds)+(time.Duration(v.Nanos)*time.Second))
 	}
 
-	if f.Lhs == nil || f.Rhs == nil {
-		return ""
-	}
-	lhs := FilterExpressionString(f.Lhs)
-	if lhs == "" {
-		return ""
-	}
-	rhs := FilterExpressionString(f.Rhs)
-	if rhs == "" {
-		return ""
-	}
-	if f.Rhs.Type != api.FilterExpression_PREDICATE {
-		// AND and OR are left-associative by default, so if there's
-		// rhs recursion, wrap the resultant string in parenthesis to
-		// make it right-associative.
-		rhs = fmt.Sprintf("(%s)", rhs)
-	}
-
-	return fmt.Sprintf("%s %s %s", lhs, joiner, rhs)
+	return "<<invalid>>"
 }
 
-func FilterPredicateString(p *api.FilterPredicate) string {
-	var value string
+var operatorStrings = map[api.Expression_ExpressionType]string{
+	api.Expression_LOGICAL_AND: "&&",
+	api.Expression_LOGICAL_OR:  "||",
+	api.Expression_EQ:          "==",
+	api.Expression_NE:          "!=",
+	api.Expression_LT:          "<",
+	api.Expression_LE:          "<=",
+	api.Expression_GT:          ">",
+	api.Expression_GE:          ">=",
+	api.Expression_LIKE:        "LIKE",
+	api.Expression_BITWISE_AND: "&",
+}
 
-	switch p.ValueType {
-	case api.FilterPredicate_SIGNED:
-		value = fmt.Sprintf("%d", p.Value.(*api.FilterPredicate_SignedValue).SignedValue)
-	case api.FilterPredicate_UNSIGNED:
-		value = fmt.Sprintf("%d", p.Value.(*api.FilterPredicate_UnsignedValue).UnsignedValue)
-	case api.FilterPredicate_STRING:
-		value = fmt.Sprintf("%q", p.Value.(*api.FilterPredicate_StringValue).StringValue)
-	default:
-		return ""
+func expressionAsString(expr *api.Expression) string {
+	switch t := expr.GetType(); t {
+	case api.Expression_IDENTIFIER:
+		return expr.GetIdentifier()
+
+	case api.Expression_VALUE:
+		return valueAsString(expr.GetValue())
+
+	case api.Expression_LOGICAL_AND, api.Expression_LOGICAL_OR:
+		operands := expr.GetBinaryOp()
+		lhs := expressionAsString(operands.Lhs)
+		rhs := expressionAsString(operands.Rhs)
+		if operands.Rhs.GetType() == api.Expression_LOGICAL_AND ||
+			operands.Rhs.GetType() == api.Expression_LOGICAL_OR {
+
+			rhs = fmt.Sprintf("(%s)", rhs)
+		}
+		return fmt.Sprintf("%s %s %s", lhs, operatorStrings[t], rhs)
+
+	case api.Expression_EQ, api.Expression_NE, api.Expression_LT,
+		api.Expression_LE, api.Expression_GT, api.Expression_GE,
+		api.Expression_LIKE:
+
+		operands := expr.GetBinaryOp()
+		lhs := expressionAsString(operands.Lhs)
+		rhs := expressionAsString(operands.Rhs)
+		return fmt.Sprintf("%s %s %s", lhs, operatorStrings[t], rhs)
+
+	case api.Expression_IS_NULL:
+		operand := expressionAsString(expr.GetUnaryOp())
+		return fmt.Sprintf("%s IS NULL", operand)
+
+	case api.Expression_IS_NOT_NULL:
+		operand := expressionAsString(expr.GetUnaryOp())
+		return fmt.Sprintf("%s IS NOT NULL", operand)
+
+	case api.Expression_BITWISE_AND:
+		operands := expr.GetBinaryOp()
+		lhs := expressionAsString(operands.Lhs)
+		rhs := expressionAsString(operands.Rhs)
+		if operands.Rhs.GetType() == api.Expression_BITWISE_AND {
+			rhs = fmt.Sprintf("(%s)", rhs)
+		}
+		return fmt.Sprintf("%s %s %s", lhs, operatorStrings[t], rhs)
 	}
 
-	switch p.Type {
-	case api.FilterPredicate_CONST:
-		return value
-	case api.FilterPredicate_EQ:
-		return fmt.Sprintf("%s == %s", p.FieldName, value)
-	case api.FilterPredicate_NE:
-		return fmt.Sprintf("%s != %s", p.FieldName, value)
-	case api.FilterPredicate_LT:
-		if p.ValueType != api.FilterPredicate_SIGNED &&
-			p.ValueType != api.FilterPredicate_UNSIGNED {
+	return ""
+}
 
-			return ""
-		}
-		return fmt.Sprintf("%s < %s", p.FieldName, value)
-	case api.FilterPredicate_LE:
-		if p.ValueType != api.FilterPredicate_SIGNED &&
-			p.ValueType != api.FilterPredicate_UNSIGNED {
+func expressionAsKernelFilterString(expr *api.Expression) string {
+	// This is basically the same as expressionAsString except for special
+	// handling for BITWISE_AND and an alternate operator representation
+	// for LIKE
+	switch t := expr.GetType(); t {
+	case api.Expression_IDENTIFIER:
+		return expr.GetIdentifier()
 
-			return ""
-		}
-		return fmt.Sprintf("%s <= %s", p.FieldName, value)
-	case api.FilterPredicate_GT:
-		if p.ValueType != api.FilterPredicate_SIGNED &&
-			p.ValueType != api.FilterPredicate_UNSIGNED {
+	case api.Expression_VALUE:
+		return valueAsString(expr.GetValue())
 
-			return ""
-		}
-		return fmt.Sprintf("%s > %s", p.FieldName, value)
-	case api.FilterPredicate_GE:
-		if p.ValueType != api.FilterPredicate_SIGNED &&
-			p.ValueType != api.FilterPredicate_UNSIGNED {
+	case api.Expression_LOGICAL_AND, api.Expression_LOGICAL_OR:
+		operands := expr.GetBinaryOp()
+		lhs := expressionAsString(operands.Lhs)
+		rhs := expressionAsString(operands.Rhs)
+		if operands.Rhs.GetType() == api.Expression_LOGICAL_AND ||
+			operands.Rhs.GetType() == api.Expression_LOGICAL_OR {
 
-			return ""
+			rhs = fmt.Sprintf("(%s)", rhs)
 		}
-		return fmt.Sprintf("%s >= %s", p.FieldName, value)
-	case api.FilterPredicate_GLOB:
-		if p.ValueType != api.FilterPredicate_STRING {
-			return ""
+		return fmt.Sprintf("%s %s %s", lhs, operatorStrings[t], rhs)
+
+	case api.Expression_NE:
+		operands := expr.GetBinaryOp()
+		lhs := expressionAsString(operands.Lhs)
+		if operands.Lhs.GetType() == api.Expression_BITWISE_AND {
+			// Assume that Rhs is 0 because prior validation
+			// should ensure that to be the case
+			return lhs
 		}
-		return fmt.Sprintf("%s ~ %s", p.FieldName, value)
+		rhs := expressionAsString(operands.Rhs)
+		return fmt.Sprintf("%s %s %s", lhs, operatorStrings[t], rhs)
+
+	case api.Expression_EQ, api.Expression_LT, api.Expression_LE,
+		api.Expression_GT, api.Expression_GE:
+
+		operands := expr.GetBinaryOp()
+		lhs := expressionAsString(operands.Lhs)
+		rhs := expressionAsString(operands.Rhs)
+		return fmt.Sprintf("%s %s %s", lhs, operatorStrings[t], rhs)
+
+	case api.Expression_LIKE:
+		operands := expr.GetBinaryOp()
+		lhs := expressionAsString(operands.Lhs)
+		rhs := expressionAsString(operands.Rhs)
+		return fmt.Sprintf("%s ~ %s", lhs, rhs)
+
+	case api.Expression_BITWISE_AND:
+		operands := expr.GetBinaryOp()
+		lhs := expressionAsString(operands.Lhs)
+		rhs := expressionAsString(operands.Rhs)
+		return fmt.Sprintf("%s %s %s", lhs, operatorStrings[t], rhs)
 	}
 
 	return ""
