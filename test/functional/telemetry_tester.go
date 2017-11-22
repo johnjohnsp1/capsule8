@@ -65,6 +65,8 @@ func (tt *TelemetryTester) runTelemetryTest(t *testing.T) {
 	//
 	// Connect to telemetry service first
 	//
+	subscription := tt.test.CreateSubscription(t)
+
 	c := api.NewTelemetryServiceClient(conn)
 	stream, err := c.GetEvents(ctx, &api.GetEventsRequest{
 		Subscription: tt.test.CreateSubscription(t),
