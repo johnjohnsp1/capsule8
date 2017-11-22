@@ -144,6 +144,12 @@ func (fs *FileSystem) Cgroups(pid int) ([]Cgroup, error) {
 		return nil, err
 	}
 
+	cgroups := parseProcPidCgroup(cgroup)
+	return cgroups, nil
+}
+
+// parseProcPidCgroup parses the contents of /proc/[pid]/cgroup
+func parseProcPidCgroup(cgroup []byte) []Cgroup {
 	var cgroups []Cgroup
 
 	scanner := bufio.NewScanner(bytes.NewReader(cgroup))
@@ -164,7 +170,7 @@ func (fs *FileSystem) Cgroups(pid int) ([]Cgroup, error) {
 		cgroups = append(cgroups, c)
 	}
 
-	return cgroups, nil
+	return cgroups
 }
 
 // Cgroup describes the cgroup membership of a process
@@ -200,14 +206,19 @@ func (fs *FileSystem) ContainerID(pid int) (string, error) {
 
 	glog.V(10).Infof("pid:%d cgroups:%+v", pid, cgroups)
 
+	containerID := containerIDFromCgroups(cgroups)
+	return containerID, nil
+}
+
+func containerIDFromCgroups(cgroups []Cgroup) string {
 	for _, pci := range cgroups {
 		if strings.HasPrefix(pci.Path, "/docker") {
 			pathParts := strings.Split(pci.Path, "/")
-			return pathParts[2], nil
+			return pathParts[2]
 		}
 	}
 
-	return "", nil
+	return ""
 }
 
 // UniqueID returns a reproducible namespace-independent
