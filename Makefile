@@ -39,6 +39,7 @@ DOCKER_RUN_CI=docker run                                                    \
 	--network host                                                      \
 	-ti                                                                 \
 	--rm                                                                \
+	-u $(shell uid -u):$(shell uid -g)                                  \
 	-v "$$(pwd):/go/src/$(PKG)"                                         \
 	-v /var/run/docker.sock:/var/run/docker.sock:ro                     \
 	-w /go/src/$(PKG)                                                   \
