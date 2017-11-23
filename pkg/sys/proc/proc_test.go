@@ -97,3 +97,58 @@ func TestStatParse(t *testing.T) {
 		}
 	}
 }
+
+var cgroupTests = []struct {
+	cgroupFile  string
+	containerID string
+}{
+	{
+		`13:pids:/docker/e871ee9a818bab3222c94efe196e8555cb372676e96fea847a609c2d39e187a4
+12:hugetlb:/docker/e871ee9a818bab3222c94efe196e8555cb372676e96fea847a609c2d39e187a4
+11:net_prio:/docker/e871ee9a818bab3222c94efe196e8555cb372676e96fea847a609c2d39e187a4
+10:perf_event:/docker/e871ee9a818bab3222c94efe196e8555cb372676e96fea847a609c2d39e187a4
+9:net_cls:/docker/e871ee9a818bab3222c94efe196e8555cb372676e96fea847a609c2d39e187a4
+8:freezer:/docker/e871ee9a818bab3222c94efe196e8555cb372676e96fea847a609c2d39e187a4
+7:devices:/docker/e871ee9a818bab3222c94efe196e8555cb372676e96fea847a609c2d39e187a4
+6:memory:/docker/e871ee9a818bab3222c94efe196e8555cb372676e96fea847a609c2d39e187a4
+5:blkio:/docker/e871ee9a818bab3222c94efe196e8555cb372676e96fea847a609c2d39e187a4
+4:cpuacct:/docker/e871ee9a818bab3222c94efe196e8555cb372676e96fea847a609c2d39e187a4
+3:cpu:/docker/e871ee9a818bab3222c94efe196e8555cb372676e96fea847a609c2d39e187a4
+2:cpuset:/docker/e871ee9a818bab3222c94efe196e8555cb372676e96fea847a609c2d39e187a4
+1:name=openrc:/docker
+0::/docker
+`, "e871ee9a818bab3222c94efe196e8555cb372676e96fea847a609c2d39e187a4"},
+	{`10:hugetlb:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+9:perf_event:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+8:blkio:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+7:net_cls:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+6:freezer:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+5:devices:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+4:memory:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+3:cpuacct,cpu:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+2:cpuset:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+1:name=systemd:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+`, "47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81"},
+	{`9:net_cls:/
+8:devices:/user.slice
+7:cpu,cpuacct:/user.slice
+6:pids:/user.slice/user-1000.slice/session-5.scope
+5:memory:/user.slice
+4:cpuset:/
+3:blkio:/user.slice
+2:freezer:/
+1:name=systemd:/user.slice/user-1000.slice/session-5.scope
+0::/user.slice/user-1000.slice/session-5.scope
+`, ""},
+}
+
+func TestCgroupParse(t *testing.T) {
+	for _, tc := range cgroupTests {
+		cgroups := parseProcPidCgroup([]byte(tc.cgroupFile))
+		cID := containerIDFromCgroups(cgroups)
+		if cID != tc.containerID {
+			t.Errorf("Expected container ID %s, got %s",
+				tc.containerID, cID)
+		}
+	}
+}

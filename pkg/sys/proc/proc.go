@@ -9,12 +9,20 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/golang/glog"
 )
+
+//
+// Docker cgroup paths may look like either of:
+// - /docker/[CONTAINER_ID]
+// - /system.slice/docker-[CONTAINER_ID].scope
+//
+const cgroupContainerPattern = "^(/docker/|/system.slice/docker-)([[:xdigit:]]{64})(.scope|$)"
 
 var (
 	// Default procfs mounted on /proc
@@ -26,6 +34,9 @@ var (
 
 	// "Once" control for getting the boot ID
 	bootIDOnce sync.Once
+
+	// A regular expression to match docker container cgroup names
+	cgroupContainerRE = regexp.MustCompile(cgroupContainerPattern)
 )
 
 // FS creates a FileSystem instance representing the default
@@ -201,11 +212,9 @@ func (fs *FileSystem) ContainerID(pid int) (string, error) {
 	glog.V(10).Infof("pid:%d cgroups:%+v", pid, cgroups)
 
 	for _, pci := range cgroups {
-		if strings.HasPrefix(pci.Path, "/docker") {
-			pathParts := strings.Split(pci.Path, "/")
-			if len(pathParts) > 2 {
-				return pathParts[2], nil
-			}
+		matches := cgroupContainerRE.FindStringSubmatch(pci.Path)
+		if len(matches) > 2 {
+			return "", matches[2]
 		}
 	}
 
