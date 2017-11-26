@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 var config struct {
 	endpoint string
 	image    string
+	profile  bool
 	verbose  bool
 }
 
@@ -36,6 +38,9 @@ func init() {
 
 	flag.StringVar(&config.image, "image", "",
 		"container image wildcard pattern to monitor")
+
+	flag.BoolVar(&config.profile, "profile", false,
+		"enable profiling (impacts performance measurements)")
 
 	flag.BoolVar(&config.verbose, "verbose", false,
 		"verbose (print events received)")
@@ -196,8 +201,12 @@ func main() {
 	//flag.Set("alsologtostderr", "true")
 	flag.Parse()
 
-	// Enable profiling by default
-	sensorConfig.Global.ProfilingAddr = ":6060"
+	// Enable profiling if option is set (disabled by default)
+	if config.profile {
+		sensorConfig.Global.ProfilingAddr = ":6060"
+		runtime.SetBlockProfileRate(1)
+		runtime.SetMutexProfileFraction(1)
+	}
 
 	// Log version and build at "Starting ..." for debugging
 	version.InitialBuildLog("benchmark")

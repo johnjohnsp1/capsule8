@@ -113,3 +113,39 @@ $ make
 840.79user 64.07system 2:11.97elapsed 685%CPU (0avgtext+0avgdata 146052maxresident)k
 0inputs+28248outputs (0major+24220864minor)pagefaults 0swaps
 ```
+
+### Profiling
+
+Profiling may be enabled in the Sensor by setting the
+`CAPSULE8_PROFILING_ADDR` environment variable to the TCP socket to
+listen on (e.g. ":6060"). This enables the most types of profiling via
+`go tool pprof` to be used against a running Sensor.
+
+The benchmark test `-profile` option enables the Go 
+[profiling HTTP server](https://golang.org/pkg/net/http/pprof/) on
+port 6060 and configures Go runtime parameters to enable goroutine
+blocking and mutex contention tracing (which negatively impact
+performance).  This allows `go tool pprof` commands to be used to
+collect useful traces.
+
+
+CPU profile:
+```
+$ go tool pprof http://localhost:6060/debug/pprof/profile
+```
+
+Heap profile:
+```
+$ go tool pprof http://localhost:6060/debug/pprof/heap
+```
+
+Goroutine blocking profile:
+```
+$ go tool pprof http://localhost:6060/debug/pprof/block
+```
+
+Mutex contention profile:
+```
+$ go tool pprof http://localhost:6060/debug/pprof/mutex
+```
+
