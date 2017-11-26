@@ -20,7 +20,6 @@ import (
 	sensorConfig "github.com/capsule8/capsule8/pkg/config"
 
 	"github.com/capsule8/capsule8/pkg/sensor"
-	"github.com/capsule8/capsule8/pkg/subscription"
 	"github.com/capsule8/capsule8/pkg/version"
 )
 
@@ -111,17 +110,17 @@ func createSubscription() *api.Subscription {
 var subscriptionEvents int64
 
 var startSubEvents int64
-var startMetrics map[string]subscription.MetricsCounters
+var startMetrics map[string]sensor.MetricsCounters
 var startRusage map[string]unix.Rusage
 
 func onContainerRunning(cID string) {
 	var rusage unix.Rusage
 
 	if startMetrics == nil {
-		startMetrics = make(map[string]subscription.MetricsCounters)
+		startMetrics = make(map[string]sensor.MetricsCounters)
 	}
 
-	startMetrics[cID] = subscription.Metrics
+	startMetrics[cID] = sensor.Metrics
 
 	startSubEvents = subscriptionEvents
 
@@ -144,9 +143,9 @@ func max(x, y int64) int64 {
 }
 
 func onContainerExited(cID string) {
-	var metricsStart, metricsEnd, metricsDelta subscription.MetricsCounters
+	var metricsStart, metricsEnd, metricsDelta sensor.MetricsCounters
 
-	metricsEnd = subscription.Metrics
+	metricsEnd = sensor.Metrics
 	metricsStart = startMetrics[cID]
 
 	metricsDelta.Events = metricsEnd.Events - metricsStart.Events
@@ -198,7 +197,7 @@ func main() {
 	flag.Parse()
 
 	// Enable profiling by default
-	sensorConfig.Global.ProfilingPort = 6060
+	sensorConfig.Global.ProfilingAddr = ":6060"
 
 	// Log version and build at "Starting ..." for debugging
 	version.InitialBuildLog("benchmark")

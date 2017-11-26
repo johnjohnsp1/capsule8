@@ -48,8 +48,8 @@ func main() {
 	flag.Set("logtostderr", "true")
 	flag.Parse()
 
-	glog.Info("Creating monitor on cgroup /docker")
-	monitor, err := perf.NewEventMonitorWithCgroup("/docker", 0, 0, nil)
+	glog.Info("Creating system-wide monitor")
+	monitor, err := perf.NewEventMonitor()
 
 	eventName := "sched/sched_process_fork"
 	err = monitor.RegisterEvent(eventName, decodeSchedProcessFork,
