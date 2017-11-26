@@ -29,8 +29,11 @@ CLANG=clang
 CMDS=$(notdir $(wildcard ./cmd/*))
 BINS=$(patsubst %,bin/%,$(CMDS))
 
-# All source directories that need to be checked, compiled, tested, etc.
-SRC=./cmd/... ./pkg/... ./examples/...
+# All source directories that need to be tested with `go test`
+TEST_SRC=./cmd/... ./pkg/... ./examples/...
+
+# All source directories that need to be checked to be buildable, vetted, and lint-free
+CHECK_SRC=$(BUILD_SRC) ./test/...
 
 #
 # Docker flags to use in CI
@@ -134,24 +137,24 @@ bin/% : cmd/% cmd/%/*.go
 #
 check:
 	echo "--- Checking source code formatting"
-	find ./cmd ./pkg ./examples -name '*.go' | xargs gofmt -d
+	find ./cmd ./pkg ./examples ./test -name '*.go' | xargs gofmt -d
 	echo "--- Checking that all sources build"
-	go build $(SRC)
+	go build $(CHECK_SRC)
 	echo "--- Checking that all sources vet clean"
-	go vet $(GOVETFLAGS) $(SRC)
+	go vet $(GOVETFLAGS) $(CHECK_SRC)
 	echo "--- Checking sources for lint"
-	golint $(SRC)
+	golint $(CHECK_SRC)
 
 #
 # Run all unit tests quickly
 #
 test: GOTESTFLAGS+=-cover
 test:
-	go test $(SRC) $(GOTESTFLAGS) 
+	go test $(TEST_SRC) $(GOTESTFLAGS) 
 
 test_verbose: GOTESTFLAGS+=-v
 test_verbose:
-	go test $(SRC) $(GOTESTFLAGS)
+	go test $(TEST_SRC) $(GOTESTFLAGS)
 
 #
 # Run all tests
@@ -163,14 +166,14 @@ test_all: test test_msan test_race
 #
 test_msan: GOTESTFLAGS+=-msan
 test_msan:
-	CC=${CLANG} go test $(SRC) $(GOTESTFLAGS) 
+	CC=${CLANG} go test $(TEST_SRC) $(GOTESTFLAGS) 
 
 #
 # Run all unit tests in pkg/ under race detector
 #
 test_race: GOTESTFLAGS+=-race
 test_race:
-	go test $(SRC) $(GOTESTFLAGS)
+	go test $(TEST_SRC) $(GOTESTFLAGS)
 
 #
 # Run functional test suite
