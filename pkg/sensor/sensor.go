@@ -29,6 +29,9 @@ import (
 // Number of random bytes to generate for Sensor Id
 const sensorIdLengthBytes = 32
 
+// Global metrics counters
+var Metrics MetricsCounters
+
 // Sensor represents the state of the singleton Sensor instance
 type Sensor struct {
 	// Unique Id for this sensor. Sensor Ids are ephemeral.
@@ -42,9 +45,6 @@ type Sensor struct {
 	// Record the value of CLOCK_MONOTONIC_RAW when the sensor starts.
 	// All event monotimes are relative to this value.
 	bootMonotimeNanos int64
-
-	// Metrics counters for this sensor
-	Metrics MetricsCounters
 
 	// Repeater used for container event subscriptions
 	containerEventRepeater *ContainerEventRepeater
@@ -233,7 +233,7 @@ func (s *Sensor) NewEvent() *api.Event {
 	h := sha256.Sum256(buf.Bytes())
 	eventId := hex.EncodeToString(h[:])
 
-	s.Metrics.Events++
+	Metrics.Events++
 
 	return &api.Event{
 		Id:                   eventId,
@@ -506,7 +506,7 @@ func (s *Sensor) NewSubscription(sub *api.Subscription) (*stream.Stream, error) 
 		eventStream = s.applyModifiers(eventStream, *sub.Modifier)
 	}
 
-	s.Metrics.Subscriptions++
+	Metrics.Subscriptions++
 	joiner.On()
 
 	return eventStream, nil
