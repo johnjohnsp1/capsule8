@@ -8,6 +8,7 @@ import (
 
 	api "github.com/capsule8/api/v0"
 
+	"github.com/capsule8/capsule8/pkg/filter"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 
 	"github.com/golang/glog"
@@ -83,43 +84,54 @@ func (f *syscallFilter) decodeSysExit(sample *perf.SampleRecord, data perf.Trace
 	return ev, nil
 }
 
-func syscallEnterFilterString(sef *api.SyscallEventFilter) string {
-	parts := make([]string, 1, 7)
-	parts[0] = fmt.Sprintf("id == %d", sef.Id.Value)
-
-	/*
-		if sef.Arg0 != nil {
-			parts = append(parts, fmt.Sprintf("args[0] == %d", sef.Arg0.Value))
-		}
-		if sef.Arg1 != nil {
-			parts = append(parts, fmt.Sprintf("args[1] == %d", sef.Arg1.Value))
-		}
-		if sef.Arg2 != nil {
-			parts = append(parts, fmt.Sprintf("args[2] == %d", sef.Arg2.Value))
-		}
-		if sef.Arg3 != nil {
-			parts = append(parts, fmt.Sprintf("args[3] == %d", sef.Arg3.Value))
-		}
-		if sef.Arg4 != nil {
-			parts = append(parts, fmt.Sprintf("args[4] == %d", sef.Arg4.Value))
-		}
-		if sef.Arg5 != nil {
-			parts = append(parts, fmt.Sprintf("args[5] == %d", sef.Arg5.Value))
-		}
-	*/
-
-	return strings.Join(parts, " && ")
-}
-
-func syscallExitFilterString(sef *api.SyscallEventFilter) string {
-	parts := make([]string, 1, 2)
-	parts[0] = fmt.Sprintf("id == %d", sef.Id.Value)
-
-	if sef.Ret != nil {
-		parts = append(parts, fmt.Sprintf("ret == %d", sef.Ret.Value))
+func containsIdFilter(expr *api.Expression) bool {
+	if expr == nil {
+		return false
 	}
 
-	return strings.Join(parts, " && ")
+	switch expr.GetType() {
+	case api.Expression_LOGICAL_AND:
+		operands := expr.GetBinaryOp()
+		return containsIdFilter(operands.Lhs) ||
+			containsIdFilter(operands.Rhs)
+	case api.Expression_LOGICAL_OR:
+		operands := expr.GetBinaryOp()
+		return containsIdFilter(operands.Lhs) &&
+			containsIdFilter(operands.Rhs)
+	case api.Expression_EQ:
+		operands := expr.GetBinaryOp()
+		if operands.Lhs.GetType() != api.Expression_IDENTIFIER {
+			return false
+		}
+		if operands.Lhs.GetIdentifier() != "id" {
+			return false
+		}
+		return true
+	}
+	return false
+}
+
+func rewriteSyscallEventFilter(sef *api.SyscallEventFilter) {
+	if sef.Id != nil {
+		newExpr := filter.NewBinaryExpr(api.Expression_EQ,
+			filter.NewIdentifierExpr("id"),
+			filter.NewValueExpr(sef.Id.Value))
+		sef.FilterExpression = filter.LinkExprs(
+			api.Expression_LOGICAL_AND,
+			newExpr, sef.FilterExpression)
+		sef.Id = nil
+	}
+	if sef.Type == api.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT {
+		if sef.Ret != nil {
+			newExpr := filter.NewBinaryExpr(api.Expression_EQ,
+				filter.NewIdentifierExpr("ret"),
+				filter.NewValueExpr(sef.Ret.Value))
+			sef.FilterExpression = filter.LinkExprs(
+				api.Expression_LOGICAL_AND,
+				newExpr, sef.FilterExpression)
+			sef.Ret = nil
+		}
+	}
 }
 
 func registerSyscallEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*api.SyscallEventFilter) {
@@ -127,17 +139,30 @@ func registerSyscallEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 	exitFilters := make(map[string]bool)
 
 	for _, sef := range events {
-		if sef.Id == nil {
+		// Translate deprecated fields into an expression
+		rewriteSyscallEventFilter(sef)
+
+		if !containsIdFilter(sef.FilterExpression) {
 			// No wildcard filters for now
 			continue
 		}
 
+		expr, err := filter.NewExpression(sef.FilterExpression)
+		if err != nil {
+			glog.V(1).Infof("Invalid syscall event filter: %s", err)
+			continue
+		}
+		err = expr.ValidateKernelFilter()
+		if err != nil {
+			glog.V(1).Infof("Invalid syscall event filter as kernel filter: %s", err)
+			continue
+		}
+		s := expr.KernelFilterString()
+
 		switch sef.Type {
 		case api.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER:
-			s := syscallEnterFilterString(sef)
 			enterFilters[s] = true
 		case api.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT:
-			s := syscallExitFilterString(sef)
 			exitFilters[s] = true
 		default:
 			continue

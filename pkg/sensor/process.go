@@ -7,6 +7,7 @@ import (
 
 	api "github.com/capsule8/api/v0"
 
+	"github.com/capsule8/capsule8/pkg/filter"
 	"github.com/capsule8/capsule8/pkg/sys"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 	"github.com/golang/glog"
@@ -107,6 +108,40 @@ func processFilterString(wildcard bool, filters map[string]bool) string {
 	return strings.Join(parts, " || ")
 }
 
+func rewriteProcessEventFilter(pef *api.ProcessEventFilter) {
+	switch pef.Type {
+	case api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC:
+		if pef.ExecFilename != nil {
+			newExpr := filter.NewBinaryExpr(api.Expression_EQ,
+				filter.NewIdentifierExpr("filename"),
+				filter.NewValueExpr(pef.ExecFilename.Value))
+			pef.FilterExpression = filter.LinkExprs(
+				api.Expression_LOGICAL_AND,
+				newExpr, pef.FilterExpression)
+			pef.ExecFilename = nil
+			pef.ExecFilenamePattern = nil
+		} else if pef.ExecFilenamePattern != nil {
+			newExpr := filter.NewBinaryExpr(api.Expression_LIKE,
+				filter.NewIdentifierExpr("filename"),
+				filter.NewValueExpr(pef.ExecFilenamePattern.Value))
+			pef.FilterExpression = filter.LinkExprs(
+				api.Expression_LOGICAL_AND,
+				newExpr, pef.FilterExpression)
+			pef.ExecFilenamePattern = nil
+		}
+	case api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT:
+		if pef.ExitCode != nil {
+			newExpr := filter.NewBinaryExpr(api.Expression_LIKE,
+				filter.NewIdentifierExpr("code"),
+				filter.NewValueExpr(pef.ExitCode.Value))
+			pef.FilterExpression = filter.LinkExprs(
+				api.Expression_LOGICAL_AND,
+				newExpr, pef.FilterExpression)
+			pef.ExitCode = nil
+		}
+	}
+}
+
 func registerProcessEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*api.ProcessEventFilter) {
 	forkFilter := false
 	execFilters := make(map[string]bool)
@@ -115,27 +150,46 @@ func registerProcessEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 	exitWildcard := false
 
 	for _, pef := range events {
+		// Translate deprecated fields into an expression
+		rewriteProcessEventFilter(pef)
+
 		switch pef.Type {
 		case api.ProcessEventType_PROCESS_EVENT_TYPE_FORK:
 			forkFilter = true
 		case api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC:
-			if pef.ExecFilename != nil {
-				s := fmt.Sprintf("filename == %s", pef.ExecFilename.Value)
-				execFilters[s] = true
-			} else if pef.ExecFilenamePattern != nil {
-				s := fmt.Sprintf("filename ~ %s", pef.ExecFilenamePattern.Value)
-				execFilters[s] = true
-			} else {
+			if pef.FilterExpression == nil {
 				execWildcard = true
+			} else {
+				expr, err := filter.NewExpression(pef.FilterExpression)
+				if err != nil {
+					glog.V(1).Infof("Invalid process event filter: %s", err)
+					continue
+				}
+				err = expr.ValidateKernelFilter()
+				if err != nil {
+					glog.V(1).Infof("Invalid process event filter as kernel filter: %s", err)
+					continue
+				}
+				s := expr.KernelFilterString()
+				execFilters[s] = true
 			}
 		case api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT:
-			if pef.ExitCode != nil {
-				s := fmt.Sprintf("code == %d", pef.ExitCode.Value)
-				exitFilters[s] = true
-			} else {
+			if pef.FilterExpression == nil {
 				exitWildcard = true
+			} else {
+				expr, err := filter.NewExpression(pef.FilterExpression)
+				if err != nil {
+					glog.V(1).Infof("Invalid process event filter: %s", err)
+					continue
+				}
+				err = expr.ValidateKernelFilter()
+				if err != nil {
+					glog.V(1).Infof("Invalid process event filter as kernel filter: %s", err)
+					continue
+				}
+				s := expr.KernelFilterString()
+				exitFilters[s] = true
 			}
-			break
 		default:
 			continue
 		}
@@ -157,11 +211,11 @@ func registerProcessEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 	}
 
 	if execWildcard || len(execFilters) > 0 {
-		filter := processFilterString(execWildcard, execFilters)
+		filterString := processFilterString(execWildcard, execFilters)
 
 		eventName := "sched/sched_process_exec"
 		err := monitor.RegisterEvent(eventName,
-			f.decodeSchedProcessExec, filter, nil)
+			f.decodeSchedProcessExec, filterString, nil)
 		if err != nil {
 			glog.V(1).Infof("Couldn't get %s event id: %v",
 				eventName, err)
@@ -169,11 +223,11 @@ func registerProcessEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 	}
 
 	if exitWildcard || len(exitFilters) > 0 {
-		filter := processFilterString(exitWildcard, exitFilters)
+		filterString := processFilterString(exitWildcard, exitFilters)
 
 		name := perf.UniqueProbeName("capsule8", "do_exit")
 		_, err := monitor.RegisterKprobe(name, exitSymbol,
-			false, exitFetchargs, f.decodeDoExit, filter, nil)
+			false, exitFetchargs, f.decodeDoExit, filterString, nil)
 		if err != nil {
 			glog.Errorf("Couldn't register kprobe for %s: %s",
 				exitSymbol, err)

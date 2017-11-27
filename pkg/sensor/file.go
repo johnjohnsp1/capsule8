@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	api "github.com/capsule8/api/v0"
+
+	"github.com/capsule8/capsule8/pkg/filter"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 	"github.com/golang/glog"
 )
@@ -32,27 +34,49 @@ func (f *fileOpenFilter) decodeDoSysOpen(sample *perf.SampleRecord, data perf.Tr
 	return ev, nil
 }
 
-func fileFilterString(fef *api.FileEventFilter) string {
-	var parts []string
-
+func rewriteFileEventFilter(fef *api.FileEventFilter) {
 	if fef.Filename != nil {
-		parts = append(parts, fmt.Sprintf("filename == %s", fef.Filename.Value))
-	}
-	if fef.FilenamePattern != nil {
-		parts = append(parts, fmt.Sprintf("filename ~ %s", fef.FilenamePattern.Value))
-	}
-	if fef.OpenFlagsMask != nil {
-		parts = append(parts, fmt.Sprintf("flags & %d", fef.OpenFlagsMask.Value))
-	}
-	if fef.CreateModeMask != nil {
-		parts = append(parts, fmt.Sprintf("mode & %d", fef.CreateModeMask.Value))
+		newExpr := filter.NewBinaryExpr(api.Expression_EQ,
+			filter.NewIdentifierExpr("filename"),
+			filter.NewValueExpr(fef.Filename.Value))
+		fef.FilterExpression = filter.LinkExprs(
+			api.Expression_LOGICAL_AND,
+			newExpr, fef.FilterExpression)
+		fef.Filename = nil
+		fef.FilenamePattern = nil
+	} else if fef.FilenamePattern != nil {
+		newExpr := filter.NewBinaryExpr(api.Expression_LIKE,
+			filter.NewIdentifierExpr("filename"),
+			filter.NewValueExpr(fef.FilenamePattern.Value))
+		fef.FilterExpression = filter.LinkExprs(
+			api.Expression_LOGICAL_AND,
+			newExpr, fef.FilterExpression)
+		fef.FilenamePattern = nil
 	}
 
-	return strings.Join(parts, " && ")
+	if fef.OpenFlagsMask != nil {
+		newExpr := filter.NewBinaryExpr(api.Expression_BITWISE_AND,
+			filter.NewIdentifierExpr("flags"),
+			filter.NewValueExpr(fef.OpenFlagsMask.Value))
+		fef.FilterExpression = filter.LinkExprs(
+			api.Expression_LOGICAL_AND,
+			newExpr, fef.FilterExpression)
+		fef.OpenFlagsMask = nil
+	}
+
+	if fef.CreateModeMask != nil {
+		newExpr := filter.NewBinaryExpr(api.Expression_BITWISE_AND,
+			filter.NewIdentifierExpr("mode"),
+			filter.NewValueExpr(fef.OpenFlagsMask.Value))
+		fef.FilterExpression = filter.LinkExprs(
+			api.Expression_LOGICAL_AND,
+			newExpr, fef.FilterExpression)
+		fef.CreateModeMask = nil
+	}
 }
 
 func registerFileEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*api.FileEventFilter) {
-	var filter string
+	var filterString string
 
 	wildcard := false
 	filters := make(map[string]bool, len(events))
@@ -61,12 +85,24 @@ func registerFileEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*ap
 			continue
 		}
 
-		filter = fileFilterString(fef)
-		if len(filter) > 0 {
-			filters[filter] = true
-		} else {
+		// Translate deprecated fields into an expression
+		rewriteFileEventFilter(fef)
+
+		if fef.FilterExpression == nil {
 			wildcard = true
-			break
+		} else {
+			expr, err := filter.NewExpression(fef.FilterExpression)
+			if err != nil {
+				glog.V(1).Infof("Invalid file event filter: %s", err)
+				continue
+			}
+			err = expr.ValidateKernelFilter()
+			if err != nil {
+				glog.V(1).Infof("Invalid file event filter as kernel filter: %s", err)
+				continue
+			}
+			s := expr.KernelFilterString()
+			filters[s] = true
 		}
 	}
 
@@ -79,14 +115,14 @@ func registerFileEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*ap
 		for k := range filters {
 			parts = append(parts, fmt.Sprintf("(%s)", k))
 		}
-		filter = strings.Join(parts, " || ")
+		filterString = strings.Join(parts, " || ")
 	}
 
 	f := fileOpenFilter{
 		sensor: sensor,
 	}
 
-	err := monitor.RegisterEvent("fs/do_sys_open", f.decodeDoSysOpen, filter, nil)
+	err := monitor.RegisterEvent("fs/do_sys_open", f.decodeDoSysOpen, filterString, nil)
 	if err != nil {
 		glog.V(1).Infof("Tracepoint fs/do_sys_open not found, adding a kprobe to emulate")
 
@@ -97,7 +133,7 @@ func registerFileEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*ap
 			false,
 			fsDoSysOpenKprobeFetchargs,
 			f.decodeDoSysOpen,
-			filter,
+			filterString,
 			nil)
 		if err != nil {
 			glog.Warning("Couldn't register kprobe fs/do_sys_open")

@@ -73,57 +73,57 @@ func NewValueExpr(i interface{}) *api.Expression {
 	case string:
 		value = &api.Value{
 			Type:  api.ValueType_STRING,
-			Value: &api.Value_StringValue{StringValue:v},
+			Value: &api.Value_StringValue{StringValue: v},
 		}
 	case int8:
 		value = &api.Value{
 			Type:  api.ValueType_SINT8,
-			Value: &api.Value_SignedValue{SignedValue:int64(v)},
+			Value: &api.Value_SignedValue{SignedValue: int64(v)},
 		}
 	case int16:
 		value = &api.Value{
 			Type:  api.ValueType_SINT16,
-			Value: &api.Value_SignedValue{SignedValue:int64(v)},
+			Value: &api.Value_SignedValue{SignedValue: int64(v)},
 		}
 	case int32:
 		value = &api.Value{
 			Type:  api.ValueType_SINT32,
-			Value: &api.Value_SignedValue{SignedValue:int64(v)},
+			Value: &api.Value_SignedValue{SignedValue: int64(v)},
 		}
 	case int64:
 		value = &api.Value{
 			Type:  api.ValueType_SINT64,
-			Value: &api.Value_SignedValue{SignedValue:v},
+			Value: &api.Value_SignedValue{SignedValue: v},
 		}
 	case uint8:
 		value = &api.Value{
 			Type:  api.ValueType_UINT8,
-			Value: &api.Value_UnsignedValue{UnsignedValue:uint64(v)},
+			Value: &api.Value_UnsignedValue{UnsignedValue: uint64(v)},
 		}
 	case uint16:
 		value = &api.Value{
 			Type:  api.ValueType_UINT16,
-			Value: &api.Value_UnsignedValue{UnsignedValue:uint64(v)},
+			Value: &api.Value_UnsignedValue{UnsignedValue: uint64(v)},
 		}
 	case uint32:
 		value = &api.Value{
 			Type:  api.ValueType_UINT32,
-			Value: &api.Value_UnsignedValue{UnsignedValue:uint64(v)},
+			Value: &api.Value_UnsignedValue{UnsignedValue: uint64(v)},
 		}
 	case uint64:
 		value = &api.Value{
 			Type:  api.ValueType_UINT64,
-			Value: &api.Value_UnsignedValue{UnsignedValue:v},
+			Value: &api.Value_UnsignedValue{UnsignedValue: v},
 		}
 	case bool:
 		value = &api.Value{
 			Type:  api.ValueType_BOOL,
-			Value: &api.Value_BoolValue{BoolValue:v},
+			Value: &api.Value_BoolValue{BoolValue: v},
 		}
 	case float64:
 		value = &api.Value{
 			Type:  api.ValueType_DOUBLE,
-			Value: &api.Value_DoubleValue{DoubleValue:v},
+			Value: &api.Value_DoubleValue{DoubleValue: v},
 		}
 	}
 
