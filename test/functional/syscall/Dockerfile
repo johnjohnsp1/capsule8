@@ -10,4 +10,4 @@ COPY main.c /
 
 RUN make main
 
-CMD sleep 60 & ./main
+CMD ./main

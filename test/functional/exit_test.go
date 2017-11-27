@@ -1,22 +1,39 @@
 package functional
 
 import (
-	"sync"
+	"regexp"
+	"strconv"
 	"testing"
 
 	api "github.com/capsule8/api/v0"
-
 	"github.com/golang/glog"
+	"github.com/golang/protobuf/ptypes/wrappers"
+)
+
+const (
+	// Test process 1
+	testExitProc1Filename = "/main"
+	testExitProc1Status   = 1
+
+	// Test process 2
+	testExitProc2Patt   = "/status*"
+	testExitProc2Status = 2
+	testExitProc2Code   = testExitProc2Status << 8
+)
+
+var (
+	testExitFilenameRe    = regexp.MustCompile("^/status([0-9])$")
+	testExitProc2Filename = "/status" + strconv.Itoa(testExitProc2Status)
 )
 
 type exitTest struct {
 	testContainer   *Container
-	err             error
-	waitGroup       sync.WaitGroup
 	containerID     string
 	containerExited bool
-	processID       string
-	processExited   bool
+	process1ID      string
+	process1Exited  bool
+	process2ID      string
+	process2Exited  bool
 }
 
 func (ct *exitTest) BuildContainer(t *testing.T) {
@@ -59,11 +76,24 @@ func (ct *exitTest) CreateSubscription(t *testing.T) *api.Subscription {
 		},
 
 		&api.ProcessEventFilter{
-			Type: api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
+			Type:         api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
+			ExecFilename: &wrappers.StringValue{testExitProc1Filename},
 		},
 
 		&api.ProcessEventFilter{
-			Type: api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT,
+			Type:                api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
+			ExecFilenamePattern: &wrappers.StringValue{testExitProc2Patt},
+		},
+
+		&api.ProcessEventFilter{
+			Type:         api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT,
+			ExecFilename: &wrappers.StringValue{testExitProc1Filename},
+		},
+
+		&api.ProcessEventFilter{
+			Type:                api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT,
+			ExecFilenamePattern: &wrappers.StringValue{testExitProc2Patt},
+			ExitCode:            &wrappers.Int32Value{testExitProc2Code},
 		},
 	}
 
@@ -84,7 +114,8 @@ func (ct *exitTest) HandleTelemetryEvent(t *testing.T, telemetryEvent *api.Telem
 
 	switch event := telemetryEvent.Event.Event.(type) {
 	case *api.Event_Container:
-		if event.Container.Type == api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED {
+		switch event.Container.Type {
+		case api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED:
 			if event.Container.ImageName == ct.testContainer.ImageID {
 				if len(ct.containerID) > 0 {
 					t.Error("Already saw container created")
@@ -94,60 +125,88 @@ func (ct *exitTest) HandleTelemetryEvent(t *testing.T, telemetryEvent *api.Telem
 				ct.containerID = telemetryEvent.Event.ContainerId
 				glog.V(1).Infof("containerID = %s", ct.containerID)
 			}
-		} else if event.Container.Type == api.ContainerEventType_CONTAINER_EVENT_TYPE_EXITED &&
-			len(ct.containerID) > 0 &&
-			telemetryEvent.Event.ContainerId == ct.containerID {
 
-			if event.Container.ExitCode != 1 {
-				t.Errorf("Expected ExitCode %d, got %d",
-					1, event.Container.ExitCode)
-				return false
-			}
-
-			ct.containerExited = true
-			glog.V(1).Infof("containerExited = true")
-		}
-
-	case *api.Event_Process:
-		if event.Process.Type == api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC {
-			if event.Process.ExecFilename == "/main" &&
+		case api.ContainerEventType_CONTAINER_EVENT_TYPE_EXITED:
+			if len(ct.containerID) > 0 &&
 				telemetryEvent.Event.ContainerId == ct.containerID {
-				if len(ct.processID) > 0 {
-					t.Error("Already saw process exec")
+
+				if event.Container.ExitCode != testExitProc1Status {
+					t.Errorf("Expected ExitCode %d, got %d",
+						testExitProc1Status, event.Container.ExitCode)
 					return false
 				}
 
-				ct.processID = telemetryEvent.Event.ProcessId
-				glog.V(1).Infof("processID = %s", ct.processID)
+				ct.containerExited = true
+				glog.V(1).Infof("containerExited = true")
 			}
-		} else if len(ct.processID) > 0 &&
-			telemetryEvent.Event.ProcessId == ct.processID &&
-			event.Process.Type == api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT {
+		}
 
-			if event.Process.ExitSignal != 0 {
-				t.Errorf("Expected ExitSignal %d, got %d",
-					0, event.Process.ExitSignal)
-				return false
+	case *api.Event_Process:
+		switch event.Process.Type {
+		case api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC:
+			if telemetryEvent.Event.ContainerId == ct.containerID {
+				switch event.Process.ExecFilename {
+				case testExitProc1Filename:
+					if len(ct.process1ID) > 0 {
+						t.Error("Already saw process 1 exec")
+						return false
+					}
+
+					ct.process1ID = telemetryEvent.Event.ProcessId
+					glog.V(1).Infof("process1ID = %s", ct.process1ID)
+
+				case testExitProc2Filename:
+					if len(ct.process2ID) > 0 {
+						t.Error("Already saw process 2 exec")
+						return false
+					}
+
+					ct.process2ID = telemetryEvent.Event.ProcessId
+					glog.V(1).Infof("process2ID = %s", ct.process2ID)
+				}
 			}
 
-			if event.Process.ExitCoreDumped != false {
-				t.Errorf("Expected ExitCoreDumped %v, got %v",
-					false, event.Process.ExitCoreDumped)
-				return false
-			}
+		case api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT:
+			switch telemetryEvent.Event.ProcessId {
+			case "":
 
-			if event.Process.ExitStatus != 1 {
-				t.Errorf("Expected ExitStatus %d, got %d",
-					1, event.Process.ExitStatus)
-				return false
-			}
+			case ct.process1ID:
+				if event.Process.ExitSignal != 0 {
+					t.Errorf("Expected ExitSignal %d, got %d",
+						0, event.Process.ExitSignal)
+					return false
+				}
 
-			ct.processExited = true
-			glog.V(1).Infof("processExited = true")
+				if event.Process.ExitCoreDumped {
+					t.Errorf("Expected ExitCoreDumped %t, got %t",
+						false, event.Process.ExitCoreDumped)
+					return false
+				}
+
+				if event.Process.ExitStatus != testExitProc1Status {
+					t.Errorf("Expected ExitStatus %d, got %d",
+						testExitProc1Status, event.Process.ExitStatus)
+					return false
+				}
+
+				ct.process1Exited = true
+				glog.V(1).Infof("process1Exited = true")
+
+			case ct.process2ID:
+				if event.Process.ExitStatus != testExitProc2Status {
+					t.Errorf("Expected ExitStatus %d, got %d",
+						testExitProc2Status, event.Process.ExitStatus)
+					return false
+				}
+
+				ct.process2Exited = true
+				glog.V(1).Infof("process2Exited = true")
+
+			}
 		}
 	}
 
-	return !(ct.containerExited && ct.processExited)
+	return !(ct.containerExited && ct.process1Exited && ct.process2Exited)
 }
 
 func TestExit(t *testing.T) {
