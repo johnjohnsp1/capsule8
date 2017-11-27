@@ -214,7 +214,9 @@ func containerIDFromCgroups(cgroups []Cgroup) string {
 	for _, pci := range cgroups {
 		if strings.HasPrefix(pci.Path, "/docker") {
 			pathParts := strings.Split(pci.Path, "/")
-			return pathParts[2]
+			if len(pathParts) > 2 {
+				return pathParts[2]
+			}
 		}
 	}
 
