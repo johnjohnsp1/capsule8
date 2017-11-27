@@ -168,22 +168,16 @@ func findHostProcFS() *proc.FileSystem {
 	for _, mi := range Mounts() {
 		if mi.FilesystemType == "proc" {
 			if mi.MountPoint != "/proc" {
-				pid := os.Getpid()
-				procSelf := filepath.Join(mi.MountPoint, "self")
-				ps, err := os.Readlink(procSelf)
+				fs := proc.FileSystem{MountPoint: mi.MountPoint}
+				initCgroups, err := fs.Cgroups(1)
 				if err != nil {
-					return nil
+					glog.Warningf("Couldn't get cgroups for pid 1 on procfs %s: %s",
+						mi.MountPoint, err)
 				}
 
-				_, file := filepath.Split(ps)
-				procPid, err := strconv.Atoi(file)
-				if err != nil {
-					return nil
-				}
-
-				if pid != procPid {
-					return &proc.FileSystem{
-						MountPoint: mi.MountPoint,
+				for _, cg := range initCgroups {
+					if cg.Path == "/" {
+						return &fs
 					}
 				}
 			}
