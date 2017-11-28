@@ -53,6 +53,30 @@ func (expr *Expression) ValidateKernelFilter() error {
 	return validateKernelFilterTree(expr.tree)
 }
 
+func IsValueTrue(value api.Value) bool {
+	switch value.GetType() {
+	case api.ValueType_STRING:
+		return len(value.GetStringValue()) > 0
+	case api.ValueType_SINT8, api.ValueType_SINT16, api.ValueType_SINT32,
+		api.ValueType_SINT64:
+
+		return value.GetSignedValue() != 0
+
+	case api.ValueType_UINT8, api.ValueType_UINT16, api.ValueType_UINT32,
+		api.ValueType_UINT64:
+
+		return value.GetUnsignedValue() != 0
+
+	case api.ValueType_BOOL:
+		return value.GetBoolValue()
+	case api.ValueType_DOUBLE:
+		return value.GetDoubleValue() != 0.0
+	case api.ValueType_TIMESTAMP:
+		return timestampValue(value.GetTimestampValue()) != 0
+	}
+	return false
+}
+
 //
 // Convenience functions for creating new expressions
 //

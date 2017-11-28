@@ -7,8 +7,21 @@ import (
 	"github.com/capsule8/capsule8/pkg/filter"
 	"github.com/capsule8/capsule8/pkg/stream"
 
+	"github.com/golang/glog"
+
 	"golang.org/x/sys/unix"
 )
+
+var containerEventTypes = filter.FieldTypeMap{
+	"name":             api.ValueType_STRING,
+	"image_id":         api.ValueType_STRING,
+	"image_name":       api.ValueType_STRING,
+	"host_pid":         api.ValueType_SINT32,
+	"exit_code":        api.ValueType_SINT32,
+	"exit_status":      api.ValueType_UINT32,
+	"exit_signal":      api.ValueType_UINT32,
+	"exit_core_dumped": api.ValueType_BOOL,
+}
 
 type ContainerEventRepeater struct {
 	repeater *stream.Repeater
@@ -180,34 +193,104 @@ func NewContainerEventRepeater(sensor *Sensor) (*ContainerEventRepeater, error) 
 	return cer, nil
 }
 
+func convertEvent(cev *api.ContainerEvent) filter.FieldValueMap {
+	values := filter.FieldValueMap{
+		"image_id":   cev.ImageId,
+		"image_name": cev.ImageName,
+		"host_pid":   cev.HostPid,
+	}
+
+	switch cev.Type {
+	case api.ContainerEventType_CONTAINER_EVENT_TYPE_EXITED:
+		values["exit_code"] = cev.ExitCode
+		values["exit_status"] = cev.ExitStatus
+		values["exit_signal"] = cev.ExitSignal
+		values["exit_core_dumped"] = cev.ExitCoreDumped
+	}
+	return values
+}
+
+type containerEventFilter struct {
+	view api.ContainerEventView
+	expr *filter.Expression
+}
+
 func (cer *ContainerEventRepeater) NewEventStream(sub *api.Subscription) (*stream.Stream, error) {
+	filters := make(map[api.ContainerEventType]*containerEventFilter)
+	exprs := make(map[api.ContainerEventType]*api.Expression)
+	for _, cef := range sub.EventFilter.ContainerEvents {
+		exprs[cef.Type] = filter.LinkExprs(
+			api.Expression_LOGICAL_OR,
+			exprs[cef.Type],
+			cef.FilterExpression)
+		if f, ok := filters[cef.Type]; ok {
+			if cef.View == api.ContainerEventView_FULL {
+				f.view = cef.View
+			}
+		} else {
+			filters[cef.Type] = &containerEventFilter{
+				view: cef.View,
+			}
+		}
+	}
+
+	var badTypes []api.ContainerEventType
+	for t, expr := range exprs {
+		if expr != nil {
+			e, err := filter.NewExpression(expr)
+			if err != nil {
+				glog.V(1).Infof("Invalid container filter expression: %s", err)
+				badTypes = append(badTypes, t)
+				continue
+			}
+			err = e.Validate(containerEventTypes)
+			if err != nil {
+				glog.V(1).Infof("Invalid container filter expression: %s", err)
+				badTypes = append(badTypes, t)
+				continue
+			}
+			filters[t].expr = e
+		}
+	}
+	for _, t := range badTypes {
+		delete(filters, t)
+	}
+	if len(filters) == 0 {
+		return nil, nil
+	}
+
+	// Create a new EventStream and apply a filter based on this unique
+	// subscription to the copy of the container event stream that we
+	// got from the Repeater.
 	s := cer.repeater.NewStream()
 
-	// Apply a filter based on this unique subscription to the copy
-	// of the container event stream that we got from the Repeater.
 	s = stream.Filter(s, func(i interface{}) bool {
 		e := i.(*api.Event)
 
 		switch e.Event.(type) {
 		case *api.Event_Container:
 			cev := e.GetContainer()
-
-			for _, cef := range sub.EventFilter.ContainerEvents {
-				mappings := make(map[string]*filter.MappedField)
-				match, _ :=
-					filter.CompareFields(cef, cev, mappings)
-
-				if !match {
-					continue
-				}
-
-				if cef.View != api.ContainerEventView_FULL {
-					cev.OciConfigJson = ""
-					cev.DockerConfigJson = ""
-				}
-
-				return true
+			cef, ok := filters[cev.Type]
+			if !ok {
+				return false
 			}
+
+			if cef.expr != nil {
+				containerEventValues := convertEvent(cev)
+				v, err := cef.expr.Evaluate(
+					containerEventTypes,
+					containerEventValues)
+				if err != nil || !filter.IsValueTrue(v) {
+					return false
+				}
+			}
+
+			if cef.view != api.ContainerEventView_FULL {
+				cev.OciConfigJson = ""
+				cev.DockerConfigJson = ""
+			}
+
+			return true
 		}
 
 		return false
