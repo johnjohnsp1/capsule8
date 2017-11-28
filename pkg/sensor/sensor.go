@@ -17,7 +17,6 @@ import (
 
 	"github.com/capsule8/capsule8/pkg/config"
 	"github.com/capsule8/capsule8/pkg/container"
-	"github.com/capsule8/capsule8/pkg/filter"
 	"github.com/capsule8/capsule8/pkg/stream"
 	"github.com/capsule8/capsule8/pkg/sys"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
@@ -496,7 +495,7 @@ func (s *Sensor) NewSubscription(sub *api.Subscription) (*stream.Stream, error) 
 		// specified ContainerFilter to restrict the events to
 		// those matching the specified container ids, names,
 		// images, etc.
-		cef := filter.NewContainerFilter(sub.ContainerFilter)
+		cef := newContainerFilter(sub.ContainerFilter)
 		eventStream = stream.Filter(eventStream, cef.FilterFunc)
 		eventStream = stream.Do(eventStream, cef.DoFunc)
 	}
