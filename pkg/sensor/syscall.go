@@ -8,7 +8,7 @@ import (
 
 	api "github.com/capsule8/api/v0"
 
-	"github.com/capsule8/capsule8/pkg/filter"
+	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 
 	"github.com/golang/glog"
@@ -113,20 +113,20 @@ func containsIdFilter(expr *api.Expression) bool {
 
 func rewriteSyscallEventFilter(sef *api.SyscallEventFilter) {
 	if sef.Id != nil {
-		newExpr := filter.NewBinaryExpr(api.Expression_EQ,
-			filter.NewIdentifierExpr("id"),
-			filter.NewValueExpr(sef.Id.Value))
-		sef.FilterExpression = filter.LinkExprs(
+		newExpr := expression.NewBinaryExpr(api.Expression_EQ,
+			expression.NewIdentifierExpr("id"),
+			expression.NewValueExpr(sef.Id.Value))
+		sef.FilterExpression = expression.LinkExprs(
 			api.Expression_LOGICAL_AND,
 			newExpr, sef.FilterExpression)
 		sef.Id = nil
 	}
 	if sef.Type == api.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT {
 		if sef.Ret != nil {
-			newExpr := filter.NewBinaryExpr(api.Expression_EQ,
-				filter.NewIdentifierExpr("ret"),
-				filter.NewValueExpr(sef.Ret.Value))
-			sef.FilterExpression = filter.LinkExprs(
+			newExpr := expression.NewBinaryExpr(api.Expression_EQ,
+				expression.NewIdentifierExpr("ret"),
+				expression.NewValueExpr(sef.Ret.Value))
+			sef.FilterExpression = expression.LinkExprs(
 				api.Expression_LOGICAL_AND,
 				newExpr, sef.FilterExpression)
 			sef.Ret = nil
@@ -147,7 +147,7 @@ func registerSyscallEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 			continue
 		}
 
-		expr, err := filter.NewExpression(sef.FilterExpression)
+		expr, err := expression.NewExpression(sef.FilterExpression)
 		if err != nil {
 			glog.V(1).Infof("Invalid syscall event filter: %s", err)
 			continue

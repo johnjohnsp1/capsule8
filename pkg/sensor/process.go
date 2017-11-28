@@ -7,7 +7,7 @@ import (
 
 	api "github.com/capsule8/api/v0"
 
-	"github.com/capsule8/capsule8/pkg/filter"
+	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/sys"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 	"github.com/golang/glog"
@@ -112,29 +112,29 @@ func rewriteProcessEventFilter(pef *api.ProcessEventFilter) {
 	switch pef.Type {
 	case api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC:
 		if pef.ExecFilename != nil {
-			newExpr := filter.NewBinaryExpr(api.Expression_EQ,
-				filter.NewIdentifierExpr("filename"),
-				filter.NewValueExpr(pef.ExecFilename.Value))
-			pef.FilterExpression = filter.LinkExprs(
+			newExpr := expression.NewBinaryExpr(api.Expression_EQ,
+				expression.NewIdentifierExpr("filename"),
+				expression.NewValueExpr(pef.ExecFilename.Value))
+			pef.FilterExpression = expression.LinkExprs(
 				api.Expression_LOGICAL_AND,
 				newExpr, pef.FilterExpression)
 			pef.ExecFilename = nil
 			pef.ExecFilenamePattern = nil
 		} else if pef.ExecFilenamePattern != nil {
-			newExpr := filter.NewBinaryExpr(api.Expression_LIKE,
-				filter.NewIdentifierExpr("filename"),
-				filter.NewValueExpr(pef.ExecFilenamePattern.Value))
-			pef.FilterExpression = filter.LinkExprs(
+			newExpr := expression.NewBinaryExpr(api.Expression_LIKE,
+				expression.NewIdentifierExpr("filename"),
+				expression.NewValueExpr(pef.ExecFilenamePattern.Value))
+			pef.FilterExpression = expression.LinkExprs(
 				api.Expression_LOGICAL_AND,
 				newExpr, pef.FilterExpression)
 			pef.ExecFilenamePattern = nil
 		}
 	case api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT:
 		if pef.ExitCode != nil {
-			newExpr := filter.NewBinaryExpr(api.Expression_LIKE,
-				filter.NewIdentifierExpr("code"),
-				filter.NewValueExpr(pef.ExitCode.Value))
-			pef.FilterExpression = filter.LinkExprs(
+			newExpr := expression.NewBinaryExpr(api.Expression_LIKE,
+				expression.NewIdentifierExpr("code"),
+				expression.NewValueExpr(pef.ExitCode.Value))
+			pef.FilterExpression = expression.LinkExprs(
 				api.Expression_LOGICAL_AND,
 				newExpr, pef.FilterExpression)
 			pef.ExitCode = nil
@@ -160,7 +160,7 @@ func registerProcessEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 			if pef.FilterExpression == nil {
 				execWildcard = true
 			} else {
-				expr, err := filter.NewExpression(pef.FilterExpression)
+				expr, err := expression.NewExpression(pef.FilterExpression)
 				if err != nil {
 					glog.V(1).Infof("Invalid process event filter: %s", err)
 					continue
@@ -177,7 +177,7 @@ func registerProcessEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 			if pef.FilterExpression == nil {
 				exitWildcard = true
 			} else {
-				expr, err := filter.NewExpression(pef.FilterExpression)
+				expr, err := expression.NewExpression(pef.FilterExpression)
 				if err != nil {
 					glog.V(1).Infof("Invalid process event filter: %s", err)
 					continue

@@ -4,7 +4,7 @@ import (
 	api "github.com/capsule8/api/v0"
 
 	"github.com/capsule8/capsule8/pkg/container"
-	"github.com/capsule8/capsule8/pkg/filter"
+	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/stream"
 
 	"github.com/gobwas/glob"
@@ -13,7 +13,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-var containerEventTypes = filter.FieldTypeMap{
+var containerEventTypes = expression.FieldTypeMap{
 	"name":             api.ValueType_STRING,
 	"image_id":         api.ValueType_STRING,
 	"image_name":       api.ValueType_STRING,
@@ -194,8 +194,8 @@ func NewContainerEventRepeater(sensor *Sensor) (*ContainerEventRepeater, error) 
 	return cer, nil
 }
 
-func convertEvent(cev *api.ContainerEvent) filter.FieldValueMap {
-	values := filter.FieldValueMap{
+func convertEvent(cev *api.ContainerEvent) expression.FieldValueMap {
+	values := expression.FieldValueMap{
 		"image_id":   cev.ImageId,
 		"image_name": cev.ImageName,
 		"host_pid":   cev.HostPid,
@@ -213,14 +213,14 @@ func convertEvent(cev *api.ContainerEvent) filter.FieldValueMap {
 
 type containerEventFilter struct {
 	view api.ContainerEventView
-	expr *filter.Expression
+	expr *expression.Expression
 }
 
 func (cer *ContainerEventRepeater) NewEventStream(sub *api.Subscription) (*stream.Stream, error) {
 	filters := make(map[api.ContainerEventType]*containerEventFilter)
 	exprs := make(map[api.ContainerEventType]*api.Expression)
 	for _, cef := range sub.EventFilter.ContainerEvents {
-		exprs[cef.Type] = filter.LinkExprs(
+		exprs[cef.Type] = expression.LinkExprs(
 			api.Expression_LOGICAL_OR,
 			exprs[cef.Type],
 			cef.FilterExpression)
@@ -238,7 +238,7 @@ func (cer *ContainerEventRepeater) NewEventStream(sub *api.Subscription) (*strea
 	var badTypes []api.ContainerEventType
 	for t, expr := range exprs {
 		if expr != nil {
-			e, err := filter.NewExpression(expr)
+			e, err := expression.NewExpression(expr)
 			if err != nil {
 				glog.V(1).Infof("Invalid container filter expression: %s", err)
 				badTypes = append(badTypes, t)
@@ -281,7 +281,7 @@ func (cer *ContainerEventRepeater) NewEventStream(sub *api.Subscription) (*strea
 				v, err := cef.expr.Evaluate(
 					containerEventTypes,
 					containerEventValues)
-				if err != nil || !filter.IsValueTrue(v) {
+				if err != nil || !expression.IsValueTrue(v) {
 					return false
 				}
 			}

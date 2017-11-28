@@ -7,7 +7,7 @@ import (
 
 	api "github.com/capsule8/api/v0"
 
-	"github.com/capsule8/capsule8/pkg/filter"
+	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 
 	"github.com/golang/glog"
@@ -41,7 +41,7 @@ func newKprobeFilter(kef *api.KernelFunctionCallFilter) *kprobeFilter {
 	var filterString string
 
 	if kef.FilterExpression != nil {
-		expr, err := filter.NewExpression(kef.FilterExpression)
+		expr, err := expression.NewExpression(kef.FilterExpression)
 		if err != nil {
 			glog.V(1).Infof("Bad kprobe filter expression: %s", err)
 			return nil

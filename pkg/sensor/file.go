@@ -6,7 +6,7 @@ import (
 
 	api "github.com/capsule8/api/v0"
 
-	"github.com/capsule8/capsule8/pkg/filter"
+	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 	"github.com/golang/glog"
 )
@@ -36,39 +36,39 @@ func (f *fileOpenFilter) decodeDoSysOpen(sample *perf.SampleRecord, data perf.Tr
 
 func rewriteFileEventFilter(fef *api.FileEventFilter) {
 	if fef.Filename != nil {
-		newExpr := filter.NewBinaryExpr(api.Expression_EQ,
-			filter.NewIdentifierExpr("filename"),
-			filter.NewValueExpr(fef.Filename.Value))
-		fef.FilterExpression = filter.LinkExprs(
+		newExpr := expression.NewBinaryExpr(api.Expression_EQ,
+			expression.NewIdentifierExpr("filename"),
+			expression.NewValueExpr(fef.Filename.Value))
+		fef.FilterExpression = expression.LinkExprs(
 			api.Expression_LOGICAL_AND,
 			newExpr, fef.FilterExpression)
 		fef.Filename = nil
 		fef.FilenamePattern = nil
 	} else if fef.FilenamePattern != nil {
-		newExpr := filter.NewBinaryExpr(api.Expression_LIKE,
-			filter.NewIdentifierExpr("filename"),
-			filter.NewValueExpr(fef.FilenamePattern.Value))
-		fef.FilterExpression = filter.LinkExprs(
+		newExpr := expression.NewBinaryExpr(api.Expression_LIKE,
+			expression.NewIdentifierExpr("filename"),
+			expression.NewValueExpr(fef.FilenamePattern.Value))
+		fef.FilterExpression = expression.LinkExprs(
 			api.Expression_LOGICAL_AND,
 			newExpr, fef.FilterExpression)
 		fef.FilenamePattern = nil
 	}
 
 	if fef.OpenFlagsMask != nil {
-		newExpr := filter.NewBinaryExpr(api.Expression_BITWISE_AND,
-			filter.NewIdentifierExpr("flags"),
-			filter.NewValueExpr(fef.OpenFlagsMask.Value))
-		fef.FilterExpression = filter.LinkExprs(
+		newExpr := expression.NewBinaryExpr(api.Expression_BITWISE_AND,
+			expression.NewIdentifierExpr("flags"),
+			expression.NewValueExpr(fef.OpenFlagsMask.Value))
+		fef.FilterExpression = expression.LinkExprs(
 			api.Expression_LOGICAL_AND,
 			newExpr, fef.FilterExpression)
 		fef.OpenFlagsMask = nil
 	}
 
 	if fef.CreateModeMask != nil {
-		newExpr := filter.NewBinaryExpr(api.Expression_BITWISE_AND,
-			filter.NewIdentifierExpr("mode"),
-			filter.NewValueExpr(fef.OpenFlagsMask.Value))
-		fef.FilterExpression = filter.LinkExprs(
+		newExpr := expression.NewBinaryExpr(api.Expression_BITWISE_AND,
+			expression.NewIdentifierExpr("mode"),
+			expression.NewValueExpr(fef.OpenFlagsMask.Value))
+		fef.FilterExpression = expression.LinkExprs(
 			api.Expression_LOGICAL_AND,
 			newExpr, fef.FilterExpression)
 		fef.CreateModeMask = nil
@@ -91,7 +91,7 @@ func registerFileEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*ap
 		if fef.FilterExpression == nil {
 			wildcard = true
 		} else {
-			expr, err := filter.NewExpression(fef.FilterExpression)
+			expr, err := expression.NewExpression(fef.FilterExpression)
 			if err != nil {
 				glog.V(1).Infof("Invalid file event filter: %s", err)
 				continue

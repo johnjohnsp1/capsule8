@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc"
 
 	api "github.com/capsule8/api/v0"
-	"github.com/capsule8/capsule8/pkg/filter"
+	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/golang/protobuf/ptypes/wrappers"
 )
 
@@ -94,9 +94,9 @@ func createSubscription() *api.Subscription {
 		},
 	}
 
-	sinFamilyFilter := filter.NewBinaryExpr(api.Expression_EQ,
-		filter.NewIdentifierExpr("sin_family"),
-		filter.NewValueExpr(uint16(2)))
+	sinFamilyFilter := expression.NewBinaryExpr(api.Expression_EQ,
+		expression.NewIdentifierExpr("sin_family"),
+		expression.NewValueExpr(uint16(2)))
 	kernelCallEvents := []*api.KernelFunctionCallFilter{
 		//
 		// Install a kprobe on connect(2)

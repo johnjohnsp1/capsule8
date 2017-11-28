@@ -6,7 +6,7 @@ import (
 
 	api "github.com/capsule8/api/v0"
 
-	"github.com/capsule8/capsule8/pkg/filter"
+	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 
 	"github.com/golang/glog"
@@ -192,7 +192,7 @@ func (nfs *networkFilterSet) add(nef *api.NetworkEventFilter) {
 	var filterString string
 
 	if nef.FilterExpression != nil {
-		expr, err := filter.NewExpression(nef.FilterExpression)
+		expr, err := expression.NewExpression(nef.FilterExpression)
 		if err != nil {
 			glog.V(1).Infof("Bad network filter expression: %s", err)
 			return
