@@ -114,6 +114,17 @@ var cgroupTests = []struct {
 1:name=openrc:/docker
 0::/docker
 `, "e871ee9a818bab3222c94efe196e8555cb372676e96fea847a609c2d39e187a4"},
+	{`10:hugetlb:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+9:perf_event:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+8:blkio:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+7:net_cls:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+6:freezer:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+5:devices:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+4:memory:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+3:cpuacct,cpu:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+2:cpuset:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+1:name=systemd:/system.slice/docker-47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81.scope
+`, "47490dda5cd7e409e7bf04a8b291f87f15031090a955dac9ceed6a2160474d81"},
 	{`9:net_cls:/
 8:devices:/user.slice
 7:cpu,cpuacct:/user.slice

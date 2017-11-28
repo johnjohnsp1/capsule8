@@ -7,11 +7,9 @@ import (
 	"github.com/golang/glog"
 )
 
-const testContainerTag = "c8-sensor-container-functest"
-
 type containerTest struct {
 	testContainer *Container
-	innerContID   string
+	containerID   string
 	seenEvts      map[api.ContainerEventType]bool
 }
 
@@ -25,18 +23,17 @@ func (ct *containerTest) BuildContainer(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	} else {
-		glog.V(2).Infof("Build container %s\n", c.ImageID[1:12])
+		glog.V(2).Infof("Build container %s\n", c.ImageID[0:12])
 		ct.testContainer = c
 	}
 }
 
 func (ct *containerTest) RunContainer(t *testing.T) {
-	err := ct.testContainer.Run(
-		"-v", "/var/run/docker.sock:/var/run/docker.sock")
+	err := ct.testContainer.Run()
 	if err != nil {
 		t.Error(err)
 	}
-	glog.V(2).Infof("Running container %s\n", ct.testContainer.ImageID[1:12])
+	glog.V(2).Infof("Running container %s\n", ct.testContainer.ImageID[0:12])
 }
 
 func (ct *containerTest) CreateSubscription(t *testing.T) *api.Subscription {
@@ -65,28 +62,39 @@ func (ct *containerTest) CreateSubscription(t *testing.T) *api.Subscription {
 }
 
 func (ct *containerTest) HandleTelemetryEvent(t *testing.T, te *api.TelemetryEvent) bool {
-	glog.V(2).Infof("Got Event %#v\n", te.Event)
+	glog.V(2).Infof("%+v\n", te.Event)
 	switch event := te.Event.Event.(type) {
 	case *api.Event_Container:
-		glog.V(2).Infof("Container Event %#v\n", *event.Container)
 		switch event.Container.Type {
 		case api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED:
-			if event.Container.ImageName == testContainerTag {
-				if ct.innerContID != "" {
-					t.Errorf("Already seen container event %s", event.Container.Type)
+
+			if event.Container.ImageName == ct.testContainer.ImageID {
+				if ct.containerID != "" {
+					t.Errorf("Already saw container creation for %v",
+						event.Container.Type)
 				}
-				ct.innerContID = te.Event.ContainerId
+
+				ct.containerID = te.Event.ContainerId
 				ct.seenEvts[event.Container.Type] = true
+
+				glog.V(1).Infof("Found container %s",
+					ct.containerID)
 			}
 
 		case api.ContainerEventType_CONTAINER_EVENT_TYPE_RUNNING,
 			api.ContainerEventType_CONTAINER_EVENT_TYPE_EXITED,
 			api.ContainerEventType_CONTAINER_EVENT_TYPE_DESTROYED:
-			if ct.innerContID != "" && te.Event.ContainerId == ct.innerContID {
+
+			if ct.containerID != "" && ct.containerID == te.Event.ContainerId {
 				if ct.seenEvts[event.Container.Type] {
-					t.Errorf("Already seen container event %s", event.Container.Type)
+					t.Errorf("Already saw container event type %v",
+						event.Container.Type)
 				}
+
 				ct.seenEvts[event.Container.Type] = true
+
+				glog.V(1).Infof("Got container event %s for %s",
+					event.Container.Type, ct.containerID)
 			}
 
 		}

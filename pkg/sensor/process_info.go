@@ -12,7 +12,6 @@ package sensor
 //
 
 import (
-	"strings"
 	"sync"
 
 	"github.com/capsule8/capsule8/pkg/sys"
@@ -173,7 +172,7 @@ func NewProcessInfoCache(sensor *Sensor) ProcessInfoCache {
 
 	// Attach a probe for task_renamse involving the runc
 	// init processes to trigger containerId lookups
-	f := "oldcomm ~ runc* || newcomm ~ runc:*"
+	f := "oldcomm == exe || oldcomm == runc:[2:INIT]"
 	eventName = "task/task_rename"
 	err = sensor.monitor.RegisterEvent(eventName, cache.decodeRuncTaskRename, f, nil)
 	if err != nil {
@@ -304,19 +303,6 @@ func (pc *ProcessInfoCache) decodeNewTask(
 	// Inherit containerId from parent
 	containerId, _ = pc.ProcessContainerId(parentPid)
 
-	// Lookup containerId from /proc filesystem for runc inits
-	if len(containerId) == 0 && strings.HasPrefix(command, "runc:") {
-		var err error
-
-		containerId, err = procFS.ContainerID(parentPid)
-		if err == nil && len(containerId) > 0 {
-			// Set it in the parent as well
-			pc.cache.SetTaskContainerId(parentPid, containerId)
-		} else {
-			containerId, err = procFS.ContainerID(childPid)
-		}
-	}
-
 	t := task{
 		pid:         childPid,
 		ppid:        parentPid,
@@ -370,11 +356,14 @@ func (pc *ProcessInfoCache) decodeRuncTaskRename(
 ) (interface{}, error) {
 	pid := int(data["pid"].(int32))
 
+	glog.V(10).Infof("decodeRuncTaskRename: pid = %d", pid)
+
 	var t task
 	pc.cache.LookupTask(pid, &t)
 
 	if len(t.containerId) == 0 {
 		containerId, err := procFS.ContainerID(pid)
+		glog.V(10).Infof("containerID(%d) = %s", pid, containerId)
 		if err == nil && len(containerId) > 0 {
 			pc.cache.SetTaskContainerId(pid, containerId)
 		}
@@ -384,6 +373,7 @@ func (pc *ProcessInfoCache) decodeRuncTaskRename(
 
 		if len(parent.containerId) == 0 {
 			containerId, err := procFS.ContainerID(parent.pid)
+			glog.V(10).Infof("containerID(%d) = %s", pid, containerId)
 			if err == nil && len(containerId) > 0 {
 				pc.cache.SetTaskContainerId(parent.pid, containerId)
 			}

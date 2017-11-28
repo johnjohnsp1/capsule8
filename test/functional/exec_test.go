@@ -51,8 +51,8 @@ func (ct *execTest) CreateSubscription(t *testing.T) *api.Subscription {
 		&api.ProcessEventFilter{
 			Type: api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
 			ExecFilenamePattern: &wrappers.StringValue{
-				// Want to only match execs of 'dmesg'
-				Value: "*mes*",
+				// Want to only match execs of 'uname'
+				Value: "*nam*",
 			},
 		},
 	}
@@ -95,7 +95,7 @@ func (ct *execTest) HandleTelemetryEvent(t *testing.T, telemetryEvent *api.Telem
 	case *api.Event_Process:
 		if event.Process.Type == api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC &&
 			telemetryEvent.Event.ContainerId == ct.containerID &&
-			event.Process.ExecFilename == "/bin/dmesg" {
+			event.Process.ExecFilename == "/bin/uname" {
 
 			if len(ct.processID) > 0 {
 				t.Error("Already saw process exec")
