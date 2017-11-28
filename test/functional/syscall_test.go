@@ -13,6 +13,7 @@ const ALARM_SECS = 37
 
 type syscallTest struct {
 	testContainer *Container
+	pid           string
 	seenEnter     bool
 	seenExit      bool
 }
@@ -69,14 +70,27 @@ func (st *syscallTest) HandleTelemetryEvent(t *testing.T, te *api.TelemetryEvent
 		}
 		switch event.Syscall.Type {
 		case api.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER:
-			if event.Syscall.Arg0 == ALARM_SECS {
+			if te.Event.ImageId == st.testContainer.ImageID {
+				if event.Syscall.Arg0 != ALARM_SECS {
+					t.Errorf("Expected Arg0 %d got %d", ALARM_SECS, event.Syscall.Arg0)
+					return false
+				}
+				if st.pid != "" {
+					t.Error("Already saw container created")
+					return false
+				}
+
+				st.pid = te.Event.ProcessId
 				st.seenEnter = true
 			}
 		case api.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT:
-			if event.Syscall.Ret != ALARM_SECS {
-				t.Errorf("Expected syscall return %d, got %d\n", ALARM_SECS, event.Syscall.Ret)
+			if te.Event.ImageId == st.testContainer.ImageID && te.Event.ProcessId == st.pid {
+				if event.Syscall.Ret != ALARM_SECS {
+					t.Errorf("Expected syscall return %d, got %d\n", ALARM_SECS, event.Syscall.Ret)
+					return false
+				}
+				st.seenExit = true
 			}
-			st.seenExit = true
 		}
 
 		return !st.seenEnter || !st.seenExit
