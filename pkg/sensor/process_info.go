@@ -5,7 +5,7 @@ package sensor
 // system-global EventMonitor to keep it up-to-date. The cache also monitors
 // for runc container starts to identify the containerID for a given PID
 // namespace. Process information gathered by the cache may be retrieved via
-// the processId and processContainerId methods.
+// the ProcessId and ProcessContainerId methods.
 //
 // glog levels used:
 //   10 = cache operation level tracing for debugging
@@ -21,17 +21,22 @@ import (
 	"github.com/golang/glog"
 )
 
+const (
+	arrayTaskCacheSize = 32768
+	commitCredsAddress = "commit_creds"
+	commitCredsArgs    = "usage=+0(%di):u64 uid=+8(%di):u32 gid=+12(%di):u32"
+)
+
 var (
 	procFS *proc.FileSystem
 	once   sync.Once
 )
 
-const arrayTaskCacheSize = 32768
-
 type taskCache interface {
 	LookupTask(int, *task) bool
 	InsertTask(int, task)
 	SetTaskContainerId(int, string)
+	SetTaskCredentials(int, cred)
 }
 
 type arrayTaskCache struct {
@@ -63,6 +68,12 @@ func (c *arrayTaskCache) InsertTask(pid int, t task) {
 func (c *arrayTaskCache) SetTaskContainerId(pid int, cID string) {
 	glog.V(10).Infof("SetTaskContainerId(%d) = %s", pid, cID)
 	c.entries[pid].containerId = cID
+}
+
+func (c *arrayTaskCache) SetTaskCredentials(pid int, creds cred) {
+	glog.V(10).Infof("SetTaskCredentials(%d) = %+v", pid, creds)
+
+	c.entries[pid].creds = creds
 }
 
 type mapTaskCache struct {
@@ -112,6 +123,18 @@ func (c *mapTaskCache) SetTaskContainerId(pid int, cID string) {
 	}
 }
 
+func (c *mapTaskCache) SetTaskCredentials(pid int, creds cred) {
+	glog.V(10).Infof("SetTaskCredentials(%d) = %+v", pid, creds)
+
+	c.Lock()
+	defer c.Unlock()
+	t, ok := c.entries[pid]
+	if ok {
+		t.creds = creds
+		c.entries[pid] = t
+	}
+}
+
 type ProcessInfoCache struct {
 	sensor *Sensor
 	cache  taskCache
@@ -143,6 +166,11 @@ func NewProcessInfoCache(sensor *Sensor) ProcessInfoCache {
 		glog.Fatalf("Couldn't register event %s: %s", eventName, err)
 	}
 
+	// Attach kprobe on commit_creds to capture task privileges
+	name := perf.UniqueProbeName("capsule8", commitCredsAddress)
+	_, err = sensor.monitor.RegisterKprobe(name, commitCredsAddress, false,
+		commitCredsArgs, cache.decodeCommitCreds, "", nil)
+
 	// Attach a probe for task_renamse involving the runc
 	// init processes to trigger containerId lookups
 	f := "oldcomm ~ runc* || newcomm ~ runc:*"
@@ -166,13 +194,13 @@ func (pc *ProcessInfoCache) lookupLeader(pid int) (task, bool) {
 	return t, t.pid == t.tgid
 }
 
-// processId returns the unique ID for the process indicated by the
-// given PID. This process ID is identical whether it is derived
-// inside or outside a container.
+// ProcessId returns the unique ID for the thread group of the process
+// indicated by the given PID. This process ID is identical whether it
+// is derived inside or outside a container.
 func (pc *ProcessInfoCache) ProcessId(pid int) (string, bool) {
 	leader, ok := pc.lookupLeader(pid)
 	if ok {
-		return leader.processId, true
+		return proc.DeriveUniqueID(leader.pid, leader.ppid), true
 	}
 
 	return "", false
@@ -192,14 +220,50 @@ func (pc *ProcessInfoCache) ProcessContainerId(pid int) (string, bool) {
 }
 
 //
-// task represents a schedulable task
+// task represents a schedulable task. All Linux tasks are uniquely
+// identified at a given time by their PID, but those PIDs may be
+// reused after hitting the maximum PID value.
 //
 type task struct {
-	pid, ppid, tgid int
-	cloneFlags      uint64
-	command         string
-	processId       string
-	containerId     string
+	// All Linux schedulable tasks are identified by a PID. This includes
+	// both processes and threads.
+	pid int
+
+	// Thread groups all have a leader, identified by its PID. The
+	// thread group leader has tgid == pid.
+	tgid int
+
+	// This ppid is of the originating parent process vs. current
+	// parent in case the parent terminates and the child is
+	// reparented (usually to init).
+	ppid int
+
+	// Flags passed to clone(2) when this process was created.
+	cloneFlags uint64
+
+	// This is the kernel's comm field, which is initialized to a
+	// the first 15 characters of the basename of the executable
+	// being run. It is also set via pthread_setname_np(3) and
+	// prctl(2) PR_SET_NAME. It is always NULL-terminated and no
+	// longer than 16 bytes (including NULL byte).
+	command string
+
+	// Process credentials (uid, gid). This is kept up-to-date by
+	// recording changes observed via a probe on commit_creds().
+	creds cred
+
+	// Unique ID for the container instance
+	containerId string
+}
+
+type cred struct {
+	// Set to true when this struct has been initialized. This
+	// helps differentiate from processes running as root (all
+	// cred fields are legitimately set to 0).
+	initialized bool
+
+	// Record uid and gid to have symmetry with eBPF get_current_uid_gid()
+	uid, gid uint32
 }
 
 //
@@ -227,19 +291,14 @@ func (pc *ProcessInfoCache) decodeNewTask(
 	command := string(comm2)
 
 	var tgid int
-	var uniqueId, containerId string
+	var containerId string
 
 	const CLONE_THREAD = 0x10000
 	if (cloneFlags & CLONE_THREAD) != 0 {
 		tgid = parentPid
-
-		uniqueId, _ = pc.ProcessId(tgid)
 	} else {
 		// This is a new thread group leader, tgid is the new pid
 		tgid = childPid
-
-		// Create unique ID for thread group leaders
-		uniqueId = proc.DeriveUniqueID(tgid, parentPid)
 	}
 
 	// Inherit containerId from parent
@@ -264,11 +323,39 @@ func (pc *ProcessInfoCache) decodeNewTask(
 		tgid:        tgid,
 		cloneFlags:  cloneFlags,
 		command:     command,
-		processId:   uniqueId,
 		containerId: containerId,
 	}
 
 	pc.cache.InsertTask(t.pid, t)
+
+	return nil, nil
+}
+
+//
+// Decodes each commit_creds dynamic tracepoint event and updates cache
+//
+func (pc *ProcessInfoCache) decodeCommitCreds(
+	sample *perf.SampleRecord,
+	data perf.TraceEventSampleData,
+) (interface{}, error) {
+	pid := int(data["common_pid"].(int32))
+
+	usage := data["usage"].(uint64)
+
+	if usage == 0 {
+		glog.Fatal("Received commit_creds with zero usage")
+	}
+
+	uid := data["uid"].(uint32)
+	gid := data["gid"].(uint32)
+
+	c := cred{
+		initialized: true,
+		uid:         uid,
+		gid:         gid,
+	}
+
+	pc.cache.SetTaskCredentials(pid, c)
 
 	return nil, nil
 }
