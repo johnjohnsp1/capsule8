@@ -432,7 +432,7 @@ func validateTypes(expr *api.Expression, types FieldTypeMap) (api.ValueType, err
 				api.ValueType_name[int32(rhs)])
 			return 0, err
 		}
-		return api.ValueType_BOOL, nil
+		return lhs, nil
 	}
 
 	return 0, nil

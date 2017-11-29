@@ -192,29 +192,6 @@ func compareLike(lhs, rhs api.Value) (bool, error) {
 	}
 }
 
-func isValueTrue(value api.Value) bool {
-	switch value.GetType() {
-	case api.ValueType_STRING:
-		return value.GetStringValue() != ""
-	case api.ValueType_SINT8, api.ValueType_SINT16,
-		api.ValueType_SINT32, api.ValueType_SINT64:
-
-		return value.GetSignedValue() != 0
-	case api.ValueType_UINT8, api.ValueType_UINT16,
-		api.ValueType_UINT32, api.ValueType_UINT64:
-
-		return value.GetUnsignedValue() != 0
-	case api.ValueType_BOOL:
-		return value.GetBoolValue()
-	case api.ValueType_DOUBLE:
-		return value.GetDoubleValue() != 0.0
-	case api.ValueType_TIMESTAMP:
-		stamp := value.GetTimestampValue()
-		return stamp.Seconds != 0 && stamp.Nanos != 0
-	}
-	return false
-}
-
 type evalContext struct {
 	types  FieldTypeMap
 	values FieldValueMap
@@ -306,7 +283,7 @@ func (c *evalContext) evaluateNode(node *api.Expression) error {
 			return err
 		}
 		v := c.stack[len(c.stack)-1]
-		if !isValueTrue(v) {
+		if !IsValueTrue(v) {
 			// Leave the false value on the stack and return
 			// There's no need to evaluate the rhs; it won't change
 			// the result.
@@ -324,7 +301,7 @@ func (c *evalContext) evaluateNode(node *api.Expression) error {
 			return err
 		}
 		v := c.stack[len(c.stack)-1]
-		if isValueTrue(v) {
+		if IsValueTrue(v) {
 			// Leave the true value on the stack and return
 			// There's no need to evaluate the lhs; it won't change
 			// the result.
@@ -397,7 +374,7 @@ func (c *evalContext) evaluateNode(node *api.Expression) error {
 		if err != nil {
 			return err
 		}
-		v := c.stack[len(c.stack)-1]
+		v := &c.stack[len(c.stack)-1]
 		result := v.GetType() == nullValueType
 		v.Type = api.ValueType_BOOL
 		v.Value = &api.Value_BoolValue{BoolValue: result}
@@ -408,7 +385,7 @@ func (c *evalContext) evaluateNode(node *api.Expression) error {
 		if err != nil {
 			return err
 		}
-		v := c.stack[len(c.stack)-1]
+		v := &c.stack[len(c.stack)-1]
 		result := v.GetType() != nullValueType
 		v.Type = api.ValueType_BOOL
 		v.Value = &api.Value_BoolValue{BoolValue: result}
