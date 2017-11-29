@@ -5,7 +5,7 @@
   branch = "master"
   name = "github.com/capsule8/api"
   packages = ["v0"]
-  revision = "e030c814dd1e9e4072d9ef4c769053cbcea58ee1"
+  revision = "d162d9ac9479963c101e0227683c399988050988"
 
 [[projects]]
   name = "github.com/gobwas/glob"
@@ -69,6 +69,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "f1d191fceb345e43cfb82e7ce3afac46a2089bd9818c663fbd5e1d9612c14a92"
+  inputs-digest = "376816339a39d03ec3b11eb1f948d19134adab535412a7c0743373172de23d5b"
   solver-name = "gps-cdcl"
   solver-version = 1
