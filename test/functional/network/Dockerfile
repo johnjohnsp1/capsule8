@@ -2,15 +2,13 @@ FROM ubuntu:16.04
 
 RUN apt-get update && \
     apt-get -y upgrade && \
-    apt-get -y install build-essential && \
+    apt-get -y install netcat-openbsd && \
     apt-get clean
 
 WORKDIR /network
 
-COPY main.c ./
+COPY network.sh ./
 
 EXPOSE 1234 12345
 
-RUN cc main.c -o main -pthread
-
-CMD ./main 1234; ./main 12345
+CMD ./network.sh 1234; ./network.sh 12345
