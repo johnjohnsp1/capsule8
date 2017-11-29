@@ -4,11 +4,25 @@ import (
 	api "github.com/capsule8/api/v0"
 
 	"github.com/capsule8/capsule8/pkg/container"
-	"github.com/capsule8/capsule8/pkg/filter"
+	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/stream"
+
+	"github.com/gobwas/glob"
+	"github.com/golang/glog"
 
 	"golang.org/x/sys/unix"
 )
+
+var containerEventTypes = expression.FieldTypeMap{
+	"name":             api.ValueType_STRING,
+	"image_id":         api.ValueType_STRING,
+	"image_name":       api.ValueType_STRING,
+	"host_pid":         api.ValueType_SINT32,
+	"exit_code":        api.ValueType_SINT32,
+	"exit_status":      api.ValueType_UINT32,
+	"exit_signal":      api.ValueType_UINT32,
+	"exit_core_dumped": api.ValueType_BOOL,
+}
 
 type ContainerEventRepeater struct {
 	repeater *stream.Repeater
@@ -180,38 +194,243 @@ func NewContainerEventRepeater(sensor *Sensor) (*ContainerEventRepeater, error) 
 	return cer, nil
 }
 
+func convertEvent(cev *api.ContainerEvent) expression.FieldValueMap {
+	values := expression.FieldValueMap{
+		"image_id":   cev.ImageId,
+		"image_name": cev.ImageName,
+		"host_pid":   cev.HostPid,
+	}
+
+	switch cev.Type {
+	case api.ContainerEventType_CONTAINER_EVENT_TYPE_EXITED:
+		values["exit_code"] = cev.ExitCode
+		values["exit_status"] = cev.ExitStatus
+		values["exit_signal"] = cev.ExitSignal
+		values["exit_core_dumped"] = cev.ExitCoreDumped
+	}
+	return values
+}
+
+type containerEventFilter struct {
+	view api.ContainerEventView
+	expr *expression.Expression
+}
+
 func (cer *ContainerEventRepeater) NewEventStream(sub *api.Subscription) (*stream.Stream, error) {
+	filters := make(map[api.ContainerEventType]*containerEventFilter)
+	exprs := make(map[api.ContainerEventType]*api.Expression)
+	for _, cef := range sub.EventFilter.ContainerEvents {
+		exprs[cef.Type] = expression.LinkExprs(
+			api.Expression_LOGICAL_OR,
+			exprs[cef.Type],
+			cef.FilterExpression)
+		if f, ok := filters[cef.Type]; ok {
+			if cef.View == api.ContainerEventView_FULL {
+				f.view = cef.View
+			}
+		} else {
+			filters[cef.Type] = &containerEventFilter{
+				view: cef.View,
+			}
+		}
+	}
+
+	var badTypes []api.ContainerEventType
+	for t, expr := range exprs {
+		if expr != nil {
+			e, err := expression.NewExpression(expr)
+			if err != nil {
+				glog.V(1).Infof("Invalid container filter expression: %s", err)
+				badTypes = append(badTypes, t)
+				continue
+			}
+			err = e.Validate(containerEventTypes)
+			if err != nil {
+				glog.V(1).Infof("Invalid container filter expression: %s", err)
+				badTypes = append(badTypes, t)
+				continue
+			}
+			filters[t].expr = e
+		}
+	}
+	for _, t := range badTypes {
+		delete(filters, t)
+	}
+	if len(filters) == 0 {
+		return nil, nil
+	}
+
+	// Create a new EventStream and apply a filter based on this unique
+	// subscription to the copy of the container event stream that we
+	// got from the Repeater.
 	s := cer.repeater.NewStream()
 
-	// Apply a filter based on this unique subscription to the copy
-	// of the container event stream that we got from the Repeater.
 	s = stream.Filter(s, func(i interface{}) bool {
 		e := i.(*api.Event)
 
 		switch e.Event.(type) {
 		case *api.Event_Container:
 			cev := e.GetContainer()
-
-			for _, cef := range sub.EventFilter.ContainerEvents {
-				mappings := make(map[string]*filter.MappedField)
-				match, _ :=
-					filter.CompareFields(cef, cev, mappings)
-
-				if !match {
-					continue
-				}
-
-				if cef.View != api.ContainerEventView_FULL {
-					cev.OciConfigJson = ""
-					cev.DockerConfigJson = ""
-				}
-
-				return true
+			cef, ok := filters[cev.Type]
+			if !ok {
+				return false
 			}
+
+			if cef.expr != nil {
+				containerEventValues := convertEvent(cev)
+				v, err := cef.expr.Evaluate(
+					containerEventTypes,
+					containerEventValues)
+				if err != nil || !expression.IsValueTrue(v) {
+					return false
+				}
+			}
+
+			if cef.view != api.ContainerEventView_FULL {
+				cev.OciConfigJson = ""
+				cev.DockerConfigJson = ""
+			}
+
+			return true
 		}
 
 		return false
 	})
 
 	return s, nil
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+func newContainerFilter(ecf *api.ContainerFilter) *containerFilter {
+	cf := &containerFilter{}
+
+	for _, v := range ecf.Ids {
+		cf.addContainerId(v)
+	}
+
+	for _, v := range ecf.Names {
+		cf.addContainerName(v)
+	}
+
+	for _, v := range ecf.ImageIds {
+		cf.addImageId(v)
+	}
+
+	for _, v := range ecf.ImageNames {
+		cf.addImageName(v)
+	}
+
+	return cf
+}
+
+type containerFilter struct {
+	containerIds   map[string]bool
+	containerNames map[string]bool
+	imageIds       map[string]bool
+	imageGlobs     map[string]glob.Glob
+}
+
+func (c *containerFilter) addContainerId(cid string) {
+	if len(cid) > 0 {
+		if c.containerIds == nil {
+			c.containerIds = make(map[string]bool)
+		}
+		c.containerIds[cid] = true
+	}
+}
+
+func (c *containerFilter) removeContainerId(cid string) {
+	delete(c.containerIds, cid)
+}
+
+func (c *containerFilter) addContainerName(cname string) {
+	if len(cname) > 0 {
+		if c.containerNames == nil {
+			c.containerNames = make(map[string]bool)
+		}
+		c.containerNames[cname] = true
+	}
+}
+
+func (c *containerFilter) addImageId(iid string) {
+	if len(iid) > 0 {
+		if c.imageIds == nil {
+			c.imageIds = make(map[string]bool)
+		}
+		c.imageIds[iid] = true
+	}
+}
+
+func (c *containerFilter) addImageName(iname string) {
+	if len(iname) > 0 {
+		if c.imageGlobs == nil {
+			c.imageGlobs = make(map[string]glob.Glob)
+		} else {
+			_, ok := c.imageGlobs[iname]
+			if ok {
+				return
+			}
+		}
+
+		g, err := glob.Compile(iname, '/')
+		if err == nil {
+			c.imageGlobs[iname] = g
+		}
+	}
+}
+
+func (c *containerFilter) FilterFunc(i interface{}) bool {
+	e := i.(*api.Event)
+
+	//
+	// Fast path: Check if containerId is in containerIds map
+	//
+	if c.containerIds != nil && c.containerIds[e.ContainerId] {
+		return true
+	}
+
+	switch e.Event.(type) {
+	case *api.Event_Container:
+		cev := e.GetContainer()
+
+		//
+		// Slow path: Check if other identifiers are in maps. If they
+		// are, add the containerId to containerIds map to take fast
+		// path next time.
+		//
+
+		if c.containerNames[cev.Name] {
+			c.addContainerId(e.ContainerId)
+			return true
+		}
+
+		if c.imageIds[cev.ImageId] {
+			c.addContainerId(e.ContainerId)
+			return true
+		}
+
+		if c.imageGlobs != nil && cev.ImageName != "" {
+			for _, g := range c.imageGlobs {
+				if g.Match(cev.ImageName) {
+					c.addContainerId(e.ContainerId)
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+func (c *containerFilter) DoFunc(i interface{}) {
+	e := i.(*api.Event)
+
+	switch e.Event.(type) {
+	case *api.Event_Container:
+		cev := e.GetContainer()
+		if cev.Type == api.ContainerEventType_CONTAINER_EVENT_TYPE_DESTROYED {
+			c.removeContainerId(e.ContainerId)
+		}
+	}
 }

@@ -3,7 +3,7 @@ package main
 /*
 EXAMPLES
 
-$ sudo ./kprobe -output 'sockfd=%di sin_family=+0(%si):u16 sin_port=+2(%si):u16 sin_addr=+4(%si):u32' -filter 'sin_family == 2' SyS_connect
+$ sudo ./kprobe -output 'sockfd=%di sin_family=+0(%si):u16 sin_port=+2(%si):u16 sin_addr=+4(%si):u32' SyS_connect
 {"__probe_ip":18446744072118372864,"common_flags":1,"common_pid":11267,"common_preempt_count":0,"common_type":1627,"sin_addr":16777343,"sin_family":2,"sin_port":53764,"sockfd":3}
 [...]
 
@@ -30,7 +30,6 @@ var config struct {
 	endpoint  string
 	symbol    string
 	fetchargs string
-	filter    string
 	onReturn  bool
 }
 
@@ -44,9 +43,6 @@ func init() {
 
 	flag.StringVar(&config.fetchargs, "fetchargs", "",
 		"'fetchargs' string specifying what data to output in events")
-
-	flag.StringVar(&config.filter, "filter", "",
-		"trace event filter string")
 
 	flag.BoolVar(&config.onReturn, "return", false,
 		"set probe on return of given function instead of entry")
@@ -86,7 +82,6 @@ func createSubscription() *api.Subscription {
 			Type:      api.KernelFunctionCallEventType_KERNEL_FUNCTION_CALL_EVENT_TYPE_ENTER,
 			Symbol:    config.symbol,
 			Arguments: arguments,
-			Filter:    config.filter,
 		},
 	}
 

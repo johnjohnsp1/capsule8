@@ -1,4 +1,4 @@
-package filter
+package sensor
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 )
 
 func TestFilterContainerId(t *testing.T) {
-	cf := NewContainerFilter(&api.ContainerFilter{
+	cf := newContainerFilter(&api.ContainerFilter{
 		Ids: []string{
 			"alice",
 			"bob",
@@ -28,7 +28,7 @@ func TestFilterContainerId(t *testing.T) {
 }
 
 func TestFilterContainerImageId(t *testing.T) {
-	cf := NewContainerFilter(&api.ContainerFilter{
+	cf := newContainerFilter(&api.ContainerFilter{
 		ImageIds: []string{
 			"alice",
 			"bob",
@@ -59,7 +59,7 @@ func TestFilterContainerImageId(t *testing.T) {
 }
 
 func TestFilterContainerImageNames(t *testing.T) {
-	cf := NewContainerFilter(&api.ContainerFilter{
+	cf := newContainerFilter(&api.ContainerFilter{
 		ImageNames: []string{
 			"alice",
 			"bob",
@@ -90,7 +90,7 @@ func TestFilterContainerImageNames(t *testing.T) {
 }
 
 func TestFilterContainerNames(t *testing.T) {
-	cf := NewContainerFilter(&api.ContainerFilter{
+	cf := newContainerFilter(&api.ContainerFilter{
 		Names: []string{
 			"alice",
 			"bob",
