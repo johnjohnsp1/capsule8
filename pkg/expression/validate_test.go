@@ -61,18 +61,18 @@ func TestValidateValue(t *testing.T) {
 	testValidateInvalidValue(t, &api.Value{Type: api.ValueType_DOUBLE})
 	testValidateInvalidValue(t, &api.Value{Type: api.ValueType_TIMESTAMP})
 
-	testValidateValidValue(t, NewValueExpr("swarley").GetValue())
-	testValidateValidValue(t, NewValueExpr(int8(83)).GetValue())
-	testValidateValidValue(t, NewValueExpr(int16(83)).GetValue())
-	testValidateValidValue(t, NewValueExpr(int32(83)).GetValue())
-	testValidateValidValue(t, NewValueExpr(int64(83)).GetValue())
-	testValidateValidValue(t, NewValueExpr(uint8(83)).GetValue())
-	testValidateValidValue(t, NewValueExpr(uint16(83)).GetValue())
-	testValidateValidValue(t, NewValueExpr(uint32(83)).GetValue())
-	testValidateValidValue(t, NewValueExpr(uint64(83)).GetValue())
-	testValidateValidValue(t, NewValueExpr(true).GetValue())
-	testValidateValidValue(t, NewValueExpr(false).GetValue())
-	testValidateValidValue(t, NewValueExpr(8.3).GetValue())
+	testValidateValidValue(t, NewValue("capsule8"))
+	testValidateValidValue(t, NewValue(int8(83)))
+	testValidateValidValue(t, NewValue(int16(83)))
+	testValidateValidValue(t, NewValue(int32(83)))
+	testValidateValidValue(t, NewValue(int64(83)))
+	testValidateValidValue(t, NewValue(uint8(83)))
+	testValidateValidValue(t, NewValue(uint16(83)))
+	testValidateValidValue(t, NewValue(uint32(83)))
+	testValidateValidValue(t, NewValue(uint64(83)))
+	testValidateValidValue(t, NewValue(true))
+	testValidateValidValue(t, NewValue(false))
+	testValidateValidValue(t, NewValue(8.3))
 }
 
 func testValidateExpr(t *testing.T, expr *api.Expression, normalPass, kernelPass, typesPass bool, types FieldTypeMap) {
@@ -138,60 +138,38 @@ func TestExpressionValidation(t *testing.T) {
 	}
 
 	for _, op := range binaryOps {
-		expr = NewBinaryExpr(op,
-			NewIdentifierExpr("port"),
-			NewValueExpr(uint16(1024)))
+		expr = newBinaryExpr(op, Identifier("port"), Value(uint16(1024)))
 		testValidateExpr(t, expr, true, true, true, types)
 	}
 
-	expr = NewBinaryExpr(api.Expression_LIKE,
-		NewIdentifierExpr("filename"),
-		NewValueExpr("*passwd*"))
+	expr = Like(Identifier("filename"), Value("*passwd*"))
 	testValidateExpr(t, expr, true, true, true, types)
 
-	expr = NewUnaryExpr(api.Expression_IS_NULL,
-		NewIdentifierExpr("path"))
+	expr = IsNull(Identifier("path"))
 	testValidateExpr(t, expr, true, false, true, types)
 
-	expr = NewUnaryExpr(api.Expression_IS_NOT_NULL,
-		NewIdentifierExpr("service"))
+	expr = IsNotNull(Identifier("service"))
 	testValidateExpr(t, expr, true, false, true, types)
 
-	expr = NewBinaryExpr(api.Expression_NE,
-		NewBinaryExpr(api.Expression_BITWISE_AND,
-			NewIdentifierExpr("flags"),
-			NewValueExpr(uint32(1234))),
-		NewValueExpr(uint32(0)))
+	expr = NotEqual(
+		BitwiseAnd(Identifier("flags"), Value(uint32(1234))),
+		Value(uint32(0)))
 	testValidateExpr(t, expr, true, true, true, types)
 
-	expr = NewBinaryExpr(api.Expression_LOGICAL_OR,
-		NewBinaryExpr(api.Expression_EQ,
-			NewIdentifierExpr("port"),
-			NewValueExpr(uint16(80))),
-		NewBinaryExpr(api.Expression_EQ,
-			NewIdentifierExpr("port"),
-			NewValueExpr(uint16(443))))
+	expr = LogicalOr(
+		Equal(Identifier("port"), Value(uint16(80))),
+		Equal(Identifier("port"), Value(uint16(443))))
 	testValidateExpr(t, expr, true, true, true, types)
 
-	expr = NewBinaryExpr(api.Expression_LOGICAL_AND,
-		NewBinaryExpr(api.Expression_NE,
-			NewIdentifierExpr("port"),
-			NewValueExpr(uint16(80))),
-		NewBinaryExpr(api.Expression_NE,
-			NewIdentifierExpr("port"),
-			NewValueExpr(uint16(443))))
+	expr = LogicalAnd(
+		NotEqual(Identifier("port"), Value(uint16(80))),
+		NotEqual(Identifier("port"), Value(uint16(443))))
 	testValidateExpr(t, expr, true, true, true, types)
 
-	expr = NewBinaryExpr(api.Expression_LOGICAL_AND,
-		NewBinaryExpr(api.Expression_EQ,
-			NewIdentifierExpr("port"),
-			NewValueExpr(uint16(80))),
-		NewBinaryExpr(api.Expression_LOGICAL_OR,
-			NewBinaryExpr(api.Expression_EQ,
-				NewIdentifierExpr("address"),
-				NewValueExpr("192.168.1.4")),
-			NewBinaryExpr(api.Expression_EQ,
-				NewIdentifierExpr("address"),
-				NewValueExpr("127.0.0.1"))))
+	expr = LogicalAnd(
+		Equal(Identifier("port"), Value(uint16(80))),
+		LogicalOr(
+			Equal(Identifier("address"), Value("192.168.1.4")),
+			Equal(Identifier("address"), Value("127.0.0.1"))))
 	testValidateExpr(t, expr, true, true, true, types)
 }

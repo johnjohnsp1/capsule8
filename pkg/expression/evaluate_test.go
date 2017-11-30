@@ -14,14 +14,14 @@ func testEvaluateExpr(t *testing.T, expr *api.Expression, types FieldTypeMap, va
 		return
 	}
 
-	wantValue := NewValueExpr(want).GetValue()
+	wantValue := NewValue(want)
 	if gotValue.GetType() != wantValue.GetType() {
 		t.Errorf("%s -> unexpected result: %v",
-			expressionAsString(expr), valueAsString(&gotValue))
+			expressionAsString(expr), valueAsString(gotValue))
 		return
 	}
 
-	eq, err := compareEqual(gotValue, *wantValue)
+	eq, err := compareEqual(*gotValue, *wantValue)
 	if err != nil {
 		t.Errorf("%s -> unable to compare result: %s",
 			expressionAsString(expr), err)
@@ -29,7 +29,7 @@ func testEvaluateExpr(t *testing.T, expr *api.Expression, types FieldTypeMap, va
 	}
 	if !eq {
 		t.Errorf("%s -> unexpected result: %v",
-			expressionAsString(expr), valueAsString(&gotValue))
+			expressionAsString(expr), valueAsString(gotValue))
 		return
 	}
 }
@@ -65,60 +65,38 @@ func TestExpressionEvaluation(t *testing.T) {
 	}
 
 	for op, result := range binaryOps {
-		expr = NewBinaryExpr(op,
-			NewIdentifierExpr("port"),
-			NewValueExpr(uint16(1024)))
+		expr = newBinaryExpr(op, Identifier("port"), Value(uint16(1024)))
 		testEvaluateExpr(t, expr, types, values, result)
 	}
 
-	expr = NewBinaryExpr(api.Expression_LIKE,
-		NewIdentifierExpr("filename"),
-		NewValueExpr("*passwd*"))
+	expr = Like(Identifier("filename"), Value("*passwd*"))
 	testEvaluateExpr(t, expr, types, values, true)
 
-	expr = NewUnaryExpr(api.Expression_IS_NULL,
-		NewIdentifierExpr("path"))
+	expr = IsNull(Identifier("path"))
 	testEvaluateExpr(t, expr, types, values, false)
 
-	expr = NewUnaryExpr(api.Expression_IS_NOT_NULL,
-		NewIdentifierExpr("service"))
+	expr = IsNotNull(Identifier("service"))
 	testEvaluateExpr(t, expr, types, values, false)
 
-	expr = NewBinaryExpr(api.Expression_NE,
-		NewBinaryExpr(api.Expression_BITWISE_AND,
-			NewIdentifierExpr("flags"),
-			NewValueExpr(uint32(1234))),
-		NewValueExpr(uint32(0)))
+	expr = NotEqual(
+		BitwiseAnd(Identifier("flags"), Value(uint32(1234))),
+		Value(uint32(0)))
 	testEvaluateExpr(t, expr, types, values, true)
 
-	expr = NewBinaryExpr(api.Expression_LOGICAL_OR,
-		NewBinaryExpr(api.Expression_EQ,
-			NewIdentifierExpr("port"),
-			NewValueExpr(uint16(80))),
-		NewBinaryExpr(api.Expression_EQ,
-			NewIdentifierExpr("port"),
-			NewValueExpr(uint16(443))))
+	expr = LogicalOr(
+		Equal(Identifier("port"), Value(uint16(80))),
+		Equal(Identifier("port"), Value(uint16(443))))
 	testEvaluateExpr(t, expr, types, values, true)
 
-	expr = NewBinaryExpr(api.Expression_LOGICAL_AND,
-		NewBinaryExpr(api.Expression_NE,
-			NewIdentifierExpr("port"),
-			NewValueExpr(uint16(80))),
-		NewBinaryExpr(api.Expression_NE,
-			NewIdentifierExpr("port"),
-			NewValueExpr(uint16(443))))
+	expr = LogicalAnd(
+		NotEqual(Identifier("port"), Value(uint16(80))),
+		NotEqual(Identifier("port"), Value(uint16(443))))
 	testEvaluateExpr(t, expr, types, values, false)
 
-	expr = NewBinaryExpr(api.Expression_LOGICAL_AND,
-		NewBinaryExpr(api.Expression_EQ,
-			NewIdentifierExpr("port"),
-			NewValueExpr(uint16(80))),
-		NewBinaryExpr(api.Expression_LOGICAL_OR,
-			NewBinaryExpr(api.Expression_EQ,
-				NewIdentifierExpr("address"),
-				NewValueExpr("192.168.1.4")),
-			NewBinaryExpr(api.Expression_EQ,
-				NewIdentifierExpr("address"),
-				NewValueExpr("127.0.0.1"))))
+	expr = LogicalAnd(
+		Equal(Identifier("port"), Value(uint16(80))),
+		LogicalOr(
+			Equal(Identifier("address"), Value("192.168.1.4")),
+			Equal(Identifier("address"), Value("127.0.0.1"))))
 	testEvaluateExpr(t, expr, types, values, true)
 }

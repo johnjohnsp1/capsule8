@@ -220,8 +220,7 @@ func (cer *ContainerEventRepeater) NewEventStream(sub *api.Subscription) (*strea
 	filters := make(map[api.ContainerEventType]*containerEventFilter)
 	exprs := make(map[api.ContainerEventType]*api.Expression)
 	for _, cef := range sub.EventFilter.ContainerEvents {
-		exprs[cef.Type] = expression.LinkExprs(
-			api.Expression_LOGICAL_OR,
+		exprs[cef.Type] = expression.LogicalOr(
 			exprs[cef.Type],
 			cef.FilterExpression)
 		if f, ok := filters[cef.Type]; ok {
