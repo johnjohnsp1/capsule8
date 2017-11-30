@@ -4,13 +4,20 @@ import (
 	api "github.com/capsule8/api/v0"
 )
 
+// FieldTypeMap is a mapping of types for field names/identifiers
 type FieldTypeMap map[string]api.ValueType
+
+// FieldValueMap is a mapping of values for field names/identifiers.
 type FieldValueMap map[string]interface{}
 
+// Expression is a wrapper around expressions around the API. It may contain
+// internal information that is used to better support the raw representation.
 type Expression struct {
 	tree *api.Expression
 }
 
+// NewExpression instantiates a new Expression instance. The expression tree
+// that is passed is validated to ensure that it is well-formed.
 func NewExpression(tree *api.Expression) (*Expression, error) {
 	err := validateTree(tree)
 	if err != nil {
@@ -22,10 +29,10 @@ func NewExpression(tree *api.Expression) (*Expression, error) {
 	}, nil
 }
 
-// Return a string representation of an expression that is suitable for setting
-// a kernel filter. This is mostly the same as anormal string represnetation of
-// the expression; however, bitwise-and is handled specially for the kernel's
-// odd syntax.
+// KernelFilterString returns a string representation of an expression that is
+// suitable for setting a kernel perf_event filter. This is mostly the same as
+// a normal string representation of the expression; however, a few adjustments
+// are needed for the kernel.
 func (expr *Expression) KernelFilterString() string {
 	return expressionAsKernelFilterString(expr.tree)
 }
@@ -35,24 +42,39 @@ func (expr *Expression) String() string {
 	return expressionAsString(expr.tree)
 }
 
+// Evaluate evaluates an expression using the specified type and value
+// information, and returns the result of that evaluation or an error. Any
+// identifier not present in the types map is considered to be an undefined
+// field and any reference to it is an error. Any identifier present in the
+// types map, but not present in the values map is considered to be NULL; all
+// comparisons against NULL will always evaluate FALSE.
 func (expr *Expression) Evaluate(types FieldTypeMap, values FieldValueMap) (api.Value, error) {
 	return evaluateExpression(expr.tree, types, values)
 }
 
+// Validate ensures that an expression is properly constructed with the
+// specified type information. Any identifier not present in the types map is
+// considered to be an undefined field and any reference to it is an error.
 func (expr *Expression) Validate(types FieldTypeMap) error {
 	_, err := validateTypes(expr.tree, types)
 	return err
 }
 
-// Determine whether an expression can be represented as a kernel filter.
-// If the result is nil, the kernel will most likely accept the expression as
-// a filter. No check is done on the number of predicates in the expression,
-// and some kernel versions do not support bitwise-and; however, this validator
-// will accept bitwise-and.
+// ValidateKernelFilter determins whether an expression can be represented as
+// a kernel filter string. If the result is nil, the kernel will most likely
+// accept the expression as a filter. No check is done on the number of
+// predicates in the expression, and some kernel versions do not support
+// bitwise-and; however, this validator will accept bitwise-and because most
+// do. Kernel limits on the number of predicates can vary, so it's not checked.
+// If an expression passes this validation, it is not guaranteed that a given
+// running kernel will absolutely accept it.
 func (expr *Expression) ValidateKernelFilter() error {
 	return validateKernelFilterTree(expr.tree)
 }
 
+// IsValueTrue determines whether a value's truth value is true or false.
+// Strings are true if they contain one or more characters. Any numeric type
+// is true if it is non-zero.
 func IsValueTrue(value api.Value) bool {
 	switch value.GetType() {
 	case api.ValueType_STRING:

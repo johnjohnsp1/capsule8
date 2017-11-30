@@ -24,9 +24,8 @@ func valueAsString(value *api.Value) string {
 	case api.ValueType_BOOL:
 		if value.GetBoolValue() {
 			return "TRUE"
-		} else {
-			return "FALSE"
 		}
+		return "FALSE"
 
 	case api.ValueType_DOUBLE:
 		return fmt.Sprintf("%f", value.GetDoubleValue())
