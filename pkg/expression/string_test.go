@@ -15,7 +15,7 @@ func testValueAsString(t *testing.T, value *api.Value, want string) {
 }
 
 func TestValueAsString(t *testing.T) {
-	testValueAsString(t, NewValueExpr("swarley").GetValue(), "\"swarley\"")
+	testValueAsString(t, NewValueExpr("capsule8").GetValue(), "\"capsule8\"")
 	testValueAsString(t, NewValueExpr(int8(83)).GetValue(), "83")
 	testValueAsString(t, NewValueExpr(int16(83)).GetValue(), "83")
 	testValueAsString(t, NewValueExpr(int32(83)).GetValue(), "83")
@@ -48,13 +48,13 @@ func TestExpressionStrings(t *testing.T) {
 		want string
 	)
 
-	var binaryOps = map[api.Expression_ExpressionType]string{
-		api.Expression_EQ: "==",
-		api.Expression_NE: "!=",
-		api.Expression_LT: "<",
-		api.Expression_LE: "<=",
-		api.Expression_GT: ">",
-		api.Expression_GE: ">=",
+	var binaryOps = map[api.Expression_ExpressionType][]string{
+		api.Expression_EQ: []string{"=", "=="},
+		api.Expression_NE: []string{"!=", "!="},
+		api.Expression_LT: []string{"<", "<"},
+		api.Expression_LE: []string{"<=", "<="},
+		api.Expression_GT: []string{">", ">"},
+		api.Expression_GE: []string{">=", ">="},
 	}
 
 	for op, s := range binaryOps {
@@ -62,8 +62,10 @@ func TestExpressionStrings(t *testing.T) {
 			NewIdentifierExpr("port"),
 			NewValueExpr(uint16(1024)))
 
-		want = fmt.Sprintf("port %s 1024", s)
+		want = fmt.Sprintf("port %s 1024", s[0])
 		testExpressionAsString(t, expr, want)
+
+		want = fmt.Sprintf("port %s 1024", s[1])
 		testExpressionAsKernelFilterString(t, expr, want)
 	}
 
@@ -91,7 +93,6 @@ func TestExpressionStrings(t *testing.T) {
 	testExpressionAsString(t, expr, "flags & 1234 != 0")
 	testExpressionAsKernelFilterString(t, expr, "flags & 1234")
 
-	want = "port == 80 || port == 443"
 	expr = NewBinaryExpr(api.Expression_LOGICAL_OR,
 		NewBinaryExpr(api.Expression_EQ,
 			NewIdentifierExpr("port"),
@@ -99,10 +100,11 @@ func TestExpressionStrings(t *testing.T) {
 		NewBinaryExpr(api.Expression_EQ,
 			NewIdentifierExpr("port"),
 			NewValueExpr(uint16(443))))
-	testExpressionAsString(t, expr, want)
-	testExpressionAsKernelFilterString(t, expr, want)
+	testExpressionAsString(t, expr,
+		"port = 80 OR port = 443")
+	testExpressionAsKernelFilterString(t, expr,
+		"port == 80 || port == 443")
 
-	want = "port != 80 && port != 443"
 	expr = NewBinaryExpr(api.Expression_LOGICAL_AND,
 		NewBinaryExpr(api.Expression_NE,
 			NewIdentifierExpr("port"),
@@ -110,10 +112,11 @@ func TestExpressionStrings(t *testing.T) {
 		NewBinaryExpr(api.Expression_NE,
 			NewIdentifierExpr("port"),
 			NewValueExpr(uint16(443))))
-	testExpressionAsString(t, expr, want)
-	testExpressionAsKernelFilterString(t, expr, want)
+	testExpressionAsString(t, expr,
+		"port != 80 AND port != 443")
+	testExpressionAsKernelFilterString(t, expr,
+		"port != 80 && port != 443")
 
-	want = "port == 80 && (address == \"192.168.1.4\" || address == \"127.0.0.1\")"
 	expr = NewBinaryExpr(api.Expression_LOGICAL_AND,
 		NewBinaryExpr(api.Expression_EQ,
 			NewIdentifierExpr("port"),
@@ -125,6 +128,8 @@ func TestExpressionStrings(t *testing.T) {
 			NewBinaryExpr(api.Expression_EQ,
 				NewIdentifierExpr("address"),
 				NewValueExpr("127.0.0.1"))))
-	testExpressionAsString(t, expr, want)
-	testExpressionAsKernelFilterString(t, expr, want)
+	testExpressionAsString(t, expr,
+		"port = 80 AND (address = \"192.168.1.4\" OR address = \"127.0.0.1\")")
+	testExpressionAsKernelFilterString(t, expr,
+		"port == 80 && (address == \"192.168.1.4\" || address == \"127.0.0.1\")")
 }
