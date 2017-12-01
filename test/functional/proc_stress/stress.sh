@@ -1,10 +1,10 @@
-#!/bin/bash
+#!/bin/sh
 
-for ((N=0; N<256; ++N))
+N=0
+while [ $N -lt 256 ]
 do
-    ./main $N &
+	./main $N
+	N=$((N+1))
 done
-
-wait
 
 exit 0

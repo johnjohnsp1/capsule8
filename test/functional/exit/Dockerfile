@@ -1,13 +1,11 @@
-FROM ubuntu:16.04
+FROM alpine
 
-RUN apt-get update && \
-    apt-get -y upgrade && \
-    apt-get -y install build-essential && \
-    apt-get clean
+RUN apk upgrade && \
+	apk add --no-cache alpine-sdk
 
-COPY main.c /
+COPY main.c status*.c /
 WORKDIR /
 
-RUN make main
+RUN make main status0 status1 status2
 
-CMD ["/main"]
+CMD /status1; /status2; /status0; /main

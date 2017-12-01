@@ -57,7 +57,7 @@ all: $(BINS)
 #
 # Default CI target
 #
-ci: | builder build_image
+ci: | clean builder build_image
 	$(DOCKER_RUN_CI) /bin/sh -c "                                           \
 		./build/build.sh &&                                             \
 		./build/test.sh                                                 \

@@ -15,14 +15,26 @@ type Container struct {
 	command *exec.Cmd
 }
 
-func (c *Container) Build() error {
-	docker := exec.Command("docker", "build", c.Path)
+func (c *Container) dockerBuildArgs(quiet bool, buildargs []string) []string {
+	args := []string{"build"}
+	if quiet {
+		args = append(args, "-q")
+	}
+	args = append(args, buildargs...)
+	args = append(args, c.Path)
+	return args
+}
+
+func (c *Container) Build(buildargs ...string) error {
+	dockerArgs := c.dockerBuildArgs(false, buildargs)
+	docker := exec.Command("docker", dockerArgs...)
 	err := docker.Run()
 	if err != nil {
 		return err
 	}
 
-	docker = exec.Command("docker", "build", "-q", c.Path)
+	dockerArgs = c.dockerBuildArgs(true, buildargs)
+	docker = exec.Command("docker", dockerArgs...)
 	dockerOutput, err := docker.Output()
 	if err != nil {
 		return err
