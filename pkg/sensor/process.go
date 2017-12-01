@@ -112,30 +112,27 @@ func rewriteProcessEventFilter(pef *api.ProcessEventFilter) {
 	switch pef.Type {
 	case api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC:
 		if pef.ExecFilename != nil {
-			newExpr := expression.NewBinaryExpr(api.Expression_EQ,
-				expression.NewIdentifierExpr("filename"),
-				expression.NewValueExpr(pef.ExecFilename.Value))
-			pef.FilterExpression = expression.LinkExprs(
-				api.Expression_LOGICAL_AND,
+			newExpr := expression.Equal(
+				expression.Identifier("filename"),
+				expression.Value(pef.ExecFilename.Value))
+			pef.FilterExpression = expression.LogicalAnd(
 				newExpr, pef.FilterExpression)
 			pef.ExecFilename = nil
 			pef.ExecFilenamePattern = nil
 		} else if pef.ExecFilenamePattern != nil {
-			newExpr := expression.NewBinaryExpr(api.Expression_LIKE,
-				expression.NewIdentifierExpr("filename"),
-				expression.NewValueExpr(pef.ExecFilenamePattern.Value))
-			pef.FilterExpression = expression.LinkExprs(
-				api.Expression_LOGICAL_AND,
+			newExpr := expression.Like(
+				expression.Identifier("filename"),
+				expression.Value(pef.ExecFilenamePattern.Value))
+			pef.FilterExpression = expression.LogicalAnd(
 				newExpr, pef.FilterExpression)
 			pef.ExecFilenamePattern = nil
 		}
 	case api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT:
 		if pef.ExitCode != nil {
-			newExpr := expression.NewBinaryExpr(api.Expression_LIKE,
-				expression.NewIdentifierExpr("code"),
-				expression.NewValueExpr(pef.ExitCode.Value))
-			pef.FilterExpression = expression.LinkExprs(
-				api.Expression_LOGICAL_AND,
+			newExpr := expression.Equal(
+				expression.Identifier("code"),
+				expression.Value(pef.ExitCode.Value))
+			pef.FilterExpression = expression.LogicalAnd(
 				newExpr, pef.FilterExpression)
 			pef.ExitCode = nil
 		}

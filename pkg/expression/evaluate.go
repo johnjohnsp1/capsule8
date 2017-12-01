@@ -282,7 +282,7 @@ func (c *evalContext) evaluateNode(node *api.Expression) error {
 		if err != nil {
 			return err
 		}
-		v := c.stack[len(c.stack)-1]
+		v := &c.stack[len(c.stack)-1]
 		if !IsValueTrue(v) {
 			// Leave the false value on the stack and return
 			// There's no need to evaluate the rhs; it won't change
@@ -300,7 +300,7 @@ func (c *evalContext) evaluateNode(node *api.Expression) error {
 		if err != nil {
 			return err
 		}
-		v := c.stack[len(c.stack)-1]
+		v := &c.stack[len(c.stack)-1]
 		if IsValueTrue(v) {
 			// Leave the true value on the stack and return
 			// There's no need to evaluate the lhs; it won't change
@@ -440,7 +440,7 @@ func (c *evalContext) evaluateNode(node *api.Expression) error {
 	return errors.New("internal error: unreachable condition")
 }
 
-func evaluateExpression(expr *api.Expression, types FieldTypeMap, values FieldValueMap) (api.Value, error) {
+func evaluateExpression(expr *api.Expression, types FieldTypeMap, values FieldValueMap) (*api.Value, error) {
 	c := evalContext{
 		types:  types,
 		values: values,
@@ -457,7 +457,7 @@ func evaluateExpression(expr *api.Expression, types FieldTypeMap, values FieldVa
 	}
 
 	if err != nil {
-		return api.Value{}, err
+		return nil, err
 	}
-	return c.stack[0], nil
+	return &c.stack[0], nil
 }

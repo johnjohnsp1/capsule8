@@ -113,21 +113,19 @@ func containsIdFilter(expr *api.Expression) bool {
 
 func rewriteSyscallEventFilter(sef *api.SyscallEventFilter) {
 	if sef.Id != nil {
-		newExpr := expression.NewBinaryExpr(api.Expression_EQ,
-			expression.NewIdentifierExpr("id"),
-			expression.NewValueExpr(sef.Id.Value))
-		sef.FilterExpression = expression.LinkExprs(
-			api.Expression_LOGICAL_AND,
+		newExpr := expression.Equal(
+			expression.Identifier("id"),
+			expression.Value(sef.Id.Value))
+		sef.FilterExpression = expression.LogicalAnd(
 			newExpr, sef.FilterExpression)
 		sef.Id = nil
 	}
 	if sef.Type == api.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT {
 		if sef.Ret != nil {
-			newExpr := expression.NewBinaryExpr(api.Expression_EQ,
-				expression.NewIdentifierExpr("ret"),
-				expression.NewValueExpr(sef.Ret.Value))
-			sef.FilterExpression = expression.LinkExprs(
-				api.Expression_LOGICAL_AND,
+			newExpr := expression.Equal(
+				expression.Identifier("ret"),
+				expression.Value(sef.Ret.Value))
+			sef.FilterExpression = expression.LogicalAnd(
 				newExpr, sef.FilterExpression)
 			sef.Ret = nil
 		}

@@ -36,40 +36,36 @@ func (f *fileOpenFilter) decodeDoSysOpen(sample *perf.SampleRecord, data perf.Tr
 
 func rewriteFileEventFilter(fef *api.FileEventFilter) {
 	if fef.Filename != nil {
-		newExpr := expression.NewBinaryExpr(api.Expression_EQ,
-			expression.NewIdentifierExpr("filename"),
-			expression.NewValueExpr(fef.Filename.Value))
-		fef.FilterExpression = expression.LinkExprs(
-			api.Expression_LOGICAL_AND,
+		newExpr := expression.Equal(
+			expression.Identifier("filename"),
+			expression.Value(fef.Filename.Value))
+		fef.FilterExpression = expression.LogicalAnd(
 			newExpr, fef.FilterExpression)
 		fef.Filename = nil
 		fef.FilenamePattern = nil
 	} else if fef.FilenamePattern != nil {
-		newExpr := expression.NewBinaryExpr(api.Expression_LIKE,
-			expression.NewIdentifierExpr("filename"),
-			expression.NewValueExpr(fef.FilenamePattern.Value))
-		fef.FilterExpression = expression.LinkExprs(
-			api.Expression_LOGICAL_AND,
+		newExpr := expression.Like(
+			expression.Identifier("filename"),
+			expression.Value(fef.FilenamePattern.Value))
+		fef.FilterExpression = expression.LogicalAnd(
 			newExpr, fef.FilterExpression)
 		fef.FilenamePattern = nil
 	}
 
 	if fef.OpenFlagsMask != nil {
-		newExpr := expression.NewBinaryExpr(api.Expression_BITWISE_AND,
-			expression.NewIdentifierExpr("flags"),
-			expression.NewValueExpr(fef.OpenFlagsMask.Value))
-		fef.FilterExpression = expression.LinkExprs(
-			api.Expression_LOGICAL_AND,
+		newExpr := expression.BitwiseAnd(
+			expression.Identifier("flags"),
+			expression.Value(fef.OpenFlagsMask.Value))
+		fef.FilterExpression = expression.LogicalAnd(
 			newExpr, fef.FilterExpression)
 		fef.OpenFlagsMask = nil
 	}
 
 	if fef.CreateModeMask != nil {
-		newExpr := expression.NewBinaryExpr(api.Expression_BITWISE_AND,
-			expression.NewIdentifierExpr("mode"),
-			expression.NewValueExpr(fef.OpenFlagsMask.Value))
-		fef.FilterExpression = expression.LinkExprs(
-			api.Expression_LOGICAL_AND,
+		newExpr := expression.BitwiseAnd(
+			expression.Identifier("mode"),
+			expression.Value(fef.OpenFlagsMask.Value))
+		fef.FilterExpression = expression.LogicalAnd(
 			newExpr, fef.FilterExpression)
 		fef.CreateModeMask = nil
 	}

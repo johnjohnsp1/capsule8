@@ -24,9 +24,8 @@ func valueAsString(value *api.Value) string {
 	case api.ValueType_BOOL:
 		if value.GetBoolValue() {
 			return "TRUE"
-		} else {
-			return "FALSE"
 		}
+		return "FALSE"
 
 	case api.ValueType_DOUBLE:
 		return fmt.Sprintf("%f", value.GetDoubleValue())
@@ -41,9 +40,9 @@ func valueAsString(value *api.Value) string {
 }
 
 var operatorStrings = map[api.Expression_ExpressionType]string{
-	api.Expression_LOGICAL_AND: "&&",
-	api.Expression_LOGICAL_OR:  "||",
-	api.Expression_EQ:          "==",
+	api.Expression_LOGICAL_AND: "AND",
+	api.Expression_LOGICAL_OR:  "OR",
+	api.Expression_EQ:          "=",
 	api.Expression_NE:          "!=",
 	api.Expression_LT:          "<",
 	api.Expression_LE:          "<=",
@@ -102,10 +101,23 @@ func expressionAsString(expr *api.Expression) string {
 	return ""
 }
 
+var kernelOperatorStrings = map[api.Expression_ExpressionType]string{
+	api.Expression_LOGICAL_AND: "&&",
+	api.Expression_LOGICAL_OR:  "||",
+	api.Expression_EQ:          "==",
+	api.Expression_NE:          "!=",
+	api.Expression_LT:          "<",
+	api.Expression_LE:          "<=",
+	api.Expression_GT:          ">",
+	api.Expression_GE:          ">=",
+	api.Expression_LIKE:        "~",
+	api.Expression_BITWISE_AND: "&",
+}
+
 func expressionAsKernelFilterString(expr *api.Expression) string {
 	// This is basically the same as expressionAsString except for special
-	// handling for BITWISE_AND and an alternate operator representation
-	// for LIKE
+	// handling for BITWISE_AND and an alternate operator representations
+	// for LOGICAL_AND, LOGICAL_OR, EQ, and LIKE
 	switch t := expr.GetType(); t {
 	case api.Expression_IDENTIFIER:
 		return expr.GetIdentifier()
@@ -115,45 +127,34 @@ func expressionAsKernelFilterString(expr *api.Expression) string {
 
 	case api.Expression_LOGICAL_AND, api.Expression_LOGICAL_OR:
 		operands := expr.GetBinaryOp()
-		lhs := expressionAsString(operands.Lhs)
-		rhs := expressionAsString(operands.Rhs)
+		lhs := expressionAsKernelFilterString(operands.Lhs)
+		rhs := expressionAsKernelFilterString(operands.Rhs)
 		if operands.Rhs.GetType() == api.Expression_LOGICAL_AND ||
 			operands.Rhs.GetType() == api.Expression_LOGICAL_OR {
 
 			rhs = fmt.Sprintf("(%s)", rhs)
 		}
-		return fmt.Sprintf("%s %s %s", lhs, operatorStrings[t], rhs)
+		return fmt.Sprintf("%s %s %s", lhs, kernelOperatorStrings[t], rhs)
 
 	case api.Expression_NE:
 		operands := expr.GetBinaryOp()
-		lhs := expressionAsString(operands.Lhs)
+		lhs := expressionAsKernelFilterString(operands.Lhs)
 		if operands.Lhs.GetType() == api.Expression_BITWISE_AND {
 			// Assume that Rhs is 0 because prior validation
 			// should ensure that to be the case
 			return lhs
 		}
-		rhs := expressionAsString(operands.Rhs)
-		return fmt.Sprintf("%s %s %s", lhs, operatorStrings[t], rhs)
+		rhs := expressionAsKernelFilterString(operands.Rhs)
+		return fmt.Sprintf("%s %s %s", lhs, kernelOperatorStrings[t], rhs)
 
 	case api.Expression_EQ, api.Expression_LT, api.Expression_LE,
-		api.Expression_GT, api.Expression_GE:
+		api.Expression_GT, api.Expression_GE, api.Expression_LIKE,
+		api.Expression_BITWISE_AND:
 
 		operands := expr.GetBinaryOp()
-		lhs := expressionAsString(operands.Lhs)
-		rhs := expressionAsString(operands.Rhs)
-		return fmt.Sprintf("%s %s %s", lhs, operatorStrings[t], rhs)
-
-	case api.Expression_LIKE:
-		operands := expr.GetBinaryOp()
-		lhs := expressionAsString(operands.Lhs)
-		rhs := expressionAsString(operands.Rhs)
-		return fmt.Sprintf("%s ~ %s", lhs, rhs)
-
-	case api.Expression_BITWISE_AND:
-		operands := expr.GetBinaryOp()
-		lhs := expressionAsString(operands.Lhs)
-		rhs := expressionAsString(operands.Rhs)
-		return fmt.Sprintf("%s %s %s", lhs, operatorStrings[t], rhs)
+		lhs := expressionAsKernelFilterString(operands.Lhs)
+		rhs := expressionAsKernelFilterString(operands.Rhs)
+		return fmt.Sprintf("%s %s %s", lhs, kernelOperatorStrings[t], rhs)
 	}
 
 	return ""

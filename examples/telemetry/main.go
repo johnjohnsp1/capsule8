@@ -94,9 +94,9 @@ func createSubscription() *api.Subscription {
 		},
 	}
 
-	sinFamilyFilter := expression.NewBinaryExpr(api.Expression_EQ,
-		expression.NewIdentifierExpr("sin_family"),
-		expression.NewValueExpr(uint16(2)))
+	sinFamilyFilter := expression.Equal(
+		expression.Identifier("sin_family"),
+		expression.Value(uint16(2)))
 	kernelCallEvents := []*api.KernelFunctionCallFilter{
 		//
 		// Install a kprobe on connect(2)
