@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	api "github.com/capsule8/api/v0"
+	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/golang/glog"
 )
 
@@ -18,7 +19,7 @@ const (
 	testNetworkBacklog = 1
 
 	testNetworkMsg    = "Hello, World!\n"
-	testNetworkMsgLen = int64(len(testNetworkMsg))
+	testNetworkMsgLen = len(testNetworkMsg)
 )
 
 var (
@@ -65,72 +66,24 @@ func (nt *networkTest) RunContainer(t *testing.T) {
 }
 
 func (nt *networkTest) CreateSubscription(t *testing.T) *api.Subscription {
-	familyFilter := &api.FilterExpression{
-		Type: api.FilterExpression_PREDICATE,
-		Predicate: &api.FilterPredicate{
-			Type:      api.FilterPredicate_EQ,
-			FieldName: "sa_family",
-			ValueType: api.FilterPredicate_UNSIGNED,
-			Value: &api.FilterPredicate_UnsignedValue{
-				UnsignedValue: syscall.AF_INET,
-			},
-		},
-	}
-	portFilter := &api.FilterExpression{
-		Type: api.FilterExpression_PREDICATE,
-		Predicate: &api.FilterPredicate{
-			Type:      api.FilterPredicate_EQ,
-			FieldName: "sin6_port",
-			ValueType: api.FilterPredicate_UNSIGNED,
-			Value: &api.FilterPredicate_UnsignedValue{
-				UnsignedValue: uint64(testNetworkPortN),
-			},
-		},
-	}
-	resultFilter := &api.FilterExpression{
-		Type: api.FilterExpression_PREDICATE,
-		Predicate: &api.FilterPredicate{
-			Type:      api.FilterPredicate_EQ,
-			FieldName: "ret",
-			ValueType: api.FilterPredicate_SIGNED,
-			Value: &api.FilterPredicate_SignedValue{
-				SignedValue: 0,
-			},
-		},
-	}
-	backlogFilter := &api.FilterExpression{
-		Type: api.FilterExpression_PREDICATE,
-		Predicate: &api.FilterPredicate{
-			Type:      api.FilterPredicate_EQ,
-			FieldName: "backlog",
-			ValueType: api.FilterPredicate_UNSIGNED,
-			Value: &api.FilterPredicate_UnsignedValue{
-				UnsignedValue: testNetworkBacklog,
-			},
-		},
-	}
-	goodFDFilter := &api.FilterExpression{
-		Type: api.FilterExpression_PREDICATE,
-		Predicate: &api.FilterPredicate{
-			Type:      api.FilterPredicate_GT,
-			FieldName: "ret",
-			ValueType: api.FilterPredicate_SIGNED,
-			Value: &api.FilterPredicate_SignedValue{
-				SignedValue: -1,
-			},
-		},
-	}
-	msgLenFilter := &api.FilterExpression{
-		Type: api.FilterExpression_PREDICATE,
-		Predicate: &api.FilterPredicate{
-			Type:      api.FilterPredicate_EQ,
-			FieldName: "ret",
-			ValueType: api.FilterPredicate_SIGNED,
-			Value: &api.FilterPredicate_SignedValue{
-				SignedValue: testNetworkMsgLen,
-			},
-		},
-	}
+	familyFilter := expression.Equal(
+		expression.Identifier("sa_family"),
+		expression.Value(uint16(syscall.AF_INET)))
+	portFilter := expression.Equal(
+		expression.Identifier("sin6_port"),
+		expression.Value(testNetworkPortN))
+	resultFilter := expression.Equal(
+		expression.Identifier("ret"),
+		expression.Value(int32(0)))
+	backlogFilter := expression.Equal(
+		expression.Identifier("backlog"),
+		expression.Value(int32(testNetworkBacklog)))
+	goodFDFilter := expression.GreaterThan(
+		expression.Identifier("ret"),
+		expression.Value(int32(-1)))
+	msgLenFilter := expression.Equal(
+		expression.Identifier("ret"),
+		expression.Value(int32(testNetworkMsgLen)))
 
 	networkEvents := []*api.NetworkEventFilter{
 		&api.NetworkEventFilter{
@@ -138,49 +91,45 @@ func (nt *networkTest) CreateSubscription(t *testing.T) *api.Subscription {
 			//			Filter: portFilter,
 		},
 		&api.NetworkEventFilter{
-			Type:   api.NetworkEventType_NETWORK_EVENT_TYPE_CONNECT_RESULT,
-			Filter: resultFilter,
+			Type:             api.NetworkEventType_NETWORK_EVENT_TYPE_CONNECT_RESULT,
+			FilterExpression: resultFilter,
 		},
 		&api.NetworkEventFilter{
-			Type: api.NetworkEventType_NETWORK_EVENT_TYPE_BIND_ATTEMPT,
-			Filter: &api.FilterExpression{
-				Type: api.FilterExpression_AND,
-				Lhs:  familyFilter,
-				Rhs:  portFilter,
-			},
+			Type:             api.NetworkEventType_NETWORK_EVENT_TYPE_BIND_ATTEMPT,
+			FilterExpression: expression.LogicalAnd(familyFilter, portFilter),
 		},
 		&api.NetworkEventFilter{
-			Type:   api.NetworkEventType_NETWORK_EVENT_TYPE_BIND_RESULT,
-			Filter: resultFilter,
+			Type:             api.NetworkEventType_NETWORK_EVENT_TYPE_BIND_RESULT,
+			FilterExpression: resultFilter,
 		},
 		&api.NetworkEventFilter{
-			Type:   api.NetworkEventType_NETWORK_EVENT_TYPE_LISTEN_ATTEMPT,
-			Filter: backlogFilter,
+			Type:             api.NetworkEventType_NETWORK_EVENT_TYPE_LISTEN_ATTEMPT,
+			FilterExpression: backlogFilter,
 		},
 		&api.NetworkEventFilter{
-			Type:   api.NetworkEventType_NETWORK_EVENT_TYPE_LISTEN_RESULT,
-			Filter: resultFilter,
+			Type:             api.NetworkEventType_NETWORK_EVENT_TYPE_LISTEN_RESULT,
+			FilterExpression: resultFilter,
 		},
 		&api.NetworkEventFilter{
 			Type: api.NetworkEventType_NETWORK_EVENT_TYPE_ACCEPT_ATTEMPT,
 		},
 		&api.NetworkEventFilter{
-			Type:   api.NetworkEventType_NETWORK_EVENT_TYPE_ACCEPT_RESULT,
-			Filter: goodFDFilter,
+			Type:             api.NetworkEventType_NETWORK_EVENT_TYPE_ACCEPT_RESULT,
+			FilterExpression: goodFDFilter,
 		},
 		&api.NetworkEventFilter{
 			Type: api.NetworkEventType_NETWORK_EVENT_TYPE_SENDTO_ATTEMPT,
 		},
 		&api.NetworkEventFilter{
-			Type:   api.NetworkEventType_NETWORK_EVENT_TYPE_SENDTO_RESULT,
-			Filter: msgLenFilter,
+			Type:             api.NetworkEventType_NETWORK_EVENT_TYPE_SENDTO_RESULT,
+			FilterExpression: msgLenFilter,
 		},
 		&api.NetworkEventFilter{
 			Type: api.NetworkEventType_NETWORK_EVENT_TYPE_RECVFROM_ATTEMPT,
 		},
 		&api.NetworkEventFilter{
-			Type:   api.NetworkEventType_NETWORK_EVENT_TYPE_RECVFROM_RESULT,
-			Filter: msgLenFilter,
+			Type:             api.NetworkEventType_NETWORK_EVENT_TYPE_RECVFROM_RESULT,
+			FilterExpression: msgLenFilter,
 		},
 	}
 
@@ -223,7 +172,7 @@ func (nt *networkTest) HandleTelemetryEvent(t *testing.T, te *api.TelemetryEvent
 			if len(unseen) > 0 {
 				t.Logf("Never saw network event(s) %+v\n", unseen)
 			}
-			return false
+			return true
 
 		default:
 			t.Errorf("Unexpected Container event %+v\n", event)
@@ -303,14 +252,14 @@ func (nt *networkTest) HandleTelemetryEvent(t *testing.T, te *api.TelemetryEvent
 					// This is not the sendto() attempt we are looking for
 					return true
 				}
-				if event.Network.Result != testNetworkMsgLen {
+				if event.Network.Result != int64(testNetworkMsgLen) {
 					t.Errorf("Expected sendto result %d, got %d",
 						testNetworkMsgLen, event.Network.Result)
 					return false
 				}
 
 			case api.NetworkEventType_NETWORK_EVENT_TYPE_RECVFROM_RESULT:
-				if event.Network.Result != testNetworkMsgLen {
+				if event.Network.Result != int64(testNetworkMsgLen) {
 					t.Errorf("Expected recvfrom result %d, got %d",
 						testNetworkMsgLen, event.Network.Result)
 					return false

@@ -1,9 +1,7 @@
-FROM ubuntu:16.04
+FROM alpine
 
-RUN apt-get update && \
-    apt-get -y upgrade && \
-    apt-get -y install build-essential && \
-    apt-get clean
+RUN apk upgrade && \
+	apk add --no-cache alpine-sdk
 
 COPY main.c /
 WORKDIR /

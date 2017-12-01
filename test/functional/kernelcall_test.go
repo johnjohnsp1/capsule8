@@ -1,10 +1,10 @@
 package functional
 
 import (
-	"fmt"
 	"testing"
 
 	api "github.com/capsule8/api/v0"
+	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/golang/glog"
 )
 
@@ -36,6 +36,9 @@ func (kt *kernelCallTest) RunContainer(t *testing.T) {
 }
 
 func (kt *kernelCallTest) CreateSubscription(t *testing.T) *api.Subscription {
+	filenameFilter := expression.Like(
+		expression.Identifier("filename"),
+		expression.Value(kernelCallDataFilename))
 	kernelEvents := []*api.KernelFunctionCallFilter{
 		&api.KernelFunctionCallFilter{
 			Type:   api.KernelFunctionCallEventType_KERNEL_FUNCTION_CALL_EVENT_TYPE_ENTER,
@@ -44,7 +47,7 @@ func (kt *kernelCallTest) CreateSubscription(t *testing.T) *api.Subscription {
 				"filename": "+0(%si):string",
 				"mode":     "+0(%cx):u16",
 			},
-			Filter: fmt.Sprintf("filename ~ %q", kernelCallDataFilename),
+			FilterExpression: filenameFilter,
 		},
 		&api.KernelFunctionCallFilter{
 			Type:   api.KernelFunctionCallEventType_KERNEL_FUNCTION_CALL_EVENT_TYPE_EXIT,
