@@ -134,7 +134,7 @@ func (s *Sensor) Start() error {
 	// This should be last. It shouldn't be started until everything else
 	// has been successfully started
 	go func() {
-		err := monitor.Run(func(sample interface{}, err error) {
+		err := monitor.Run(func(eventID uint64, sample interface{}, err error) {
 			if err != nil {
 				glog.Warning(err)
 			}
@@ -408,7 +408,7 @@ func (s *Sensor) createPerfEventStream(sub *api.Subscription) (*stream.Stream, e
 	}()
 
 	go func() {
-		monitor.Run(func(sample interface{}, err error) {
+		monitor.Run(func(eventID uint64, sample interface{}, err error) {
 			if event, ok := sample.(*api.Event); ok && event != nil {
 				data <- event
 			}

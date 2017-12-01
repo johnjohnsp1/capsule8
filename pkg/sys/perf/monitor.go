@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/capsule8/capsule8/pkg/config"
@@ -86,25 +85,25 @@ type registerEventOptions struct {
 type RegisterEventOption func(*registerEventOptions)
 
 func WithEventsDisabled() RegisterEventOption {
-	return func (o *registerEventOptions) {
+	return func(o *registerEventOptions) {
 		o.disabled = true
 	}
 }
 
 func WithEventsEnabled() RegisterEventOption {
-	return func (o *registerEventOptions) {
+	return func(o *registerEventOptions) {
 		o.disabled = false
 	}
 }
 
 func WithEventAttr(eventAttr *EventAttr) RegisterEventOption {
-	return func (o *registerEventOptions) {
+	return func(o *registerEventOptions) {
 		o.eventAttr = eventAttr
 	}
 }
 
 func WithFilter(filter string) RegisterEventOption {
-	return func (o *registerEventOptions) {
+	return func(o *registerEventOptions) {
 		o.filter = filter
 	}
 }
@@ -140,7 +139,7 @@ func (group *perfEventGroup) cleanup() {
 	}
 }
 
-type SampleDispatchFn func(interface{}, error)
+type SampleDispatchFn func(uint64, interface{}, error)
 
 type EventMonitor struct {
 	// Ordering of fields is intentional to keep the most frequently used
@@ -153,13 +152,14 @@ type EventMonitor struct {
 	dispatchChan chan decodedSampleList
 
 	// Mutable by various goroutines, and also needed by the monitor
-	// goroutine. Both of these are thread-safe mutable without a lock.
+	// goroutine. All of these are thread-safe mutable without a lock.
 	// The monitor goroutine only ever reads from them, so there's no lock
-	// taken. .eventAttrs Writers will lock if the monitor goroutine is
-	// running; otherwise, .lock protects in-place writes. The thread-safe
-	// mutation of .decoders is handled elsewhere.
-	eventAttrs *safeEventAttrMap // stream id : event attr
-	decoders   *TraceEventDecoderMap
+	// taken. The thread-safe mutation of .decoders is handled elsewhere.
+	// The other safe maps will lock if the monitor goroutine is running;
+	// otherwise, .lock protects in-place writes.
+	eventAttrMap *safeEventAttrMap // stream id : event attr
+	eventIDMap   *safeUInt64Map    // stream id : event id
+	decoders     *TraceEventDecoderMap
 
 	// Mutable only by the monitor goroutine while running. No protection
 	// required.
@@ -179,7 +179,7 @@ type EventMonitor struct {
 	pipe      [2]int
 
 	// Mutable by various goroutines, but not required by the monitor goroutine
-	nextEventId uint64
+	nextEventID uint64
 	events      map[uint64]registeredEvent // event id : event
 	eventfds    map[int]int                // fd : cpu index
 	eventids    map[int]uint64             // fd : stream id
@@ -190,88 +190,6 @@ type EventMonitor struct {
 	// Used only once during shutdown
 	cond *sync.Cond
 	wg   sync.WaitGroup
-}
-
-type eventAttrMap map[uint64]*EventAttr
-
-func newEventAttrMap() eventAttrMap {
-	return make(map[uint64]*EventAttr)
-}
-
-type safeEventAttrMap struct {
-	sync.Mutex              // used only by writers
-	active     atomic.Value // map[uint64]*EventAttr
-}
-
-func newSafeEventAttrMap() *safeEventAttrMap {
-	return &safeEventAttrMap{}
-}
-
-func (m *safeEventAttrMap) getMap() eventAttrMap {
-	value := m.active.Load()
-	if value == nil {
-		return nil
-	}
-	return value.(eventAttrMap)
-}
-
-func (m *safeEventAttrMap) removeInPlace(ids []uint64) {
-	em := m.getMap()
-	if em == nil {
-		return
-	}
-
-	for _, id := range ids {
-		delete(em, id)
-	}
-}
-
-func (m *safeEventAttrMap) remove(ids []uint64) {
-	m.Lock()
-	defer m.Unlock()
-
-	oem := m.getMap()
-	nem := newEventAttrMap()
-	if oem != nil {
-		for k, v := range oem {
-			nem[k] = v
-		}
-	}
-	for _, id := range ids {
-		delete(nem, id)
-	}
-
-	m.active.Store(nem)
-}
-
-func (m *safeEventAttrMap) updateInPlace(emfrom eventAttrMap) {
-	em := m.getMap()
-	if em == nil {
-		em = newEventAttrMap()
-		m.active.Store(em)
-	}
-
-	for k, v := range emfrom {
-		em[k] = v
-	}
-}
-
-func (m *safeEventAttrMap) update(emfrom eventAttrMap) {
-	m.Lock()
-	defer m.Unlock()
-
-	oem := m.getMap()
-	nem := newEventAttrMap()
-	if oem != nil {
-		for k, v := range oem {
-			nem[k] = v
-		}
-	}
-	for k, v := range emfrom {
-		nem[k] = v
-	}
-
-	m.active.Store(nem)
 }
 
 func fixupEventAttr(eventAttr *EventAttr) {
@@ -342,7 +260,12 @@ func (monitor *EventMonitor) newRegisteredEvent(name string, fn TraceEventDecode
 		return 0, err
 	}
 
-	eventAttrs := newEventAttrMap()
+	// Choose the eventid for this event now, but don't commit to it until
+	// later when no error has occurred in registering the event.
+	eventid := monitor.nextEventID
+
+	eventAttrMap := newEventAttrMap()
+	eventIDMap := newUInt64Map()
 	for _, fd := range newfds {
 		streamid, err := unix.IoctlGetInt(fd, PERF_EVENT_IOC_ID)
 		if err != nil {
@@ -353,14 +276,19 @@ func (monitor *EventMonitor) newRegisteredEvent(name string, fn TraceEventDecode
 			monitor.decoders.RemoveDecoder(name)
 			return 0, err
 		}
-		eventAttrs[uint64(streamid)] = &attr
+		eventAttrMap[uint64(streamid)] = &attr
+		eventIDMap[uint64(streamid)] = eventid
 		monitor.eventids[fd] = uint64(streamid)
 	}
 
+	// Now is the time to commit to the eventid
+	monitor.nextEventID++
 	if monitor.isRunning {
-		monitor.eventAttrs.update(eventAttrs)
+		monitor.eventAttrMap.update(eventAttrMap)
+		monitor.eventIDMap.update(eventIDMap)
 	} else {
-		monitor.eventAttrs.updateInPlace(eventAttrs)
+		monitor.eventAttrMap.updateInPlace(eventAttrMap)
+		monitor.eventIDMap.updateInPlace(eventIDMap)
 	}
 	for i, fd := range newfds {
 		monitor.eventfds[fd] = i
@@ -372,8 +300,6 @@ func (monitor *EventMonitor) newRegisteredEvent(name string, fn TraceEventDecode
 		eventType: eventType,
 	}
 
-	eventid := monitor.nextEventId
-	monitor.nextEventId++
 	monitor.events[eventid] = event
 	return eventid, nil
 }
@@ -447,9 +373,11 @@ func (monitor *EventMonitor) removeRegisteredEvent(event registeredEvent) {
 	}
 
 	if monitor.isRunning {
-		monitor.eventAttrs.removeInPlace(ids)
+		monitor.eventAttrMap.removeInPlace(ids)
+		monitor.eventIDMap.removeInPlace(ids)
 	} else {
-		monitor.eventAttrs.remove(ids)
+		monitor.eventAttrMap.remove(ids)
+		monitor.eventIDMap.remove(ids)
 	}
 
 	switch event.eventType {
@@ -502,10 +430,15 @@ func (monitor *EventMonitor) Close(wait bool) error {
 	}
 	monitor.eventids = nil
 
-	if len(monitor.eventAttrs.getMap()) != 0 {
+	if len(monitor.eventAttrMap.getMap()) != 0 {
 		panic("internal error: stray event attrs left after monitor Close")
 	}
-	monitor.eventAttrs = nil
+	monitor.eventAttrMap = nil
+
+	if len(monitor.eventIDMap.getMap()) != 0 {
+		panic("internal error: stray event IDs left after monitor Close")
+	}
+	monitor.eventIDMap = nil
 
 	for _, group := range monitor.groups {
 		group.cleanup()
@@ -602,10 +535,40 @@ func (ds decodedSampleList) Less(i, j int) bool {
 	return ds[i].sample.Time < ds[j].sample.Time
 }
 
+func (monitor *EventMonitor) dispatchSortedSamples(samples decodedSampleList) {
+	dispatchFn := monitor.dispatchFn
+	eventIDMap := monitor.eventIDMap.getMap()
+	for _, ds := range samples {
+		streamID := ds.sample.SampleID.StreamID
+		eventID, ok := eventIDMap[streamID]
+		if !ok {
+			// Refresh the map in case we're dealing with a newly
+			// added event, but more likely we're here because the
+			// event has been removed while we're still processing
+			// samples from the ringbuffer.
+			eventIDMap = monitor.eventIDMap.getMap()
+			eventID, ok = eventIDMap[streamID]
+			if !ok {
+				continue
+			}
+		}
+
+		switch record := ds.sample.Record.(type) {
+		case *SampleRecord:
+			// Adjust the sample time so that it
+			// matches the normalized timestamp.
+			record.Time = ds.sample.Time
+			s, err := monitor.decoders.DecodeSample(record)
+			dispatchFn(eventID, s, err)
+		default:
+			dispatchFn(eventID, &ds.sample, ds.err)
+		}
+	}
+}
+
 func (monitor *EventMonitor) dispatchSamples() {
 	defer monitor.wg.Done()
 
-	dispatchFn := monitor.dispatchFn
 	for monitor.isRunning {
 		select {
 		case samples, ok := <-monitor.dispatchChan:
@@ -617,21 +580,11 @@ func (monitor *EventMonitor) dispatchSamples() {
 				return
 			}
 
-			// First sort the data read from the ringbuffers
-			sort.Sort(decodedSampleList(samples))
+			// Sort the samples read from the ringbuffers
+			sort.Sort(samples)
 
-			for _, ds := range samples {
-				switch record := ds.sample.Record.(type) {
-				case *SampleRecord:
-					// Adjust the sample time so that it
-					// matches the normalized timestamp.
-					record.Time = ds.sample.Time
-					s, err := monitor.decoders.DecodeSample(record)
-					dispatchFn(s, err)
-				default:
-					dispatchFn(&ds.sample, ds.err)
-				}
-			}
+			// Dispatch the sorted samples
+			monitor.dispatchSortedSamples(samples)
 		}
 	}
 }
@@ -640,7 +593,7 @@ func (monitor *EventMonitor) readSamples(data []byte) {
 	reader := bytes.NewReader(data)
 	for reader.Len() > 0 {
 		ds := decodedSample{}
-		ds.err = ds.sample.read(reader, nil, monitor.eventAttrs.getMap())
+		ds.err = ds.sample.read(reader, nil, monitor.eventAttrMap.getMap())
 		monitor.samples = append(monitor.samples, ds)
 	}
 }
@@ -835,7 +788,7 @@ func (monitor *EventMonitor) Stop(wait bool) {
 	}
 }
 
-var referenceEventAttr EventAttr = EventAttr{
+var referenceEventAttr = EventAttr{
 	Type:         PERF_TYPE_SOFTWARE,
 	Size:         sizeofPerfEventAttr,
 	Config:       PERF_COUNT_SW_CONTEXT_SWITCHES,
@@ -1004,14 +957,15 @@ func NewEventMonitor(options ...EventMonitorOption) (*EventMonitor, error) {
 	}
 
 	monitor := &EventMonitor{
-		groups:      make(map[int]perfEventGroup),
-		eventAttrs:  newSafeEventAttrMap(),
-		decoders:    NewTraceEventDecoderMap(),
-		nextEventId: 1,
-		events:      make(map[uint64]registeredEvent),
-		eventfds:    make(map[int]int),
-		eventids:    make(map[int]uint64),
-		defaultAttr: eventAttr,
+		groups:       make(map[int]perfEventGroup),
+		eventAttrMap: newSafeEventAttrMap(),
+		eventIDMap:   newSafeUInt64Map(),
+		decoders:     NewTraceEventDecoderMap(),
+		nextEventID:  1,
+		events:       make(map[uint64]registeredEvent),
+		eventfds:     make(map[int]int),
+		eventids:     make(map[int]uint64),
+		defaultAttr:  eventAttr,
 	}
 	monitor.lock = &sync.Mutex{}
 	monitor.cond = sync.NewCond(monitor.lock)
