@@ -9,6 +9,4 @@ WORKDIR /network
 
 COPY network.sh ./
 
-EXPOSE 1234 12345
-
-CMD ./network.sh 1234; ./network.sh 12345
+CMD ./network.sh
