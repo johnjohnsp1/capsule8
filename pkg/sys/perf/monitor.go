@@ -373,11 +373,11 @@ func (monitor *EventMonitor) removeRegisteredEvent(event registeredEvent) {
 	}
 
 	if monitor.isRunning {
-		monitor.eventAttrMap.removeInPlace(ids)
-		monitor.eventIDMap.removeInPlace(ids)
-	} else {
 		monitor.eventAttrMap.remove(ids)
 		monitor.eventIDMap.remove(ids)
+	} else {
+		monitor.eventAttrMap.removeInPlace(ids)
+		monitor.eventIDMap.removeInPlace(ids)
 	}
 
 	switch event.eventType {
