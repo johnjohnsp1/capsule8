@@ -139,7 +139,7 @@ func rewriteProcessEventFilter(pef *api.ProcessEventFilter) {
 	}
 }
 
-func registerProcessEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*api.ProcessEventFilter) {
+func registerProcessEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*api.ProcessEventFilter) []uint64 {
 	forkFilter := false
 	execFilters := make(map[string]bool)
 	execWildcard := false
@@ -196,14 +196,18 @@ func registerProcessEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 		sensor: sensor,
 	}
 
+	var eventIDs []uint64
+
 	if forkFilter {
 		eventName := "sched/sched_process_fork"
-		err := monitor.RegisterEvent(eventName,
-			f.decodeSchedProcessFork, "", nil)
+		eventID, err := monitor.RegisterTracepoint(eventName,
+			f.decodeSchedProcessFork)
 
 		if err != nil {
 			glog.V(1).Infof("Couldn't get %s event id: %v",
 				eventName, err)
+		} else {
+			eventIDs = append(eventIDs, eventID)
 		}
 	}
 
@@ -211,23 +215,29 @@ func registerProcessEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 		filterString := processFilterString(execWildcard, execFilters)
 
 		eventName := "sched/sched_process_exec"
-		err := monitor.RegisterEvent(eventName,
-			f.decodeSchedProcessExec, filterString, nil)
+		eventID, err := monitor.RegisterTracepoint(eventName,
+			f.decodeSchedProcessExec, perf.WithFilter(filterString))
 		if err != nil {
 			glog.V(1).Infof("Couldn't get %s event id: %v",
 				eventName, err)
+		} else {
+			eventIDs = append(eventIDs, eventID)
 		}
 	}
 
 	if exitWildcard || len(exitFilters) > 0 {
 		filterString := processFilterString(exitWildcard, exitFilters)
 
-		name := perf.UniqueProbeName("capsule8", "do_exit")
-		_, err := monitor.RegisterKprobe(name, exitSymbol,
-			false, exitFetchargs, f.decodeDoExit, filterString, nil)
+		eventID, err := monitor.RegisterKprobe(exitSymbol,
+			false, exitFetchargs, f.decodeDoExit,
+			perf.WithFilter(filterString))
 		if err != nil {
 			glog.Errorf("Couldn't register kprobe for %s: %s",
 				exitSymbol, err)
+		} else {
+			eventIDs = append(eventIDs, eventID)
 		}
 	}
+
+	return eventIDs
 }
