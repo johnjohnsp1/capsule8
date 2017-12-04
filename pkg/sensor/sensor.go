@@ -308,10 +308,6 @@ func (s *Sensor) buildMonitorGroups() ([]string, []int, error) {
 		cgroups[cgroup] = true
 		cgroupList = append(cgroupList, cgroup)
 	}
-	if !system && len(cgroups) == 0 && sys.InContainer() {
-		cgroups["docker"] = true
-		cgroupList = append(cgroupList, "docker")
-	}
 
 	// Try a system-wide perf event monitor if requested or as
 	// a fallback if no cgroups were requested
