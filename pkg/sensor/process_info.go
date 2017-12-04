@@ -160,21 +160,22 @@ func NewProcessInfoCache(sensor *Sensor) ProcessInfoCache {
 
 	// Register with the sensor's global event monitor...
 	eventName := "task/task_newtask"
-	err := sensor.monitor.RegisterEvent(eventName, cache.decodeNewTask, "", nil)
+	_, err := sensor.monitor.RegisterTracepoint(eventName,
+		cache.decodeNewTask)
 	if err != nil {
 		glog.Fatalf("Couldn't register event %s: %s", eventName, err)
 	}
 
 	// Attach kprobe on commit_creds to capture task privileges
-	name := perf.UniqueProbeName("capsule8", commitCredsAddress)
-	_, err = sensor.monitor.RegisterKprobe(name, commitCredsAddress, false,
-		commitCredsArgs, cache.decodeCommitCreds, "", nil)
+	_, err = sensor.monitor.RegisterKprobe(commitCredsAddress, false,
+		commitCredsArgs, cache.decodeCommitCreds)
 
 	// Attach a probe for task_renamse involving the runc
 	// init processes to trigger containerId lookups
 	f := "oldcomm == exe || oldcomm == runc:[2:INIT]"
 	eventName = "task/task_rename"
-	err = sensor.monitor.RegisterEvent(eventName, cache.decodeRuncTaskRename, f, nil)
+	_, err = sensor.monitor.RegisterTracepoint(eventName,
+		cache.decodeRuncTaskRename, perf.WithFilter(f))
 	if err != nil {
 		glog.Fatalf("Couldn't register event %s: %s", eventName, err)
 	}

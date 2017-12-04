@@ -2,8 +2,6 @@ package perf
 
 import (
 	"bufio"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -52,14 +50,6 @@ func writeTraceCommand(name string, cmd string) error {
 
 	_, err = file.Write([]byte(cmd))
 	return err
-}
-
-func UniqueProbeName(group string, symbol string) string {
-	randomBytes := make([]byte, 8)
-	rand.Read(randomBytes)
-	random_bits := hex.EncodeToString(randomBytes)
-
-	return fmt.Sprintf("%s/sensor_%s_%s", group, symbol, random_bits)
 }
 
 func AddKprobe(name string, address string, onReturn bool, output string) (string, error) {

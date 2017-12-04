@@ -58,6 +58,9 @@ type Sensor struct {
 
 	// Per-sensor process cache.
 	processCache ProcessInfoCache
+
+	// Mapping of event ids to data streams (subscriptions)
+	eventMap *safeSubscriptionMap
 }
 
 func NewSensor() (*Sensor, error) {
@@ -72,6 +75,7 @@ func NewSensor() (*Sensor, error) {
 	s := &Sensor{
 		Id:                sensorId,
 		bootMonotimeNanos: bootMonotimeNanos,
+		eventMap:          newSafeSubscriptionMap(),
 	}
 
 	cer, err := NewContainerEventRepeater(s)
@@ -121,30 +125,18 @@ func (s *Sensor) Start() error {
 	}
 
 	// Create the sensor-global event monitor. This EventMonitor instance
-	// will be used for perf_event events that affect sensor-wide caching
-	monitor, err := s.createEventMonitor(nil)
+	// will be used for all perf_event events
+	err = s.createEventMonitor()
 	if err != nil {
 		s.Stop()
 		return err
 	}
-	s.monitor = monitor
 
 	s.processCache = NewProcessInfoCache(s)
 
-	// This should be last. It shouldn't be started until everything else
-	// has been successfully started
-	go func() {
-		err := monitor.Run(func(sample interface{}, err error) {
-			if err != nil {
-				glog.Warning(err)
-			}
-		})
-		if err != nil {
-			glog.Fatal(err)
-		}
-	}()
-
-	s.monitor.Enable()
+	// Make sure that all events registered with the sensor's event monitor
+	// are active
+	s.monitor.EnableAll()
 
 	return nil
 }
@@ -163,6 +155,20 @@ func (s *Sensor) Stop() {
 
 	if len(s.perfEventMountPoint) > 0 {
 		s.unmountPerfEventCgroupFS()
+	}
+}
+
+func (s *Sensor) dispatchSample(eventID uint64, sample interface{}, err error) {
+	if err != nil {
+		glog.Warning(err)
+	}
+
+	if event, ok := sample.(*api.Event); ok && event != nil {
+		eventMap := s.eventMap.getMap()
+		data := eventMap[eventID]
+		if data != nil {
+			data <- event
+		}
 	}
 }
 
@@ -313,12 +319,12 @@ func (s *Sensor) buildMonitorGroups() ([]string, []int, error) {
 	return cgroupList, pidList, nil
 }
 
-func (s *Sensor) createEventMonitor(sub *api.Subscription) (*perf.EventMonitor, error) {
+func (s *Sensor) createEventMonitor() error {
 	eventMonitorOptions := []perf.EventMonitorOption{}
 
 	cgroups, pids, err := s.buildMonitorGroups()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if len(cgroups) == 0 && len(pids) == 0 {
@@ -348,7 +354,7 @@ func (s *Sensor) createEventMonitor(sub *api.Subscription) (*perf.EventMonitor, 
 			perf.WithPids(pids))
 	}
 
-	monitor, err := perf.NewEventMonitor(eventMonitorOptions...)
+	s.monitor, err = perf.NewEventMonitor(eventMonitorOptions...)
 	if err != nil {
 		// If a cgroup-specific event monitor could not be created,
 		// fall back to a system-wide event monitor.
@@ -359,33 +365,67 @@ func (s *Sensor) createEventMonitor(sub *api.Subscription) (*perf.EventMonitor, 
 				strings.Join(cgroups, ","), err)
 
 			glog.V(1).Info("Creating new system-wide event monitor")
-			monitor, err = perf.NewEventMonitor()
+			s.monitor, err = perf.NewEventMonitor()
 		}
 		if err != nil {
 			glog.V(1).Infof("Couldn't create event monitor: %s", err)
-			return nil, err
+			return err
 		}
 	}
 
-	if sub != nil {
-		registerFileEvents(monitor, s, sub.EventFilter.FileEvents)
-		registerKernelEvents(monitor, s, sub.EventFilter.KernelEvents)
-		registerNetworkEvents(monitor, s, sub.EventFilter.NetworkEvents)
-		registerProcessEvents(monitor, s, sub.EventFilter.ProcessEvents)
-		registerSyscallEvents(monitor, s, sub.EventFilter.SyscallEvents)
-	}
+	go func() {
+		err := s.monitor.Run(s.dispatchSample)
+		if err != nil {
+			glog.Fatal(err)
+		}
+		glog.V(2).Info("EventMonitor.Run() returned; exiting goroutine")
+	}()
 
-	return monitor, nil
+	return nil
 }
 
 func (s *Sensor) createPerfEventStream(sub *api.Subscription) (*stream.Stream, error) {
-	monitor, err := s.createEventMonitor(sub)
-	if err != nil {
-		return nil, err
-	}
+	eventMap := make(map[uint64]chan interface{})
 
 	ctrl := make(chan interface{})
 	data := make(chan interface{}, config.Sensor.ChannelBufferLength)
+
+	if len(sub.EventFilter.FileEvents) > 0 {
+		ids := registerFileEvents(s.monitor, s, sub.EventFilter.FileEvents)
+		for _, id := range ids {
+			eventMap[id] = data
+		}
+	}
+	if len(sub.EventFilter.KernelEvents) > 0 {
+		ids := registerKernelEvents(s.monitor, s, sub.EventFilter.KernelEvents)
+		for _, id := range ids {
+			eventMap[id] = data
+		}
+	}
+	if len(sub.EventFilter.NetworkEvents) > 0 {
+		ids := registerNetworkEvents(s.monitor, s, sub.EventFilter.NetworkEvents)
+		for _, id := range ids {
+			eventMap[id] = data
+		}
+	}
+	if len(sub.EventFilter.ProcessEvents) > 0 {
+		ids := registerProcessEvents(s.monitor, s, sub.EventFilter.ProcessEvents)
+		for _, id := range ids {
+			eventMap[id] = data
+		}
+	}
+	if len(sub.EventFilter.SyscallEvents) > 0 {
+		ids := registerSyscallEvents(s.monitor, s, sub.EventFilter.SyscallEvents)
+		for _, id := range ids {
+			eventMap[id] = data
+		}
+	}
+
+	if len(eventMap) == 0 {
+		close(ctrl)
+		close(data)
+		return nil, nil
+	}
 
 	go func() {
 		defer close(data)
@@ -393,28 +433,24 @@ func (s *Sensor) createPerfEventStream(sub *api.Subscription) (*stream.Stream, e
 		for {
 			_, ok := <-ctrl
 			if !ok {
-				glog.V(2).Info("Control channel closed; closing EventMonitor")
+				glog.V(2).Info("Control channel closed")
 
-				// Wait until Close() full terminates before
-				// allowing data channel to close
-				monitor.Close(true)
+				// Remove from .eventMap first so that any
+				// pending events being processed get discarded
+				// as quickly as possible. Then remove the
+				// events from the EventMonitor
+				s.eventMap.remove(eventMap)
+				for eventID := range eventMap {
+					s.monitor.UnregisterEvent(eventID)
+				}
 				return
 			}
 		}
 	}()
 
-	go func() {
-		monitor.Run(func(sample interface{}, err error) {
-			if event, ok := sample.(*api.Event); ok && event != nil {
-				data <- event
-			}
-		})
-		glog.V(2).Info("EventMonitor.Run() returned; exiting goroutine")
-	}()
-
-	if monitor != nil {
-		glog.V(2).Info("Enabling EventMonitor")
-		monitor.Enable()
+	s.eventMap.update(eventMap)
+	for eventID := range eventMap {
+		s.monitor.Enable(eventID)
 	}
 
 	return &stream.Stream{
@@ -456,7 +492,9 @@ func (s *Sensor) NewSubscription(sub *api.Subscription) (*stream.Stream, error) 
 			joiner.Close()
 			return nil, err
 		}
-		joiner.Add(pes)
+		if pes != nil {
+			joiner.Add(pes)
+		}
 	}
 
 	if len(sub.EventFilter.ContainerEvents) > 0 {
