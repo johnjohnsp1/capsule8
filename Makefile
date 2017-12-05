@@ -47,7 +47,8 @@ DOCKER_RUN_CI=docker run                                                    \
 
 .PHONY: all ci ci_shell builder build_image container load save run shell \
 	static dist check test test_verbose test_all test_msan test_race  \
-	test_functional clean
+	test_functional build_test_functional_image                       \
+	run_test_functional_image clean
 
 #
 # Default target: build all executables
@@ -178,5 +179,18 @@ test_race:
 test_functional:
 	go test ./test/functional $(GOTESTFLAGS)
 
+#
+# Build docker image for the functional test suite
+#
+build_test_functional_image:
+	$(MAKE) -C test/functional build_image
+
+#
+# Run docker image for the functional test suite
+#
+run_test_functional_image:
+	$(MAKE) -C test/functional run_image
+
 clean:
 	rm -rf ./bin $(CMDS)
+	$(MAKE) -C test/functional clean
