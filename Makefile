@@ -189,7 +189,7 @@ build_test_functional_image:
 # Run docker image for the functional test suite
 #
 run_test_functional_image:
-	$(MAKE) -C test/functional run_image
+	$(MAKE) -C test/functional run_image GOTESTFLAGS="$(GOTESTFLAGS)"
 
 clean:
 	rm -rf ./bin $(CMDS)

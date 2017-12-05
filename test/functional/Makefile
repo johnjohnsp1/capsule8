@@ -1,6 +1,15 @@
 .PHONY: run_image
+
+GOTESTFLAGS =
+
+DOCKERRUNARGS :=
+ifneq ($(GOTESTFLAGS),)
+	DOCKERRUNARGS += -e GOTESTFLAGS="$(GOTESTFLAGS)"
+endif
+
 run_image: build_image
 	docker run                                                             \
+		$(DOCKERRUNARGS)                                               \
 		-it                                                            \
 		--privileged                                                   \
 		--publish 8484:8484                                            \

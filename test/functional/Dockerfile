@@ -8,6 +8,8 @@ RUN apk update && \
 
 WORKDIR /functional
 
+ENV GOTESTFLAGS=''
+
 ADD . ./
 
-CMD ./functional.test
+CMD ./functional.test $GOTESTFLAGS
