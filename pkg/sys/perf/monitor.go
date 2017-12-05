@@ -634,7 +634,7 @@ func (monitor *EventMonitor) readRingBuffers(readyfds []int) {
 				}
 			}
 			if x != len(monitor.samples) {
-				monitor.pendingSamples = append(monitor.pendingSamples, monitor.samples[x-1:]...)
+				monitor.pendingSamples = append(monitor.pendingSamples, monitor.samples[x:]...)
 				monitor.samples = monitor.samples[:x]
 			}
 		}
