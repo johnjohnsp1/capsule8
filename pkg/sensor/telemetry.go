@@ -20,18 +20,11 @@ type TelemetryService struct {
 	address string
 }
 
-func NewTelemetryService(address string) (*TelemetryService, error) {
-	sensor, err := NewSensor()
-	if err != nil {
-		return nil, err
-	}
-
-	ts := &TelemetryService{
+func NewTelemetryService(sensor *Sensor, address string) *TelemetryService {
+	return &TelemetryService{
 		address: address,
 		sensor:  sensor,
 	}
-
-	return ts, nil
 }
 
 func (ts *TelemetryService) Name() string {
