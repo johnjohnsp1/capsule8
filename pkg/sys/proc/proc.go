@@ -214,7 +214,7 @@ func (fs *FileSystem) ContainerID(pid int) (string, error) {
 	for _, pci := range cgroups {
 		matches := cgroupContainerRE.FindStringSubmatch(pci.Path)
 		if len(matches) > 2 {
-			return "", matches[2]
+			return matches[2], nil
 		}
 	}
 
