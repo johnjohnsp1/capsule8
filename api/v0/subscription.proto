@@ -1,0 +1,312 @@
+// Copyright 2017 Capsule8 Inc. All rights reserved.
+
+syntax = "proto3";
+
+package capsule8.api.v0;
+option go_package = "github.com/capsule8/capsule8/api/v0";
+
+import "capsule8/api/v0/event.proto";
+import "capsule8/api/v0/expression.proto";
+import "google/protobuf/wrappers.proto";
+
+//
+// The Subscription message identifies a subscriber's interest in
+// telemetry events.
+//
+message Subscription {
+        // Return events matching one or more of the specified event
+        // filters. If no event filters are specified, then no events
+        // will be returned.
+        EventFilter event_filter = 1;
+
+        // If not empty, then only return events from containers matched
+        // by one or more of the specified container filters.
+        ContainerFilter container_filter = 2;
+
+        // If not empty, then only return events that occurred after
+        // the specified relative duration subtracted from the current
+        // time (recorder time). If the resulting time is in the past, then the
+        // subscription will search for historic events before streaming
+        // live ones.
+        google.protobuf.Int64Value since_duration = 10;
+
+        // If not empty, then only return events that occurred before
+        // the specified relative duration added to `since_duration`.
+        // If `since_duration` is not supplied, return events from now and until
+        // the specified relative duration is hit.
+        google.protobuf.Int64Value for_duration = 11;
+
+        // If not empty, apply the specified modifier to the subscription.
+        Modifier modifier = 20;
+}
+
+// The ContainerFilter restricts events in the Subscription to the
+// running containers indicated. All of the fields in this message are
+// effectively "ORed" together to create the list of containers to
+// monitor for the subscription.
+message ContainerFilter {
+        // Zero or more container IDs (e.g.
+        // 254dd98a7bf1581560ddace9f98b7933bfb3c2f5fc0504ec1b8dcc9614bc7062)
+        repeated string ids = 1;
+
+        // Zero or more container names (e.g. /ecstatic_darwin)
+        repeated string names = 2;
+
+        // Zero or more container image IDs (e.g.
+        // d462265d362c919b7dd37f8ba80caa822d13704695f47c8fc42a1c2266ecd164)
+        repeated string image_ids = 3;
+
+        // Container image name (shell-style globs are supported). May be of the
+        // form "busybox", "foo/bar" or
+        // "sha256:d462265d362c919b7dd37f8ba80caa822d13704695f47c8fc42a1c2266ecd164"
+        repeated string image_names = 4;
+}
+
+// The EventFilter specifies events to include. All of the specified
+// fields are effectively "ORed" together to create the list of events
+// included in the Subscription.
+message EventFilter {
+        //
+        // Kernel-level events
+        //
+
+        // Zero or more filters specifying which system calls to include
+        repeated SyscallEventFilter syscall_events = 1;
+
+        // Zero or more filters specifying which process events to include
+        repeated ProcessEventFilter process_events = 2;
+
+        // Zero or more filters specifying which file events to include
+        repeated FileEventFilter file_events = 3;
+
+        // Zero or more kernel functional calls to include
+        repeated KernelFunctionCallFilter kernel_events = 4;
+
+        // Zero or more network events to include
+        repeated NetworkEventFilter network_events = 5;
+
+        //
+        // Operating System-level events (containers, etc)
+        //
+
+        // Zero or more container events to include
+        repeated ContainerEventFilter container_events = 10;
+
+        //
+        // Debugging events (>= 100)
+        //
+
+        // Zero or more character generators to configure and return events from
+        // (for debugging)
+        repeated ChargenEventFilter chargen_events = 100;
+
+        // Zero or more ticker generators to configure and return events from
+        // (for debugging)
+        repeated TickerEventFilter ticker_events = 101;
+}
+
+// The SyscallEventFilter specifies which system call events to
+// include in the Subscription. The specified fields are effectively
+// "ANDed" to specify a matching event.
+message SyscallEventFilter {
+        // Required; type of system call event (entry or exit)
+        SyscallEventType type = 1;
+
+        Expression filter_expression = 100;
+
+        //
+        // DEPRECATED
+        //
+
+        // Required; system call number from
+        // arch/x86/entry/syscalls/syscall_64.tbl
+        google.protobuf.Int64Value id = 2;
+
+        // These don't work yet
+        // google.protobuf.UInt64Value arg0 = 10;
+        // google.protobuf.UInt64Value arg1 = 11;
+        // google.protobuf.UInt64Value arg2 = 12;
+        // google.protobuf.UInt64Value arg3 = 13;
+        // google.protobuf.UInt64Value arg4 = 14;
+        // google.protobuf.UInt64Value arg5 = 15;
+
+        // Optional; return value of the system call (if type indicates exit).
+        google.protobuf.Int64Value ret = 20;
+}
+
+// The ProcessEventFilter specifies which process events to include in
+// the Subscription. The specified fields are effectively "ANDed" to
+// specify a matching event.
+message ProcessEventFilter {
+        // Required; the process event type to match
+        ProcessEventType type = 1;
+
+        Expression filter_expression = 100;
+
+        //
+        // DEPRECATED
+        //
+
+        // Optional; require exact match on the command name associated
+        // with the process as shown in /proc/[pid]/comm
+        // google.protobuf.StringValue fork_comm = 10;
+
+        // Optional; require pattern match on the command name associated
+        // with the process as shown in /proc/[pid]/comm
+        // google.protobuf.StringValue fork_comm_pattern = 11;
+
+        // Optional; require exact match on the filename passed to execve(2)
+        google.protobuf.StringValue exec_filename = 12;
+
+        // Optional; require pattern match on the filename passed to execve(2)
+        google.protobuf.StringValue exec_filename_pattern = 13;
+
+        // Optional; require exact match on exit code
+        google.protobuf.Int32Value exit_code = 14;
+}
+
+// The FileEventFilter specifies which file events to include in the
+// Subscription. The specified fields are effectively "ANDed" to
+// specify a matching event.
+message FileEventFilter {
+        // Required; the file event type to match
+        FileEventType type = 1;
+
+        Expression filter_expression = 100;
+
+        //
+        // DEPRECATED
+        //
+
+        // Optional; require exact match on the filename being acted upon
+        google.protobuf.StringValue filename = 10;
+
+        // Optional; require pattern match on the filename being acted upon
+        google.protobuf.StringValue filename_pattern = 11;
+
+        // Optional; for file open events, require a match of the bits set
+        // for the open(2) flags argument
+        google.protobuf.Int32Value open_flags_mask = 12;
+
+        // Optional; for file open events, require a match of the bits set
+        // for the open(2) or creat(2) mode argument
+        google.protobuf.Int32Value create_mode_mask = 13;
+}
+
+// The KernelFunctionCallFilter specifies which kernel function call
+// events to include in the Subscription. The arguments map defines
+// values that will be fetched at each call and returned along with
+// the event. In order to minimize event volume, a filter may be
+// included that filters the kernel function calls based on the
+// observed values of the specified arguments at the time of the
+// kernel function call.
+message KernelFunctionCallFilter {
+        // Required; the kernel function call event type to match
+        KernelFunctionCallEventType type = 1;
+
+        // Required; the kernel symbol to match on
+        string symbol = 10;
+
+        // Optional; the field names and data to be returned by the kernel
+        // when the event triggers. Note that this is a map. The keys are the
+        // names to assign to the returned fields, and the values are a string
+        // describing the data to return, usually an expression involving the
+        // register containing the desired data and a suffix indicating the
+        // type of the data (e.g., "s32", "string", "u64", etc.). This map is
+        // used to construct the "fetchargs" passed to the kernel when creating
+        // the kernel probe.
+        map<string, string> arguments = 11;
+
+        // Optional; a filter to apply to kernel probe.
+        Expression filter_expression = 100;
+}
+
+// The NetworkEventFilter specifies which network events to include in
+// the Subscription. The included filter can be used to specify
+// precisely which network events should be included.
+message NetworkEventFilter {
+        // Required; the network event type to match
+        NetworkEventType type = 1;
+
+        // Optional; a filter to apply to events. Only events for which the
+        // evaluation of the filter expression is true will be returned.
+        Expression filter_expression = 100;
+}
+
+// The ContainerEventView specifies the level of detail to include for
+// ContainerEvents.
+enum ContainerEventView {
+        // Default view of a ContainerEvent includes just basic information
+        BASIC = 0;
+
+        // Full view of a ContainerEvent includes raw Docker and OCI config JSON
+        // payloads
+        FULL = 1;
+}
+
+// The ContainerEventFilter specifies which container lifecycle events
+// to include in the Subscription. In order to restrict them to
+// specific containers, use the ContainerFilter.
+message ContainerEventFilter {
+        // Required, specify the particular type of event type to match
+        ContainerEventType type = 1;
+
+        // Optional, specifies how much detail to include in container events
+        ContainerEventView view = 2;
+
+        // Optional; a filter to apply to events. Only events for which the
+        // evaluation of the filter expression is true will be returned.
+        Expression filter_expression = 100;
+}
+
+// The ChargenEventFilter configures a character stream generator and
+// includes events from it in the Subscription.
+message ChargenEventFilter {
+        // Required; the length of character sequence strings to generate
+        uint64 length = 1;
+}
+
+// The TickerEventFilter configures a ticker stream generator and
+// includes events from it in the Subscription.
+message TickerEventFilter {
+        // Required; the interval at which ticker events are generated
+        int64 interval = 1;
+}
+
+// Modifier specifies which stream modifiers to apply if any. For a given
+// stream, a modifier can apply a throttle or limit etc. Modifiers can be
+// used together.
+message Modifier {
+        ThrottleModifier throttle = 1;
+        LimitModifier limit       = 2;
+}
+
+// The ThrottleModifier modulates events sent by the Sensor to one per
+// time interval specified.
+message ThrottleModifier {
+        // Required; the interval to use
+        int64 interval = 1;
+
+        // Possible interval types
+        enum IntervalType {
+                // milliseconds
+                MILLISECOND = 0;
+                // seconds
+                SECOND = 1;
+                // minutes
+                MINUTE = 2;
+                // hours
+                HOUR = 3;
+        }
+
+        // Required; the intreval type (milliseconds, seconds, etc.)
+        IntervalType interval_type = 2;
+}
+
+// The LimitModifier cancels the subscription on each Sensor after the
+// specified number of events. The entire Subscription may return more
+// events that this depending on how many active Sensors there are.
+message LimitModifier {
+        // Limit the number of events
+        int64 limit = 1;
+}
