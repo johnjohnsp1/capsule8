@@ -2,12 +2,6 @@
 
 
 [[projects]]
-  branch = "master"
-  name = "github.com/capsule8/api"
-  packages = ["v0"]
-  revision = "d162d9ac9479963c101e0227683c399988050988"
-
-[[projects]]
   name = "github.com/gobwas/glob"
   packages = [".","compiler","match","syntax","syntax/ast","syntax/lexer","util/runes","util/strings"]
   revision = "bea32b9cd2d6f55753d94a28e959b13f0244797a"
@@ -22,13 +16,8 @@
 [[projects]]
   branch = "master"
   name = "github.com/golang/protobuf"
-  packages = ["jsonpb","proto","protoc-gen-go/descriptor","ptypes","ptypes/any","ptypes/duration","ptypes/struct","ptypes/timestamp","ptypes/wrappers"]
+  packages = ["proto","ptypes","ptypes/any","ptypes/duration","ptypes/timestamp","ptypes/wrappers"]
   revision = "130e6b02ab059e7b717a096f397c5b60111cae74"
-
-[[projects]]
-  name = "github.com/grpc-ecosystem/grpc-gateway"
-  packages = ["runtime","runtime/internal","utilities"]
-  revision = "f2862b476edcef83412c7af8687c9cd8e4097c0f"
 
 [[projects]]
   name = "github.com/kelseyhightower/envconfig"
@@ -57,7 +46,7 @@
 [[projects]]
   branch = "master"
   name = "google.golang.org/genproto"
-  packages = ["googleapis/api/annotations","googleapis/rpc/status"]
+  packages = ["googleapis/rpc/status"]
   revision = "f676e0f3ac6395ff1a529ae59a6670878a8371a6"
 
 [[projects]]
@@ -69,6 +58,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "376816339a39d03ec3b11eb1f948d19134adab535412a7c0743373172de23d5b"
+  inputs-digest = "60ef0c13234100ef9ce116d20cf0f4b44b8b0843aaa6d2c479b558df7833b894"
   solver-name = "gps-cdcl"
   solver-version = 1
