@@ -243,7 +243,7 @@ func ProcessMonitor() *processMonitor {
 		// Attach a probe for task_renames involving the runc
 		// init processes to trigger containerID lookups
 		//
-		f := "oldcomm ~ runc:* || newcomm ~ runc:*"
+		f := "oldcomm == exe || oldcomm == runc:[2:INIT]"
 		eventName = "task/task_rename"
 		err = eventMonitor.RegisterEvent(eventName, decodeRuncTaskRename, f, nil)
 		if err != nil {
@@ -335,19 +335,6 @@ func decodeNewTask(sample *perf.SampleRecord,
 
 		// Inherit containerID from parent
 		containerID, _ = processContainerID(parentPid)
-	}
-
-	// Lookup containerID from /proc filesystem for runc inits
-	if len(containerID) == 0 && strings.HasPrefix(command, "runc:") {
-		var err error
-
-		containerID, err = procFS.ContainerID(parentPid)
-		if err == nil && len(containerID) > 0 {
-			// Set it in the parent as well
-			cache.SetTaskContainerID(parentPid, containerID)
-		} else {
-			containerID, err = procFS.ContainerID(childPid)
-		}
 	}
 
 	t := task{
