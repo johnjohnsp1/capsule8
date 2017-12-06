@@ -1,4 +1,4 @@
-FROM ubuntu:16.04
+FROM alpine
 
 # Run a few commands
-CMD sleep 1 && df && ls && ps && dmesg 
+CMD df && ls && ps && uname
