@@ -1,7 +1,7 @@
 package expression
 
 import (
-	api "github.com/capsule8/api/v0"
+	api "github.com/capsule8/capsule8/api/v0"
 )
 
 // FieldTypeMap is a mapping of types for field names/identifiers

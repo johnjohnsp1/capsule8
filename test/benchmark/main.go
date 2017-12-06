@@ -16,7 +16,7 @@ import (
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 
-	api "github.com/capsule8/api/v0"
+	api "github.com/capsule8/capsule8/api/v0"
 	sensorConfig "github.com/capsule8/capsule8/pkg/config"
 
 	"github.com/capsule8/capsule8/pkg/sensor"

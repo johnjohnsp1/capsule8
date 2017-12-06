@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"unicode"
 
-	api "github.com/capsule8/api/v0"
+	api "github.com/capsule8/capsule8/api/v0"
 )
 
 func validateIdentifier(ident string) error {

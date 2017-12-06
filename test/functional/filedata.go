@@ -6,7 +6,7 @@ import (
 	"os"
 	"syscall"
 
-	api "github.com/capsule8/api/v0"
+	api "github.com/capsule8/capsule8/api/v0"
 )
 
 func fileTestDataMap() (map[string]*api.FileEvent, error) {
