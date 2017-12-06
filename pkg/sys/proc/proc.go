@@ -20,9 +20,10 @@ import (
 //
 // Docker cgroup paths may look like either of:
 // - /docker/[CONTAINER_ID]
+// - /kubepods/[...]/[CONTAINER_ID]
 // - /system.slice/docker-[CONTAINER_ID].scope
 //
-const cgroupContainerPattern = "^(/docker/|/system.slice/docker-)([[:xdigit:]]{64})(.scope|$)"
+const cgroupContainerPattern = "^(/docker/|/kubepods/.*/|/system.slice/docker-)([[:xdigit:]]{64})(.scope|$)"
 
 var (
 	// Default procfs mounted on /proc
