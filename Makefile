@@ -182,15 +182,29 @@ test_functional:
 #
 # Build docker image for the functional test suite
 #
-build_test_functional_image:
-	$(MAKE) -C test/functional build_image
+build_test_functional_image: test/functional/functional.test
+	docker build ./test/functional
 
 #
 # Run docker image for the functional test suite
 #
-run_test_functional_image:
-	$(MAKE) -C test/functional run_image GOTESTFLAGS="$(GOTESTFLAGS)"
+DOCKERRUNARGS :=
+ifneq ($(GOTESTFLAGS),)
+	DOCKERRUNARGS += -e GOTESTFLAGS="$(GOTESTFLAGS)"
+endif
+
+run_test_functional_image: build_test_functional_image
+	docker run                                                             \
+		$(DOCKERRUNARGS)                                               \
+		-it                                                            \
+		--privileged                                                   \
+		--rm                                                           \
+		-v /var/run/capsule8:/var/run/capsule8                         \
+		-v /var/run/docker.sock:/var/run/docker.sock                   \
+		$(shell docker build -q ./test/functional)
+
+test/functional/functional.test:
+	CGO_ENABLED=0 GOBUILDFLAGS=-a go test -c -o $@ ./test/functional
 
 clean:
-	rm -rf ./bin $(CMDS)
-	$(MAKE) -C test/functional clean
+	rm -rf ./bin $(CMDS) ./test/functional/*.test
