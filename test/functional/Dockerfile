@@ -7,7 +7,6 @@ RUN apk update && \
 
 WORKDIR /functional
 
-# ENV CAPSULE8_API_SERVER='localhost:8484'
 ENV GOTESTFLAGS=''
 
 ADD . ./

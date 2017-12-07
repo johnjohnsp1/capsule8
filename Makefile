@@ -85,16 +85,17 @@ save: capsule8-$(VERSION).tar
 capsule8-$(VERSION).tar: container
 	docker save -o $@ $(CONTAINER_IMAGE)
 
-run: container
-	docker run --rm -it                                                    \
+CONTAINER_RUN_ARGS = --rm -it                                                  \
 		--privileged                                                   \
-		--publish 8484:8484                                            \
 		--volume=/proc:/var/run/capsule8/proc/:ro                      \
 		--volume=/sys/kernel/debug:/sys/kernel/debug                   \
 		--volume=/sys/fs/cgroup:/sys/fs/cgroup                         \
 		--volume=/var/lib/docker:/var/lib/docker:ro                    \
-		--volume=/var/run/docker:/var/run/docker:ro                    \
-		$(CONTAINER_IMAGE)
+		--volume=/var/run/capsule8:/var/run/capsule8                   \
+		--volume=/var/run/docker:/var/run/docker:ro
+
+run: container
+	docker run $(CONTAINER_RUN_ARGS) $(CONTAINER_IMAGE)
 
 #
 # Run an interactive shell within the docker container with the
@@ -102,15 +103,7 @@ run: container
 # the environment within the continer.
 #
 shell: container
-	docker run --rm -it                                                    \
-		--privileged                                                   \
-		--publish 8484:8484                                            \
-		--volume=/proc:/var/run/capsule8/proc/:ro                      \
-		--volume=/sys/kernel/debug:/sys/kernel/debug                   \
-		--volume=/sys/fs/cgroup:/sys/fs/cgroup                         \
-		--volume=/var/lib/docker:/var/lib/docker:ro                    \
-		--volume=/var/run/docker:/var/run/docker:ro                    \
-		$(CONTAINER_IMAGE) /bin/sh
+	docker run $(CONTAINER_RUN_ARGS) $(CONTAINER_IMAGE) /bin/sh
 
 #
 # Build all executables as static executables

@@ -34,7 +34,8 @@ trap on_exit EXIT
 function run_sensor_container() {
 	local sensor_container_image=$(docker build -q .)
 	
-	sensor_container_id=$(docker run -it -d                                \
+	sensor_container_id=$(docker run -it -d                            \
+		--env CAPSULE8_SENSOR_SERVER_ADDR=:8484                        \
 		--privileged                                                   \
 		--publish 8484:8484                                            \
 		--volume=/proc:/var/run/capsule8/proc/:ro                      \
