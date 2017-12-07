@@ -15,10 +15,11 @@ func Main() {
 		manager.RegisterService(service)
 	}
 	if len(config.Sensor.ServerAddr) > 0 {
-		service, err := NewTelemetryService(config.Sensor.ServerAddr)
+		sensor, err := NewSensor()
 		if err != nil {
 			glog.Fatalf("Could not create telemetry service: %s", err)
 		}
+		service := NewTelemetryService(sensor, config.Sensor.ServerAddr)
 		manager.RegisterService(service)
 	}
 
