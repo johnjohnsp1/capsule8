@@ -17,8 +17,12 @@ func Main() {
 	if len(config.Sensor.ServerAddr) > 0 {
 		sensor, err := NewSensor()
 		if err != nil {
-			glog.Fatalf("Could not create telemetry service: %s", err)
+			glog.Fatalf("Could not create sensor: %s", err.Error())
 		}
+		if err := sensor.Start(); err != nil {
+			glog.Fatalf("Could not start sensor: %s", err.Error())
+		}
+		defer sensor.Stop()
 		service := NewTelemetryService(sensor, config.Sensor.ServerAddr)
 		manager.RegisterService(service)
 	}

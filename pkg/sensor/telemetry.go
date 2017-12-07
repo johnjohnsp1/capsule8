@@ -37,12 +37,6 @@ func (ts *TelemetryService) Serve() error {
 		lis net.Listener
 	)
 
-	err = ts.sensor.Start()
-	if err != nil {
-		return err
-	}
-	defer ts.sensor.Stop()
-
 	glog.V(1).Info("Serving gRPC API on ", ts.address)
 
 	parts := strings.Split(ts.address, ":")
