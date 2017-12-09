@@ -44,7 +44,7 @@ DOCKER_RUN_CI=docker run                                                    \
 	--network host                                                      \
 	-ti                                                                 \
 	--rm                                                                \
-	-u $(shell id -u):$(shell id -g)                                    \
+	-u $(shell id -u):$(shell getent group docker | cut -d: -f3)        \
 	-v "$$(pwd):/go/src/$(PKG)"                                         \
 	-v /var/run/docker.sock:/var/run/docker.sock:ro                     \
 	-w /go/src/$(PKG)                                                   \

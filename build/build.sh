@@ -22,8 +22,5 @@ trap on_error EXIT
 echo "--- Checking sources"
 make check
 
-echo "--- Building static binaries"
-make static
-
 echo "--- Building container"
 make container

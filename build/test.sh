@@ -34,10 +34,10 @@ trap on_exit EXIT
 function run_sensor_container() {
 	local sensor_container_image=$(docker build -q .)
 	
-	sensor_container_id=$(docker run -it -d                            \
-		--env CAPSULE8_SENSOR_SERVER_ADDR=:8484                        \
+	sensor_container_id=$(docker run -it -d                                \
 		--privileged                                                   \
 		--publish 8484:8484                                            \
+		--volume=/var/run/capsule8:/var/run/capsule8                   \
 		--volume=/proc:/var/run/capsule8/proc/:ro                      \
 		--volume=/sys/kernel/debug:/sys/kernel/debug                   \
 		--volume=/sys/fs/cgroup:/sys/fs/cgroup                         \
@@ -65,4 +65,4 @@ run_sensor_container
 
 echo "--- Running functional tests"
 # It is ok to fail the functional tests for now
-env CAPSULE8_API_SERVER=127.0.0.1:8484 make test_functional || true
+make run_functional_test || true
