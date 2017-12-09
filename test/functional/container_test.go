@@ -17,7 +17,7 @@ func newContainerTest() *containerTest {
 	return &containerTest{seenEvts: make(map[api.ContainerEventType]bool)}
 }
 
-func (ct *containerTest) BuildContainer(t *testing.T) {
+func (ct *containerTest) BuildContainer(t *testing.T) string {
 	c := NewContainer(t, "container")
 	err := c.Build()
 	if err != nil {
@@ -26,6 +26,8 @@ func (ct *containerTest) BuildContainer(t *testing.T) {
 		glog.V(2).Infof("Built container %s\n", c.ImageID[0:12])
 		ct.testContainer = c
 	}
+
+	return ct.testContainer.ImageID
 }
 
 func (ct *containerTest) RunContainer(t *testing.T) {

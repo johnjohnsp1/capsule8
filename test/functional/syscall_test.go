@@ -18,15 +18,17 @@ type syscallTest struct {
 	seenExit      bool
 }
 
-func (st *syscallTest) BuildContainer(t *testing.T) {
+func (st *syscallTest) BuildContainer(t *testing.T) string {
 	c := NewContainer(t, "syscall")
 	err := c.Build()
 	if err != nil {
 		t.Error(err)
-	} else {
-		glog.V(2).Infof("Built container %s\n", c.ImageID[0:12])
-		st.testContainer = c
+		return ""
 	}
+
+	glog.V(2).Infof("Built container %s\n", c.ImageID[0:12])
+	st.testContainer = c
+	return st.testContainer.ImageID
 }
 
 func (st *syscallTest) RunContainer(t *testing.T) {
@@ -52,17 +54,8 @@ func (st *syscallTest) CreateSubscription(t *testing.T) *api.Subscription {
 		},
 	}
 
-	// Subscribing to container created events are currently necessary
-	// to get imageIDs in other events.
-	containerEvents := []*api.ContainerEventFilter{
-		&api.ContainerEventFilter{
-			Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED,
-		},
-	}
-
 	eventFilter := &api.EventFilter{
-		SyscallEvents:   syscallEvents,
-		ContainerEvents: containerEvents,
+		SyscallEvents: syscallEvents,
 	}
 
 	return &api.Subscription{

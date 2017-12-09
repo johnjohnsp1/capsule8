@@ -41,15 +41,17 @@ type networkTest struct {
 	seenEvents    map[api.NetworkEventType]bool
 }
 
-func (nt *networkTest) BuildContainer(t *testing.T) {
+func (nt *networkTest) BuildContainer(t *testing.T) string {
 	c := NewContainer(t, "network")
 	err := c.Build()
 	if err != nil {
 		t.Error(err)
-	} else {
-		glog.V(2).Infof("Built container %s\n", c.ImageID[0:12])
-		nt.testContainer = c
+		return ""
 	}
+
+	glog.V(2).Infof("Built container %s\n", c.ImageID[0:12])
+	nt.testContainer = c
+	return nt.testContainer.ImageID
 }
 
 func portListItem(port uint16) string {

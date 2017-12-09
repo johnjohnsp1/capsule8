@@ -18,14 +18,17 @@ type crashTest struct {
 	processExited   bool
 }
 
-func (ct *crashTest) BuildContainer(t *testing.T) {
+func (ct *crashTest) BuildContainer(t *testing.T) string {
 	c := NewContainer(t, "crash")
 	err := c.Build()
 	if err != nil {
 		t.Error(err)
-	} else {
-		ct.testContainer = c
+		return ""
 	}
+
+	ct.testContainer = c
+	return ct.testContainer.ImageID
+
 }
 
 func (ct *crashTest) RunContainer(t *testing.T) {
@@ -84,7 +87,7 @@ func (ct *crashTest) HandleTelemetryEvent(t *testing.T, telemetryEvent *api.Tele
 	switch event := telemetryEvent.Event.Event.(type) {
 	case *api.Event_Container:
 		if event.Container.Type == api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED {
-			if event.Container.ImageName == ct.testContainer.ImageID {
+			if event.Container.ImageId == ct.testContainer.ImageID {
 				if len(ct.containerID) > 0 {
 					t.Error("Already saw container created")
 					return false

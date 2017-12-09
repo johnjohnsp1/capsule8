@@ -14,8 +14,9 @@ type chargenTest struct {
 	count int
 }
 
-func (ct *chargenTest) BuildContainer(t *testing.T) {
+func (ct *chargenTest) BuildContainer(t *testing.T) string {
 	// No container is needed for testing, nothing to do.
+	return ""
 }
 
 func (ct *chargenTest) RunContainer(t *testing.T) {

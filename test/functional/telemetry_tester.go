@@ -19,8 +19,10 @@ var (
 )
 
 type TelemetryTest interface {
-	// Build the container used for testing.
-	BuildContainer(t *testing.T)
+	// Build the container used for testing. Returns the imageID
+	// of the container image or the empty string to not filter
+	// telemetry to containers running the built image.
+	BuildContainer(t *testing.T) string
 
 	// Run the container used for testing.
 	RunContainer(t *testing.T)
@@ -36,6 +38,7 @@ type TelemetryTester struct {
 	test      TelemetryTest
 	err       error
 	waitGroup sync.WaitGroup
+	imageID   string
 }
 
 func NewTelemetryTester(tt TelemetryTest) *TelemetryTester {
@@ -43,7 +46,8 @@ func NewTelemetryTester(tt TelemetryTest) *TelemetryTester {
 }
 
 func (tt *TelemetryTester) buildContainer(t *testing.T) {
-	tt.test.BuildContainer(t)
+	tt.imageID = tt.test.BuildContainer(t)
+
 }
 
 func (tt *TelemetryTester) runTelemetryTest(t *testing.T) {
@@ -62,12 +66,31 @@ func (tt *TelemetryTester) runTelemetryTest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(),
 		telemetryTestTimeout)
 
+	sub := tt.test.CreateSubscription(t)
+
+	// Subscribing to container created events are currently
+	// necessary to get imageIDs in other events. Make sure that
+	// the subscription includes it until this is fixed.
+	sub.EventFilter.ContainerEvents = append(sub.EventFilter.ContainerEvents,
+		&api.ContainerEventFilter{
+			Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED,
+		},
+	)
+
+	// If buildContainer returned an ImageID, restrict events to
+	// containers running that image
+	if len(tt.imageID) > 0 {
+		containerFilter := &api.ContainerFilter{}
+		containerFilter.ImageIds = append(containerFilter.ImageIds, tt.imageID)
+		sub.ContainerFilter = containerFilter
+	}
+
 	//
 	// Connect to telemetry service first
 	//
 	c := api.NewTelemetryServiceClient(conn)
 	stream, err := c.GetEvents(ctx, &api.GetEventsRequest{
-		Subscription: tt.test.CreateSubscription(t),
+		Subscription: sub,
 	})
 	if err != nil {
 		t.Error(err)

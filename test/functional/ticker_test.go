@@ -18,8 +18,9 @@ type tickerTest struct {
 	count           int
 }
 
-func (tickTest *tickerTest) BuildContainer(t *testing.T) {
+func (tickTest *tickerTest) BuildContainer(t *testing.T) string {
 	// No container is needed for testing
+	return ""
 }
 
 func (tickTest *tickerTest) RunContainer(t *testing.T) {

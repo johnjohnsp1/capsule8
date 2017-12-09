@@ -17,14 +17,16 @@ type execTest struct {
 	processID       string
 }
 
-func (ct *execTest) BuildContainer(t *testing.T) {
+func (ct *execTest) BuildContainer(t *testing.T) string {
 	c := NewContainer(t, "exec")
 	err := c.Build()
 	if err != nil {
 		t.Error(err)
-	} else {
-		ct.testContainer = c
+		return ""
 	}
+
+	ct.testContainer = c
+	return ct.testContainer.ImageID
 }
 
 func (ct *execTest) RunContainer(t *testing.T) {
@@ -35,18 +37,6 @@ func (ct *execTest) RunContainer(t *testing.T) {
 }
 
 func (ct *execTest) CreateSubscription(t *testing.T) *api.Subscription {
-	containerEvents := []*api.ContainerEventFilter{
-		&api.ContainerEventFilter{
-			Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED,
-		},
-		&api.ContainerEventFilter{
-			Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_RUNNING,
-		},
-		&api.ContainerEventFilter{
-			Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_EXITED,
-		},
-	}
-
 	processEvents := []*api.ProcessEventFilter{
 		&api.ProcessEventFilter{
 			Type: api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC,
@@ -58,8 +48,7 @@ func (ct *execTest) CreateSubscription(t *testing.T) *api.Subscription {
 	}
 
 	eventFilter := &api.EventFilter{
-		ContainerEvents: containerEvents,
-		ProcessEvents:   processEvents,
+		ProcessEvents: processEvents,
 	}
 
 	sub := &api.Subscription{
@@ -73,28 +62,8 @@ func (ct *execTest) HandleTelemetryEvent(t *testing.T, telemetryEvent *api.Telem
 	glog.V(2).Infof("%+v", telemetryEvent)
 
 	switch event := telemetryEvent.Event.Event.(type) {
-	case *api.Event_Container:
-		if event.Container.Type == api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED {
-			if event.Container.ImageName == ct.testContainer.ImageID {
-				if len(ct.containerID) > 0 {
-					t.Error("Already saw container created")
-					return false
-				}
-
-				ct.containerID = telemetryEvent.Event.ContainerId
-				glog.V(1).Infof("containerID = %s", ct.containerID)
-			}
-		} else if event.Container.Type == api.ContainerEventType_CONTAINER_EVENT_TYPE_EXITED &&
-			len(ct.containerID) > 0 &&
-			telemetryEvent.Event.ContainerId == ct.containerID {
-
-			ct.containerExited = true
-			glog.V(1).Infof("containerExited = true")
-		}
-
 	case *api.Event_Process:
 		if event.Process.Type == api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC &&
-			telemetryEvent.Event.ContainerId == ct.containerID &&
 			event.Process.ExecFilename == "/bin/uname" {
 
 			if len(ct.processID) > 0 {
@@ -107,7 +76,7 @@ func (ct *execTest) HandleTelemetryEvent(t *testing.T, telemetryEvent *api.Telem
 		}
 	}
 
-	return !(ct.containerExited && len(ct.processID) > 0)
+	return len(ct.processID) == 0
 }
 
 // TestExec exercises filtering PROCESS_EVENT_TYPE_EXEC by ExecFilenamePattern
