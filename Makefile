@@ -20,7 +20,12 @@ BUILD=$(shell echo ${BUILD_ID})
 # 'go build' flags
 GOBUILDFLAGS+=-ldflags "-X $(PKG)/pkg/version.Version=$(VERSION) -X $(PKG)/pkg/version.Build=$(BUILD)"
 GOVETFLAGS+=-shadow
+
+# Test build flags
 GOTESTFLAGS+=
+
+# Test execution flags
+TESTFLAGS+=
 
 # Need to use clang instead of gcc for -msan, specify its path here
 CLANG=clang
@@ -39,21 +44,49 @@ DOCKER_RUN_CI=docker run                                                    \
 	--network host                                                      \
 	-ti                                                                 \
 	--rm                                                                \
-	-u $(shell uid -u):$(shell uid -g)                                  \
+	-u $(shell id -u):$(shell id -g)                                    \
 	-v "$$(pwd):/go/src/$(PKG)"                                         \
 	-v /var/run/docker.sock:/var/run/docker.sock:ro                     \
 	-w /go/src/$(PKG)                                                   \
 	$(BUILD_IMAGE)
 
-.PHONY: all ci ci_shell builder build_image container load save run shell \
-	static dist check test test_verbose test_all test_msan test_race  \
-	test_functional build_test_functional_image                       \
+#
+# Docker flags to use to run the capsule8 container
+#
+DOCKER_RUN=docker run                                                       \
+	--privileged                                                        \
+	-ti                                                                 \
+	--rm                                                                \
+	-v /proc:/var/run/capsule8/proc/:ro                                 \
+	-v /sys/kernel/debug:/sys/kernel/debug                              \
+	-v /sys/fs/cgroup:/sys/fs/cgroup                                    \
+	-v /var/lib/docker:/var/lib/docker:ro                               \
+	-v /var/run/capsule8:/var/run/capsule8                              \
+	-v /var/run/docker:/var/run/docker:ro                               \
+	$(CONTAINER_IMAGE)
+
+#
+# Docker flags to use to run the functional test container
+#
+DOCKER_RUN_FUNCTIONAL_TEST=docker run                                       \
+	-v /var/run/capsule8:/var/run/capsule8                              \
+	-v /var/run/docker.sock:/var/run/docker.sock                        \
+	$(FUNCTIONAL_TEST_IMAGE)
+
+.PHONY: all ci ci_shell builder build_image container load save run shell   \
+	static dist check test test_verbose test_all test_msan test_race    \
+	test_functional build_test_functional_image                         \
 	run_test_functional_image clean
 
 #
 # Default target: build all executables
 #
 all: $(BINS)
+
+#
+# Build all container images
+#
+containers: container_image functional_test_image
 
 #
 # Default CI target
@@ -77,25 +110,18 @@ container: Dockerfile static
 	docker build --build-arg vcsref=$(SHA) --build-arg version=$(VERSION) .
 	$(eval CONTAINER_IMAGE=$(shell docker build -q .))
 
+container_image: container
+
 load: capsule8-$(VERSION).tar
-	docker load -i
+	docker load -i $<
 
 save: capsule8-$(VERSION).tar
 
-capsule8-$(VERSION).tar: container
+capsule8-$(VERSION).tar: container_image
 	docker save -o $@ $(CONTAINER_IMAGE)
 
-CONTAINER_RUN_ARGS = --rm -it                                                  \
-		--privileged                                                   \
-		--volume=/proc:/var/run/capsule8/proc/:ro                      \
-		--volume=/sys/kernel/debug:/sys/kernel/debug                   \
-		--volume=/sys/fs/cgroup:/sys/fs/cgroup                         \
-		--volume=/var/lib/docker:/var/lib/docker:ro                    \
-		--volume=/var/run/capsule8:/var/run/capsule8                   \
-		--volume=/var/run/docker:/var/run/docker:ro
-
 run: container
-	docker run $(CONTAINER_RUN_ARGS) $(CONTAINER_IMAGE)
+	$(DOCKER_RUN)
 
 #
 # Run an interactive shell within the docker container with the
@@ -103,13 +129,13 @@ run: container
 # the environment within the continer.
 #
 shell: container
-	docker run $(CONTAINER_RUN_ARGS) $(CONTAINER_IMAGE) /bin/sh
+	$(DOCKER_RUN) /bin/sh
 
 #
 # Build all executables as static executables
 #
 static:
-	CGO_ENABLED=0 GOBUILDFLAGS=-a $(MAKE) $<
+	CGO_ENABLED=0 GOBUILDFLAGS=-a $(MAKE) -B $<
 
 #
 # Make a distribution tarball
@@ -141,11 +167,11 @@ check:
 #
 test: GOTESTFLAGS+=-cover
 test:
-	go test $(SRC) $(GOTESTFLAGS) 
+	go test $(GOTESTFLAGS) $(SRC) $(TESTFLAGS)
 
 test_verbose: GOTESTFLAGS+=-v
 test_verbose:
-	go test $(SRC) $(GOTESTFLAGS)
+	go test $(GOTESTFLAGS) $(SRC) $(TESTFLAGS)
 
 #
 # Run all tests
@@ -157,14 +183,14 @@ test_all: test test_msan test_race
 #
 test_msan: GOTESTFLAGS+=-msan
 test_msan:
-	CC=${CLANG} go test $(SRC) $(GOTESTFLAGS) 
+	CC=${CLANG} go test $(GOTESTFLAGS) $(SRC) $(TESTFLAGS)
 
 #
 # Run all unit tests in pkg/ under race detector
 #
 test_race: GOTESTFLAGS+=-race
 test_race:
-	go test $(SRC) $(GOTESTFLAGS)
+	go test $(GOTESTFLAGS) $(SRC) $(TESTFLAGS)
 
 #
 # Run functional test suite
@@ -172,32 +198,21 @@ test_race:
 test_functional:
 	go test ./test/functional $(GOTESTFLAGS)
 
+test/functional/functional.test: test/functional/*.go
+	CGO_ENABLED=0 go test $(GOTESTFLAGS) -c -o $@ ./test/functional
+
 #
 # Build docker image for the functional test suite
 #
-build_test_functional_image: test/functional/functional.test
+functional_test_image: test/functional/functional.test
 	docker build ./test/functional
+	$(eval FUNCTIONAL_TEST_IMAGE=$(shell docker build -q ./test/functional))
 
 #
 # Run docker image for the functional test suite
 #
-DOCKERRUNARGS :=
-ifneq ($(GOTESTFLAGS),)
-	DOCKERRUNARGS += -e GOTESTFLAGS="$(GOTESTFLAGS)"
-endif
-
-run_test_functional_image: build_test_functional_image
-	docker run                                                             \
-		$(DOCKERRUNARGS)                                               \
-		-it                                                            \
-		--privileged                                                   \
-		--rm                                                           \
-		-v /var/run/capsule8:/var/run/capsule8                         \
-		-v /var/run/docker.sock:/var/run/docker.sock                   \
-		$(shell docker build -q ./test/functional)
-
-test/functional/functional.test:
-	CGO_ENABLED=0 GOBUILDFLAGS=-a go test -c -o $@ ./test/functional
+run_functional_test: functional_test_image
+	$(DOCKER_RUN_FUNCTIONAL_TEST) $(TESTFLAGS)
 
 clean:
-	rm -rf ./bin $(CMDS) ./test/functional/*.test
+	rm -rf $(BINS)
