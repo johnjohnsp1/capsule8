@@ -18,15 +18,17 @@ type syscallTest struct {
 	seenExit      bool
 }
 
-func (st *syscallTest) BuildContainer(t *testing.T) {
+func (st *syscallTest) BuildContainer(t *testing.T) string {
 	c := NewContainer(t, "syscall")
 	err := c.Build()
 	if err != nil {
 		t.Error(err)
-	} else {
-		glog.V(2).Infof("Built container %s\n", c.ImageID[0:12])
-		st.testContainer = c
+		return ""
 	}
+
+	glog.V(2).Infof("Built container %s\n", c.ImageID[0:12])
+	st.testContainer = c
+	return st.testContainer.ImageID
 }
 
 func (st *syscallTest) RunContainer(t *testing.T) {
@@ -52,17 +54,8 @@ func (st *syscallTest) CreateSubscription(t *testing.T) *api.Subscription {
 		},
 	}
 
-	// Subscribing to container created events are currently necessary
-	// to get imageIDs in other events.
-	containerEvents := []*api.ContainerEventFilter{
-		&api.ContainerEventFilter{
-			Type: api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED,
-		},
-	}
-
 	eventFilter := &api.EventFilter{
-		SyscallEvents:   syscallEvents,
-		ContainerEvents: containerEvents,
+		SyscallEvents: syscallEvents,
 	}
 
 	return &api.Subscription{
@@ -71,7 +64,7 @@ func (st *syscallTest) CreateSubscription(t *testing.T) *api.Subscription {
 }
 
 func (st *syscallTest) HandleTelemetryEvent(t *testing.T, te *api.TelemetryEvent) bool {
-	glog.V(2).Infof("Got Event %#v\n", te.Event)
+	glog.V(2).Infof("Got Event %+v\n", te.Event)
 	switch event := te.Event.Event.(type) {
 	case *api.Event_Container:
 		switch event.Container.Type {
@@ -84,7 +77,6 @@ func (st *syscallTest) HandleTelemetryEvent(t *testing.T, te *api.TelemetryEvent
 		}
 
 	case *api.Event_Syscall:
-		glog.V(2).Infof("Syscall Event %#v\n", *event.Syscall)
 		if event.Syscall.Id != syscall.SYS_ALARM {
 			t.Errorf("Expected syscall number %d, got %d\n", syscall.SYS_ALARM, event.Syscall.Id)
 		}
@@ -93,15 +85,14 @@ func (st *syscallTest) HandleTelemetryEvent(t *testing.T, te *api.TelemetryEvent
 			case api.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER:
 				if te.Event.ImageId == st.testContainer.ImageID {
 					if event.Syscall.Arg0 == ALARM_SECS {
+						if st.pid != "" {
+							t.Error("Already saw container created")
+							return false
+						}
+						st.pid = te.Event.ProcessId
+
 						st.seenEnter = true
 					}
-					if st.pid != "" {
-						t.Error("Already saw container created")
-						return false
-					}
-
-					st.pid = te.Event.ProcessId
-					st.seenEnter = true
 				}
 			case api.SyscallEventType_SYSCALL_EVENT_TYPE_EXIT:
 				if te.Event.ImageId == st.testContainer.ImageID && te.Event.ProcessId == st.pid {

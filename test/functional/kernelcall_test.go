@@ -16,15 +16,17 @@ type kernelCallTest struct {
 
 const kernelCallDataFilename = "hello.txt"
 
-func (kt *kernelCallTest) BuildContainer(t *testing.T) {
+func (kt *kernelCallTest) BuildContainer(t *testing.T) string {
 	c := NewContainer(t, "kernelcall")
 	err := c.Build()
 	if err != nil {
 		t.Error(err)
-	} else {
-		glog.V(2).Infof("Built container %s\n", c.ImageID[0:12])
-		kt.testContainer = c
+		return ""
 	}
+
+	glog.V(2).Infof("Built container %s\n", c.ImageID[0:12])
+	kt.testContainer = c
+	return kt.testContainer.ImageID
 }
 
 func (kt *kernelCallTest) RunContainer(t *testing.T) {

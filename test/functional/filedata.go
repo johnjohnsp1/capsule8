@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"syscall"
 
 	api "github.com/capsule8/api/v0"
 )
@@ -44,5 +45,5 @@ func eventMatchFileTestData(fe *api.FileEvent, td *api.FileEvent) bool {
 	return fe.Type == td.Type &&
 		fe.Filename == td.Filename &&
 		(fe.OpenFlags & ^O_LARGEFILE) == (td.OpenFlags & ^O_LARGEFILE) &&
-		fe.OpenMode == td.OpenMode
+		(fe.OpenMode == td.OpenMode || (fe.OpenFlags&syscall.O_CREAT) == 0)
 }

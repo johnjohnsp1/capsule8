@@ -21,15 +21,17 @@ func newFileTest() (*fileTest, error) {
 	return &fileTest{openEvts: oe}, nil
 }
 
-func (ft *fileTest) BuildContainer(t *testing.T) {
+func (ft *fileTest) BuildContainer(t *testing.T) string {
 	c := NewContainer(t, "file")
 	err := c.Build()
 	if err != nil {
 		t.Error(err)
-	} else {
-		glog.V(2).Infof("Built container %s\n", c.ImageID[0:12])
-		ft.testContainer = c
+		return ""
 	}
+
+	glog.V(1).Infof("Built container %s\n", c.ImageID[0:12])
+	ft.testContainer = c
+	return ft.testContainer.ImageID
 }
 
 func (ft *fileTest) RunContainer(t *testing.T) {
@@ -37,7 +39,7 @@ func (ft *fileTest) RunContainer(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	glog.V(2).Infof("Running container %s\n", ft.testContainer.ImageID[0:12])
+	glog.V(1).Infof("Running container %s\n", ft.testContainer.ImageID[0:12])
 }
 
 func (ft *fileTest) CreateSubscription(t *testing.T) *api.Subscription {
@@ -56,7 +58,7 @@ func (ft *fileTest) CreateSubscription(t *testing.T) *api.Subscription {
 }
 
 func (ft *fileTest) HandleTelemetryEvent(t *testing.T, te *api.TelemetryEvent) bool {
-	glog.V(2).Infof("Got Event %#v\n", te.Event)
+	glog.V(2).Infof("%+v", te)
 	switch event := te.Event.Event.(type) {
 	case *api.Event_File:
 		if td, ok := ft.openEvts[event.File.Filename]; ok {
@@ -65,12 +67,10 @@ func (ft *fileTest) HandleTelemetryEvent(t *testing.T, te *api.TelemetryEvent) b
 			}
 			delete(ft.openEvts, event.File.Filename)
 		}
-		return len(ft.openEvts) > 0
-
-	default:
-		t.Errorf("Unexpected event type %T\n", event)
-		return false
 	}
+
+	glog.V(1).Infof("openEvts = %+v", ft.openEvts)
+	return len(ft.openEvts) > 0
 }
 
 func filterForTestData(fe *api.FileEvent) *api.FileEventFilter {

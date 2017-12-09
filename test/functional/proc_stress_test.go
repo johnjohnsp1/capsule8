@@ -15,15 +15,17 @@ type procStressTest struct {
 	processCount  int
 }
 
-func (st *procStressTest) BuildContainer(t *testing.T) {
+func (st *procStressTest) BuildContainer(t *testing.T) string {
 	c := NewContainer(t, "proc_stress")
 	err := c.Build()
 	if err != nil {
 		t.Error(err)
-	} else {
-		glog.V(2).Infof("Built container %s\n", c.ImageID[0:12])
-		st.testContainer = c
+		return ""
 	}
+
+	glog.V(2).Infof("Built container %s\n", c.ImageID[0:12])
+	st.testContainer = c
+	return st.testContainer.ImageID
 }
 
 func (st *procStressTest) RunContainer(t *testing.T) {

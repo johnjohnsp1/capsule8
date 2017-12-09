@@ -1,0 +1,4 @@
+.dockerignore
+monitor
+*/.gitignore
+*.go

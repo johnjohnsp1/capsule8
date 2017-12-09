@@ -11,17 +11,11 @@ LABEL org.label-schema.schema-version="1.0" \
       org.label-schema.vcs-ref="${vcsref}" \
       org.label-schema.version="${version}"
 
-# Exposing the API over a TCP port is the default when running in a container
-ENV CAPSULE8_SENSOR_SERVER_ADDR=:8484
-
 COPY bin/sensor sensor
 CMD ["/sensor"]
 
 # HTTP Monitoring
 EXPOSE 8080
-
-# API gRPC
-EXPOSE 8484
 
 # For persistent stateful data (e.g. flight recorder event store)
 VOLUME /var/lib/capsule8

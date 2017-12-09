@@ -36,14 +36,16 @@ type exitTest struct {
 	process2Exited  bool
 }
 
-func (ct *exitTest) BuildContainer(t *testing.T) {
+func (ct *exitTest) BuildContainer(t *testing.T) string {
 	c := NewContainer(t, "exit")
 	err := c.Build()
 	if err != nil {
 		t.Error(err)
-	} else {
-		ct.testContainer = c
+		return ""
 	}
+
+	ct.testContainer = c
+	return ct.testContainer.ImageID
 }
 
 func (ct *exitTest) RunContainer(t *testing.T) {
@@ -116,7 +118,7 @@ func (ct *exitTest) HandleTelemetryEvent(t *testing.T, telemetryEvent *api.Telem
 	case *api.Event_Container:
 		switch event.Container.Type {
 		case api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED:
-			if event.Container.ImageName == ct.testContainer.ImageID {
+			if event.Container.ImageId == ct.testContainer.ImageID {
 				if len(ct.containerID) > 0 {
 					t.Error("Already saw container created")
 					return false
