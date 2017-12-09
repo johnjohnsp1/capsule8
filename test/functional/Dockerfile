@@ -7,8 +7,9 @@ RUN apk update && \
 
 WORKDIR /functional
 
-ENV GOTESTFLAGS=''
-
 ADD . ./
 
-CMD ./functional.test $GOTESTFLAGS
+RUN mkdir -p /var/lib/capsule8/log
+
+# Log to files at v-level 2 so that full event-level trace is saved to container
+ENTRYPOINT ["./functional.test", "-logtostderr=false", "-log_dir=/var/lib/capsule8/log", "-v=2"]
