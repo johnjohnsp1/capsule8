@@ -85,7 +85,7 @@ func rewriteFileEventFilter(fef *api.FileEventFilter) {
 	}
 }
 
-func registerFileEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*api.FileEventFilter) []uint64 {
+func registerFileEvents(sensor *Sensor, eventMap subscriptionMap, events []*api.FileEventFilter) {
 	var filterString string
 
 	wildcard := false
@@ -118,7 +118,7 @@ func registerFileEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*ap
 
 	if !wildcard {
 		if len(filters) == 0 {
-			return nil
+			return
 		}
 
 		parts := make([]string, 0, len(filters))
@@ -127,19 +127,19 @@ func registerFileEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*ap
 		}
 		filterString = strings.Join(parts, " || ")
 	} else if len(events) == 0 {
-		return nil
+		return
 	}
 
 	f := fileOpenFilter{
 		sensor: sensor,
 	}
 
-	eventID, err := monitor.RegisterTracepoint("fs/do_sys_open", f.decodeDoSysOpen,
+	eventID, err := sensor.monitor.RegisterTracepoint("fs/do_sys_open", f.decodeDoSysOpen,
 		perf.WithFilter(filterString))
 	if err != nil {
 		glog.V(1).Infof("Tracepoint fs/do_sys_open not found, adding a kprobe to emulate")
 
-		eventID, err = monitor.RegisterKprobe(
+		eventID, err = sensor.monitor.RegisterKprobe(
 			fsDoSysOpenKprobeAddress,
 			false,
 			fsDoSysOpenKprobeFetchargs,
@@ -147,9 +147,9 @@ func registerFileEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*ap
 			perf.WithFilter(filterString))
 		if err != nil {
 			glog.Warning("Couldn't register kprobe fs/do_sys_open")
-			return nil
+			return
 		}
 	}
 
-	return []uint64{eventID}
+	eventMap[eventID] = &subscription{}
 }

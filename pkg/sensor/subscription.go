@@ -19,12 +19,23 @@ import (
 	"sync/atomic"
 )
 
+type subscriptionUnregisterFn func(eventID uint64, sub *subscription)
+
+type subscription struct {
+	data       chan interface{}
+	unregister subscriptionUnregisterFn
+}
+
 //
 // safeSubscriptionMap
 // map[uint64]chan interface{}
 //
 
-type subscriptionMap map[uint64]chan interface{}
+type subscriptionMap map[uint64]*subscription
+
+func newSubscriptionMap() subscriptionMap {
+	return make(subscriptionMap)
+}
 
 type safeSubscriptionMap struct {
 	sync.Mutex              // used only by writers
@@ -47,15 +58,23 @@ func (m *safeSubscriptionMap) remove(mfrom subscriptionMap) {
 	m.Lock()
 	defer m.Unlock()
 
+	r := make(subscriptionMap, len(mfrom))
+
 	om := m.getMap()
 	if om != nil {
 		nm := make(subscriptionMap, len(om)-len(mfrom))
 		for k, v := range om {
 			if _, ok := mfrom[k]; !ok {
 				nm[k] = v
+			} else if v.unregister != nil {
+				r[k] = v
 			}
 		}
 		m.active.Store(nm)
+	}
+
+	for eventID, eventSub := range r {
+		eventSub.unregister(eventID, eventSub)
 	}
 }
 

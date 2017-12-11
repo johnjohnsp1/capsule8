@@ -132,9 +132,7 @@ func (f *kprobeFilter) fetchargs() string {
 	return strings.Join(args, " ")
 }
 
-func registerKernelEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*api.KernelFunctionCallFilter) []uint64 {
-	var eventIDs []uint64
-
+func registerKernelEvents(sensor *Sensor, eventMap subscriptionMap, events []*api.KernelFunctionCallFilter) {
 	for _, kef := range events {
 		f := newKprobeFilter(kef)
 		if f == nil {
@@ -143,7 +141,7 @@ func registerKernelEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*
 		}
 
 		f.sensor = sensor
-		eventID, err := monitor.RegisterKprobe(
+		eventID, err := sensor.monitor.RegisterKprobe(
 			f.symbol, f.onReturn, f.fetchargs(),
 			f.decodeKprobe,
 			perf.WithFilter(f.filter))
@@ -159,8 +157,6 @@ func registerKernelEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*
 				f.symbol, loc, f.fetchargs(), err)
 			continue
 		}
-		eventIDs = append(eventIDs, eventID)
+		eventMap[eventID] = &subscription{}
 	}
-
-	return eventIDs
 }
