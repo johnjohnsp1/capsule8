@@ -3,7 +3,7 @@ package expression
 import (
 	"testing"
 
-	api "github.com/capsule8/api/v0"
+	api "github.com/capsule8/capsule8/api/v0"
 )
 
 func testEvaluateExpr(t *testing.T, expr *api.Expression, types FieldTypeMap, values FieldValueMap, want interface{}) {

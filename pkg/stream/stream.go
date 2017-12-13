@@ -17,7 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	api "github.com/capsule8/api/v0"
+	api "github.com/capsule8/capsule8/api/v0"
 	"github.com/capsule8/capsule8/pkg/config"
 )
 

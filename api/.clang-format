@@ -1,0 +1,5 @@
+---
+Language: Proto
+BasedOnStyle: Google
+IndentWidth: 8
+AlignConsecutiveAssignments: true

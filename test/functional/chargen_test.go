@@ -3,7 +3,7 @@ package functional
 import (
 	"testing"
 
-	api "github.com/capsule8/api/v0"
+	api "github.com/capsule8/capsule8/api/v0"
 	"github.com/golang/glog"
 )
 

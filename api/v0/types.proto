@@ -1,0 +1,71 @@
+// Copyright 2017 Capsule8 Inc. All rights reserved.
+
+syntax = "proto3";
+
+package capsule8.api.v0;
+option go_package = "github.com/capsule8/capsule8/api/v0";
+
+// Supported network address families
+enum NetworkAddressFamily {
+        // The network address family is unknown
+        NETWORK_ADDRESS_FAMILY_UNKNOWN = 0;
+
+        // AF_INET; IPv4 address formats
+        NETWORK_ADDRESS_FAMILY_INET = 1;
+
+        // AF_INET6; IPv6 address formats
+        NETWORK_ADDRESS_FAMILY_INET6 = 2;
+
+        // AF_LOCAL / AF_UNIX; local filesystem address formats
+        NETWORK_ADDRESS_FAMILY_LOCAL = 3;
+}
+
+// An IPv4 address
+message IPv4Address {
+        // The IPv4 address is network byte order (big endian)
+        fixed32 address = 1;
+}
+
+// An IPv4 address and port
+message IPv4AddressAndPort {
+        // The IPv4 address
+        IPv4Address address = 1;
+
+        // The port
+        uint32 port = 2;
+}
+
+// An IPv6 address
+message IPv6Address {
+        // The high-order bytes of the IPv6 address
+        fixed64 high = 1;
+
+        // The low-order bytes of the IPv6 address
+        fixed64 low = 2;
+}
+
+// An IPv6 address and port
+message IPv6AddressAndPort {
+        // The IPv6 address
+        IPv6Address address = 1;
+
+        // The port
+        uint32 port = 2;
+}
+
+// A network address
+message NetworkAddress {
+        // The address family that specifies which address format is in use
+        NetworkAddressFamily family = 1;
+
+        oneof address {
+                // Used when family is NETWORK_ADDRESS_INET
+                IPv4AddressAndPort ipv4_address = 10;
+
+                // Used when family is NETWORK_ADDRESS_INET6
+                IPv6AddressAndPort ipv6_address = 20;
+
+                // Used when family is NETWORK_ADDRESS_LOCAL
+                string local_address = 30;
+        };
+}

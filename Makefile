@@ -30,6 +30,10 @@ TESTFLAGS+=
 # Need to use clang instead of gcc for -msan, specify its path here
 CLANG=clang
 
+# Needed to regenerate code from protos
+PROTOC_GEN_GO=${GOPATH}/bin/protoc-gen-go
+PROTO_INC=-I../:vendor/github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis 
+
 # All command-line executables in cmd/
 CMDS=$(notdir $(wildcard ./cmd/*))
 BINS=$(patsubst %,bin/%,$(CMDS))
@@ -73,15 +77,22 @@ DOCKER_RUN_FUNCTIONAL_TEST=docker run                                       \
 	-v /var/run/docker.sock:/var/run/docker.sock                        \
 	$(FUNCTIONAL_TEST_IMAGE)
 
-.PHONY: all ci ci_shell builder build_image container load save run shell   \
-	static dist check test test_verbose test_all test_msan test_race    \
-	test_functional build_test_functional_image                         \
+.PHONY: all api ci ci_shell builder build_image container load save run     \
+	shell static dist check test test_verbose test_all test_msan        \
+	test_race test_functional build_test_functional_image               \
 	run_test_functional_image clean
 
 #
 # Default target: build all executables
 #
 all: $(BINS)
+
+api: ../capsule8/api/v0/*.proto
+        # Compile grpc and gateway stubs
+	protoc --plugin=protoc-gen-go=$(PROTOC_GEN_GO) \
+		--go_out=plugins=grpc:.. \
+		$(PROTO_INC) \
+		$?
 
 #
 # Build all container images

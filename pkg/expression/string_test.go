@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	api "github.com/capsule8/api/v0"
+	api "github.com/capsule8/capsule8/api/v0"
 )
 
 func testValueAsString(t *testing.T, value *api.Value, want string) {

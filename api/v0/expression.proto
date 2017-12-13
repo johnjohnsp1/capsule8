@@ -1,0 +1,78 @@
+// Copyright 2017 Capsule8 Inc. All rights reserved.
+
+syntax = "proto3";
+
+package capsule8.api.v0;
+option go_package = "github.com/capsule8/capsule8/api/v0";
+
+import "google/protobuf/timestamp.proto";
+
+enum ValueType {
+        VALUETYPE_UNSPECIFIED = 0;
+
+        STRING = 1;
+
+        SINT8  = 2;
+        SINT16 = 3;
+        SINT32 = 4;
+        SINT64 = 5;
+        UINT8  = 6;
+        UINT16 = 7;
+        UINT32 = 8;
+        UINT64 = 9;
+
+        BOOL      = 10;
+        DOUBLE    = 11;
+        TIMESTAMP = 12;
+}
+
+message Value {
+        ValueType type = 1;
+
+        oneof value {
+                sint64 signed_value   = 10;
+                uint64 unsigned_value = 11;
+                string string_value   = 12;
+
+                bool bool_value                           = 13;
+                double double_value                       = 14;
+                google.protobuf.Timestamp timestamp_value = 15;
+        }
+}
+
+message BinaryOp {
+        Expression lhs = 1;
+        Expression rhs = 2;
+}
+
+message Expression {
+        enum ExpressionType {
+                EXPRESSIONTYPE_UNSPECIFIED = 0;
+
+                IDENTIFIER = 1;
+                VALUE      = 2;
+
+                LOGICAL_AND = 10;
+                LOGICAL_OR  = 11;
+
+                EQ          = 20;
+                NE          = 21;
+                LT          = 22;
+                LE          = 23;
+                GT          = 24;
+                GE          = 25;
+                LIKE        = 26;
+                IS_NULL     = 27; // unary comparison
+                IS_NOT_NULL = 28; // unary comparison
+
+                BITWISE_AND = 30;
+        }
+        ExpressionType type = 1;
+
+        oneof expr {
+                string identifier   = 10;
+                Value value         = 11;
+                BinaryOp binary_op  = 12;
+                Expression unary_op = 13;
+        }
+}

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	api "github.com/capsule8/api/v0"
+	api "github.com/capsule8/capsule8/api/v0"
 
 	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
