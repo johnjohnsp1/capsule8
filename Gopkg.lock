@@ -2,6 +2,18 @@
 
 
 [[projects]]
+  name = "github.com/aws/aws-sdk-go"
+  packages = ["aws","aws/awserr","aws/awsutil","aws/client","aws/client/metadata","aws/corehandlers","aws/credentials","aws/credentials/ec2rolecreds","aws/credentials/endpointcreds","aws/credentials/stscreds","aws/defaults","aws/ec2metadata","aws/endpoints","aws/request","aws/session","aws/signer/v4","internal/shareddefaults","private/protocol","private/protocol/json/jsonutil","private/protocol/jsonrpc","private/protocol/query","private/protocol/query/queryutil","private/protocol/rest","private/protocol/xml/xmlutil","service/firehose","service/sts"]
+  revision = "25ef42b41b82230caae56ab23d872c81fb5c0eae"
+  version = "v1.12.46"
+
+[[projects]]
+  name = "github.com/go-ini/ini"
+  packages = ["."]
+  revision = "32e4c1e6bc4e7d0d8451aa6b75200d19e37a536a"
+  version = "v1.32.0"
+
+[[projects]]
   name = "github.com/gobwas/glob"
   packages = [".","compiler","match","syntax","syntax/ast","syntax/lexer","util/runes","util/strings"]
   revision = "bea32b9cd2d6f55753d94a28e959b13f0244797a"
@@ -16,8 +28,13 @@
 [[projects]]
   branch = "master"
   name = "github.com/golang/protobuf"
-  packages = ["proto","ptypes","ptypes/any","ptypes/duration","ptypes/timestamp","ptypes/wrappers"]
+  packages = ["jsonpb","proto","ptypes","ptypes/any","ptypes/duration","ptypes/struct","ptypes/timestamp","ptypes/wrappers"]
   revision = "130e6b02ab059e7b717a096f397c5b60111cae74"
+
+[[projects]]
+  name = "github.com/jmespath/go-jmespath"
+  packages = ["."]
+  revision = "0b12d6b5"
 
 [[projects]]
   name = "github.com/kelseyhightower/envconfig"
@@ -58,6 +75,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "60ef0c13234100ef9ce116d20cf0f4b44b8b0843aaa6d2c479b558df7833b894"
+  inputs-digest = "80757b4a6bb6d44ed9945256617e80ae6f25b25f90b4c17e206b2ef3ba769eb6"
   solver-name = "gps-cdcl"
   solver-version = 1
