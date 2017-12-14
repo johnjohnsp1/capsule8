@@ -1,12 +1,10 @@
-FROM ubuntu:16.04
+FROM golang:alpine
 
-RUN apt-get update && \
-    apt-get -y upgrade && \
-    apt-get -y install netcat-openbsd && \
-    apt-get clean
+WORKDIR /go/src/app
+COPY . .
 
-WORKDIR /network
+RUN apk add -U git
+RUN go-wrapper download   # "go get -d -v ./..."
+RUN go-wrapper install    # "go install -v ./..."
 
-COPY network.sh ./
-
-CMD ./network.sh
+CMD ["go-wrapper", "run"] # ["app"]

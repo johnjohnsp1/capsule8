@@ -13,18 +13,14 @@ import (
 )
 
 const (
-	testNetworkPort      = 1234
-	testNetworkOtherPort = 12345
-
-	testNetworkBacklog = 1
-
-	testNetworkMsg    = "Hello, World!\n"
-	testNetworkMsgLen = len(testNetworkMsg)
+	// These need to be coordinated with the code in network/main.go
+	testNetworkPort    = 8080
+	testNetworkBacklog = 128
+	testNetworkMsgLen  = 5
 )
 
 var (
-	testNetworkPortN      = hton16(testNetworkPort)
-	testNetworkOtherPortN = hton16(testNetworkOtherPort)
+	testNetworkPortN = hton16(testNetworkPort)
 )
 
 func hton16(port uint16) uint16 {
@@ -59,8 +55,7 @@ func portListItem(port uint16) string {
 }
 
 func (nt *networkTest) RunContainer(t *testing.T) {
-	err := nt.testContainer.Run("-p", portListItem(testNetworkPort),
-		"-p", portListItem(testNetworkOtherPort))
+	err := nt.testContainer.Run()
 	if err != nil {
 		t.Error(err)
 	}
@@ -72,7 +67,7 @@ func (nt *networkTest) CreateSubscription(t *testing.T) *api.Subscription {
 		expression.Identifier("sa_family"),
 		expression.Value(uint16(syscall.AF_INET)))
 	portFilter := expression.Equal(
-		expression.Identifier("sin6_port"),
+		expression.Identifier("sin_port"),
 		expression.Value(testNetworkPortN))
 	resultFilter := expression.Equal(
 		expression.Identifier("ret"),
@@ -80,21 +75,24 @@ func (nt *networkTest) CreateSubscription(t *testing.T) *api.Subscription {
 	backlogFilter := expression.Equal(
 		expression.Identifier("backlog"),
 		expression.Value(int32(testNetworkBacklog)))
-	goodFDFilter := expression.GreaterThan(
-		expression.Identifier("ret"),
-		expression.Value(int32(-1)))
+	/*
+		goodFDFilter := expression.GreaterThan(
+			expression.Identifier("ret"),
+			expression.Value(int32(-1)))
+	*/
+
 	msgLenFilter := expression.Equal(
 		expression.Identifier("ret"),
 		expression.Value(int32(testNetworkMsgLen)))
 
 	networkEvents := []*api.NetworkEventFilter{
 		&api.NetworkEventFilter{
-			Type: api.NetworkEventType_NETWORK_EVENT_TYPE_CONNECT_ATTEMPT,
-			//			Filter: portFilter,
+			Type:             api.NetworkEventType_NETWORK_EVENT_TYPE_CONNECT_ATTEMPT,
+			FilterExpression: expression.LogicalAnd(familyFilter, portFilter),
 		},
 		&api.NetworkEventFilter{
-			Type:             api.NetworkEventType_NETWORK_EVENT_TYPE_CONNECT_RESULT,
-			FilterExpression: resultFilter,
+			Type: api.NetworkEventType_NETWORK_EVENT_TYPE_CONNECT_RESULT,
+			//FilterExpression: resultFilter,
 		},
 		&api.NetworkEventFilter{
 			Type:             api.NetworkEventType_NETWORK_EVENT_TYPE_BIND_ATTEMPT,
@@ -116,8 +114,8 @@ func (nt *networkTest) CreateSubscription(t *testing.T) *api.Subscription {
 			Type: api.NetworkEventType_NETWORK_EVENT_TYPE_ACCEPT_ATTEMPT,
 		},
 		&api.NetworkEventFilter{
-			Type:             api.NetworkEventType_NETWORK_EVENT_TYPE_ACCEPT_RESULT,
-			FilterExpression: goodFDFilter,
+			Type: api.NetworkEventType_NETWORK_EVENT_TYPE_ACCEPT_RESULT,
+			//FilterExpression: goodFDFilter,
 		},
 		&api.NetworkEventFilter{
 			Type: api.NetworkEventType_NETWORK_EVENT_TYPE_SENDTO_ATTEMPT,
@@ -189,10 +187,12 @@ func (nt *networkTest) HandleTelemetryEvent(t *testing.T, te *api.TelemetryEvent
 				nt.clientSocket = event.Network.Sockfd
 
 			case api.NetworkEventType_NETWORK_EVENT_TYPE_CONNECT_RESULT:
-				if event.Network.Result != 0 {
-					t.Errorf("Expected connect result 0, got %d",
-						event.Network.Result)
-					return false
+				// The golang runtime uses non-blocking sockets, so a successful connect will
+				// return an EINPROGRESS. The container also attempts connecting to TCP6, so
+				// we also get an EADDRNOTAVAIL (-99).
+				if event.Network.Result != 0 && event.Network.Result != -int64(syscall.EADDRNOTAVAIL) {
+					// Don't mark this event as successfully received
+					return true
 				}
 
 			case api.NetworkEventType_NETWORK_EVENT_TYPE_BIND_ATTEMPT:
@@ -243,17 +243,13 @@ func (nt *networkTest) HandleTelemetryEvent(t *testing.T, te *api.TelemetryEvent
 				}
 
 			case api.NetworkEventType_NETWORK_EVENT_TYPE_ACCEPT_RESULT:
-				if event.Network.Result < 0 {
+				if event.Network.Result < 0 && event.Network.Result != -int64(syscall.EAGAIN) {
 					t.Errorf("Expected accept result > -1, got %d",
 						event.Network.Result)
 					return false
 				}
 
 			case api.NetworkEventType_NETWORK_EVENT_TYPE_SENDTO_RESULT:
-				if nt.clientSocket != 0 && event.Network.Sockfd != nt.clientSocket {
-					// This is not the sendto() attempt we are looking for
-					return true
-				}
 				if event.Network.Result != int64(testNetworkMsgLen) {
 					t.Errorf("Expected sendto result %d, got %d",
 						testNetworkMsgLen, event.Network.Result)

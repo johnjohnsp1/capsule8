@@ -293,7 +293,7 @@ func registerEvent(monitor *perf.EventMonitor, name string, fn perf.TraceEventDe
 
 	eventID, err := monitor.RegisterTracepoint(name, fn, perf.WithFilter(f))
 	if err != nil {
-		glog.Warningf("Could not register tracepoint %s", name)
+		glog.Warningf("Could not register tracepoint %s: %v", name, err)
 	} else {
 		*eventIDs = append(*eventIDs, eventID)
 	}
@@ -328,6 +328,8 @@ func registerNetworkEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 
 	registerEvent(monitor, "syscalls/sys_enter_accept", f.decodeSysEnterAccept, nfs.acceptAttemptFilters, &eventIDs)
 	registerEvent(monitor, "syscalls/sys_exit_accept", f.decodeSysExitAccept, nfs.acceptResultFilters, &eventIDs)
+	registerEvent(monitor, "syscalls/sys_enter_accept4", f.decodeSysEnterAccept, nfs.acceptAttemptFilters, &eventIDs)
+	registerEvent(monitor, "syscalls/sys_exit_accept4", f.decodeSysExitAccept, nfs.acceptResultFilters, &eventIDs)
 
 	registerKprobe(monitor, networkKprobeBindSymbol, networkKprobeBindFetchargs, f.decodeSysBind, nfs.bindAttemptFilters, &eventIDs)
 	registerEvent(monitor, "syscalls/sys_exit_bind", f.decodeSysExitBind, nfs.bindResultFilters, &eventIDs)
