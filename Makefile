@@ -27,6 +27,9 @@ GOTESTFLAGS+=
 # Test execution flags
 TESTFLAGS+=
 
+# 'docker run' flags
+DOCKERRUNFLAGS+=
+
 # Need to use clang instead of gcc for -msan, specify its path here
 CLANG=clang
 
@@ -59,7 +62,7 @@ DOCKER_RUN_CI=docker run                                                    \
 #
 DOCKER_RUN=docker run                                                       \
 	--privileged                                                        \
-	-ti                                                                 \
+	$(DOCKERRUNFLAGS)                                                   \
 	--rm                                                                \
 	-v /proc:/var/run/capsule8/proc/:ro                                 \
 	-v /sys/kernel/debug:/sys/kernel/debug                              \
@@ -81,6 +84,7 @@ DOCKER_RUN_FUNCTIONAL_TEST=docker run                                       \
 	shell static dist check test test_verbose test_all test_msan        \
 	test_race test_functional build_test_functional_image               \
 	run_test_functional_image clean
+	run_test_functional_image run_background clean
 
 #
 # Default target: build all executables
@@ -131,7 +135,12 @@ save: capsule8-$(VERSION).tar
 capsule8-$(VERSION).tar: container_image
 	docker save -o $@ $(CONTAINER_IMAGE)
 
+run: DOCKERRUNFLAGS+=-ti
 run: container
+	$(DOCKER_RUN)
+
+run_background: DOCKERRUNFLAGS+=-d
+run_background: container
 	$(DOCKER_RUN)
 
 #
@@ -139,6 +148,7 @@ run: container
 # required ports and mounts. This is useful for debugging and testing
 # the environment within the continer.
 #
+shell: DOCKERRUNFLAGS+=-ti
 shell: container
 	$(DOCKER_RUN) /bin/sh
 
