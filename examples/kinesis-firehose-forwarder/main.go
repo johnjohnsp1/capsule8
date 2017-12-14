@@ -211,7 +211,9 @@ func main() {
 
 	var sub api.Subscription
 	if len(*configFile) > 0 {
-		cfgFile, err := os.Open(*configFile)
+		var cfgFile *os.File
+
+		cfgFile, err = os.Open(*configFile)
 		if err != nil {
 			glog.Fatal("failed to load subscription config file:", err)
 		}
