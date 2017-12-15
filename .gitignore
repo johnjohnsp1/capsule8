@@ -30,6 +30,9 @@ readme.txt
 
 # Compiled binaries
 bin/*
+examples/telemetry/telemetry
+examples/kprobe/kprobe
+examples/kinesis-firehose-forwarder/kinesis-firehose-forwarder
 
 # Ignore log files
 *.log
