@@ -15,10 +15,9 @@
 package sensor
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	api "github.com/capsule8/capsule8/api/v0"
 
@@ -32,53 +31,22 @@ type syscallFilter struct {
 	sensor *Sensor
 }
 
-func (f *syscallFilter) decodeSysEnter(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	var args = data["args"].([]interface{})
+func (f *syscallFilter) decodeDummySysEnter(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+	return nil, nil
+}
 
-	// Some kernel versions misreport the args type information
-	var parsedArgs []uint64
-	if len(args) > 0 {
-		switch args[0].(type) {
-		case int8:
-			buf := []byte{}
-			for _, v := range args {
-				buf = append(buf, byte(v.(int8)))
-			}
-			parsedArgs = make([]uint64, len(buf)/8)
-			r := bytes.NewReader(buf)
-			binary.Read(r, binary.LittleEndian, parsedArgs)
-		case uint8:
-			buf := []byte{}
-			for _, v := range args {
-				buf = append(buf, byte(v.(uint8)))
-			}
-			parsedArgs = make([]uint64, len(buf)/8)
-			r := bytes.NewReader(buf)
-			binary.Read(r, binary.LittleEndian, parsedArgs)
-		case int64:
-			parsedArgs = make([]uint64, len(args))
-			for i, v := range args {
-				parsedArgs[i] = uint64(v.(int64))
-			}
-		case uint64:
-			parsedArgs = make([]uint64, len(args))
-			for i, v := range args {
-				parsedArgs[i] = v.(uint64)
-			}
-		}
-	}
-
+func (f *syscallFilter) decodeSyscallTraceEnter(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
 	ev := f.sensor.NewEventFromSample(sample, data)
 	ev.Event = &api.Event_Syscall{
 		Syscall: &api.SyscallEvent{
 			Type: api.SyscallEventType_SYSCALL_EVENT_TYPE_ENTER,
 			Id:   data["id"].(int64),
-			Arg0: parsedArgs[0],
-			Arg1: parsedArgs[1],
-			Arg2: parsedArgs[2],
-			Arg3: parsedArgs[3],
-			Arg4: parsedArgs[4],
-			Arg5: parsedArgs[5],
+			Arg0: data["arg0"].(uint64),
+			Arg1: data["arg1"].(uint64),
+			Arg2: data["arg2"].(uint64),
+			Arg3: data["arg3"].(uint64),
+			Arg4: data["arg4"].(uint64),
+			Arg5: data["arg5"].(uint64),
 		},
 	}
 
@@ -98,7 +66,7 @@ func (f *syscallFilter) decodeSysExit(sample *perf.SampleRecord, data perf.Trace
 	return ev, nil
 }
 
-func containsIdFilter(expr *api.Expression) bool {
+func containsIDFilter(expr *api.Expression) bool {
 	if expr == nil {
 		return false
 	}
@@ -106,12 +74,12 @@ func containsIdFilter(expr *api.Expression) bool {
 	switch expr.GetType() {
 	case api.Expression_LOGICAL_AND:
 		operands := expr.GetBinaryOp()
-		return containsIdFilter(operands.Lhs) ||
-			containsIdFilter(operands.Rhs)
+		return containsIDFilter(operands.Lhs) ||
+			containsIDFilter(operands.Rhs)
 	case api.Expression_LOGICAL_OR:
 		operands := expr.GetBinaryOp()
-		return containsIdFilter(operands.Lhs) &&
-			containsIdFilter(operands.Rhs)
+		return containsIDFilter(operands.Lhs) &&
+			containsIDFilter(operands.Rhs)
 	case api.Expression_EQ:
 		operands := expr.GetBinaryOp()
 		if operands.Lhs.GetType() != api.Expression_IDENTIFIER {
@@ -146,7 +114,22 @@ func rewriteSyscallEventFilter(sef *api.SyscallEventFilter) {
 	}
 }
 
-func registerSyscallEvents(monitor *perf.EventMonitor, sensor *Sensor, events []*api.SyscallEventFilter) []uint64 {
+const (
+	syscallNewEnterKprobeAddress string = "syscall_trace_enter_phase1"
+	syscallOldEnterKprobeAddress string = "syscall_trace_enter"
+
+	// These offsets index into the x86_64 version of struct pt_regs
+	// in the kernel. This is a stable structure.
+	syscallEnterKprobeFetchargs string = "id=+120(%di):s64 " + // orig_ax
+		"arg0=+112(%di):u64 " + // di
+		"arg1=+104(%di):u64 " + // si
+		"arg2=+96(%di):u64 " + // dx
+		"arg3=+56(%di):u64 " + // r10
+		"arg4=+72(%di):u64 " + // r8
+		"arg5=+64(%di):u64" // r9
+)
+
+func registerSyscallEvents(sensor *Sensor, eventMap subscriptionMap, events []*api.SyscallEventFilter) {
 	enterFilters := make(map[string]bool)
 	exitFilters := make(map[string]bool)
 
@@ -154,7 +137,7 @@ func registerSyscallEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 		// Translate deprecated fields into an expression
 		rewriteSyscallEventFilter(sef)
 
-		if !containsIdFilter(sef.FilterExpression) {
+		if !containsIDFilter(sef.FilterExpression) {
 			// No wildcard filters for now
 			continue
 		}
@@ -185,8 +168,6 @@ func registerSyscallEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 		sensor: sensor,
 	}
 
-	var eventIDs []uint64
-
 	if len(enterFilters) > 0 {
 		filters := make([]string, 0, len(enterFilters))
 		for k := range enterFilters {
@@ -194,13 +175,55 @@ func registerSyscallEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 		}
 		filter := strings.Join(filters, " || ")
 
-		eventName := "raw_syscalls/sys_enter"
-		eventID, err := monitor.RegisterTracepoint(eventName, f.decodeSysEnter,
+		if atomic.AddInt64(&sensor.dummySyscallEventCount, 1) == 1 {
+			// Create the dummy syscall event. This event is needed
+			// to put the kernel into a mode where it'll make the
+			// function calls needed to make the kprobe we'll add
+			// fire. Add the tracepoint, but make sure it never
+			// adds events into the ringbuffer by using a filter
+			// that will never evaluate true.
+			eventName := "raw_syscalls/sys_enter"
+			eventID, err := sensor.monitor.RegisterTracepoint(
+				eventName, f.decodeDummySysEnter,
+				perf.WithFilter("id == 0x7fffffff"))
+			if err != nil {
+				glog.V(1).Infof("Couldn't register dummy syscall event %s: %v", eventName, err)
+				atomic.AddInt64(&sensor.dummySyscallEventCount, -1)
+			} else {
+				sensor.dummySyscallEventID = eventID
+			}
+		}
+
+		// There are two possible kprobes. Newer kernels (>= 4.1) have
+		// refactored syscall entry code, so syscall_trace_enter_phase1
+		// is the right one, but for older kernels syscall_trace_enter
+		// is the right one. Both have the same signature, so the
+		// fetchargs doesn't have to change. Try the new probe first,
+		// because the old probe will also set in the newer kernels,
+		// but it won't fire.
+		eventID, err := sensor.monitor.RegisterKprobe(
+			syscallNewEnterKprobeAddress, false,
+			syscallEnterKprobeFetchargs,
+			f.decodeSyscallTraceEnter,
 			perf.WithFilter(filter))
 		if err != nil {
-			glog.V(1).Infof("Couldn't get %s event id: %v", eventName, err)
+			eventID, err = sensor.monitor.RegisterKprobe(
+				syscallOldEnterKprobeAddress, false,
+				syscallEnterKprobeFetchargs,
+				f.decodeSyscallTraceEnter,
+				perf.WithFilter(filter))
+		}
+		if err != nil {
+			glog.V(1).Infof("Couldn't register syscall enter kprobe: %v", err)
 		} else {
-			eventIDs = append(eventIDs, eventID)
+			eventMap[eventID] = &subscription{
+				unregister: func(uint64, *subscription) {
+					eventID := sensor.dummySyscallEventID
+					if atomic.AddInt64(&sensor.dummySyscallEventCount, -1) == 0 {
+						sensor.monitor.UnregisterEvent(eventID)
+					}
+				},
+			}
 		}
 	}
 
@@ -212,14 +235,12 @@ func registerSyscallEvents(monitor *perf.EventMonitor, sensor *Sensor, events []
 		filter := strings.Join(filters, " || ")
 
 		eventName := "raw_syscalls/sys_exit"
-		eventID, err := monitor.RegisterTracepoint(eventName, f.decodeSysExit,
+		eventID, err := sensor.monitor.RegisterTracepoint(eventName, f.decodeSysExit,
 			perf.WithFilter(filter))
 		if err != nil {
 			glog.V(1).Infof("Couldn't get %s event id: %v", eventName, err)
 		} else {
-			eventIDs = append(eventIDs, eventID)
+			eventMap[eventID] = &subscription{}
 		}
 	}
-
-	return eventIDs
 }

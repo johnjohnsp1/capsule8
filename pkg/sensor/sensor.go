@@ -73,6 +73,11 @@ type Sensor struct {
 
 	// Mapping of event ids to data streams (subscriptions)
 	eventMap *safeSubscriptionMap
+
+	// Used by syscall events to handle syscall enter events with
+	// argument filters
+	dummySyscallEventID    uint64
+	dummySyscallEventCount int64
 }
 
 func NewSensor() (*Sensor, error) {
@@ -177,9 +182,10 @@ func (s *Sensor) dispatchSample(eventID uint64, sample interface{}, err error) {
 
 	if event, ok := sample.(*api.Event); ok && event != nil {
 		eventMap := s.eventMap.getMap()
-		data := eventMap[eventID]
-		if data != nil {
-			data <- event
+		if sub, ok := eventMap[eventID]; ok && sub != nil {
+			if sub.data != nil {
+				sub.data <- event
+			}
 		}
 	}
 }
@@ -397,46 +403,24 @@ func (s *Sensor) createEventMonitor() error {
 }
 
 func (s *Sensor) createPerfEventStream(sub *api.Subscription) (*stream.Stream, error) {
-	eventMap := make(map[uint64]chan interface{})
+	eventMap := newSubscriptionMap()
+
+	registerFileEvents(s, eventMap, sub.EventFilter.FileEvents)
+	registerKernelEvents(s, eventMap, sub.EventFilter.KernelEvents)
+	registerNetworkEvents(s, eventMap, sub.EventFilter.NetworkEvents)
+	registerProcessEvents(s, eventMap, sub.EventFilter.ProcessEvents)
+	registerSyscallEvents(s, eventMap, sub.EventFilter.SyscallEvents)
+
+	if len(eventMap) == 0 {
+		return nil, nil
+	}
 
 	ctrl := make(chan interface{})
 	data := make(chan interface{}, config.Sensor.ChannelBufferLength)
 
-	if len(sub.EventFilter.FileEvents) > 0 {
-		ids := registerFileEvents(s.monitor, s, sub.EventFilter.FileEvents)
-		for _, id := range ids {
-			eventMap[id] = data
-		}
-	}
-	if len(sub.EventFilter.KernelEvents) > 0 {
-		ids := registerKernelEvents(s.monitor, s, sub.EventFilter.KernelEvents)
-		for _, id := range ids {
-			eventMap[id] = data
-		}
-	}
-	if len(sub.EventFilter.NetworkEvents) > 0 {
-		ids := registerNetworkEvents(s.monitor, s, sub.EventFilter.NetworkEvents)
-		for _, id := range ids {
-			eventMap[id] = data
-		}
-	}
-	if len(sub.EventFilter.ProcessEvents) > 0 {
-		ids := registerProcessEvents(s.monitor, s, sub.EventFilter.ProcessEvents)
-		for _, id := range ids {
-			eventMap[id] = data
-		}
-	}
-	if len(sub.EventFilter.SyscallEvents) > 0 {
-		ids := registerSyscallEvents(s.monitor, s, sub.EventFilter.SyscallEvents)
-		for _, id := range ids {
-			eventMap[id] = data
-		}
-	}
-
-	if len(eventMap) == 0 {
-		close(ctrl)
-		close(data)
-		return nil, nil
+	for eventID := range eventMap {
+		eventSub := eventMap[eventID]
+		eventSub.data = data
 	}
 
 	go func() {
