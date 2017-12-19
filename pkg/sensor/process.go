@@ -58,12 +58,15 @@ func (f *processFilter) decodeSchedProcessFork(sample *perf.SampleRecord, data p
 }
 
 func (f *processFilter) decodeSchedProcessExec(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	//
-	// Grab command line out of procfs ASAP
-	//
 	hostPid := data["common_pid"].(int32)
 	filename := data["filename"].(string)
-	commandLine := sys.HostProcFS().CommandLine(int(hostPid))
+
+	// Get the command-line from the process info cache. If it's not there
+	// for whatever reason, fallback to using procfs
+	commandLine, _ := f.sensor.processCache.ProcessCommandLine(int(hostPid))
+	if commandLine == nil || len(commandLine) == 0 {
+		commandLine = sys.HostProcFS().CommandLine(int(hostPid))
+	}
 
 	ev := f.sensor.NewEventFromSample(sample, data)
 	processEvent := &api.ProcessEvent{
