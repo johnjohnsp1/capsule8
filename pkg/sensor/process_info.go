@@ -26,6 +26,8 @@ package sensor
 //
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/capsule8/capsule8/pkg/sys"
@@ -36,8 +38,17 @@ import (
 
 const (
 	arrayTaskCacheSize = 32768
+
 	commitCredsAddress = "commit_creds"
 	commitCredsArgs    = "usage=+0(%di):u64 uid=+8(%di):u32 gid=+12(%di):u32"
+
+	execveArgCount = 6
+
+	doExecveAddress         = "do_execve"
+	doExecveatAddress       = "do_execveat"
+	doExecveatCommonAddress = "do_execveat_common"
+	sysExecveAddress        = "sys_execve"
+	sysExecveatAddress      = "sys_execveat"
 )
 
 var (
@@ -50,6 +61,7 @@ type taskCache interface {
 	InsertTask(int, task)
 	SetTaskContainerId(int, string)
 	SetTaskCredentials(int, cred)
+	SetTaskCommandLine(int, []string)
 }
 
 type arrayTaskCache struct {
@@ -87,6 +99,11 @@ func (c *arrayTaskCache) SetTaskCredentials(pid int, creds cred) {
 	glog.V(10).Infof("SetTaskCredentials(%d) = %+v", pid, creds)
 
 	c.entries[pid].creds = creds
+}
+
+func (c *arrayTaskCache) SetTaskCommandLine(pid int, commandLine []string) {
+	glog.V(10).Infof("SetTaskCommandLine(%d) = %s", pid, commandLine)
+	c.entries[pid].commandLine = commandLine
 }
 
 type mapTaskCache struct {
@@ -148,6 +165,18 @@ func (c *mapTaskCache) SetTaskCredentials(pid int, creds cred) {
 	}
 }
 
+func (c *mapTaskCache) SetTaskCommandLine(pid int, commandLine []string) {
+	glog.V(10).Infof("SetTaskCommandLine(%d) = %s", pid, commandLine)
+
+	c.Lock()
+	defer c.Unlock()
+	t, ok := c.entries[pid]
+	if ok {
+		t.commandLine = commandLine
+		c.entries[pid] = t
+	}
+}
+
 type ProcessInfoCache struct {
 	sensor *Sensor
 	cache  taskCache
@@ -194,7 +223,41 @@ func NewProcessInfoCache(sensor *Sensor) ProcessInfoCache {
 		glog.Fatalf("Couldn't register event %s: %s", eventName, err)
 	}
 
+	// Attach a probe to capture exec events in the kernel. Different
+	// kernel versions require different probe attachments, so try to do
+	// the best that we can here. Try for do_execveat_common() first, and
+	// if that succeeds, it's the only one we need. Otherwise, we need a
+	// bunch of others to try to hit everything. We may end up getting
+	// duplicate events, which is ok.
+	_, err = sensor.monitor.RegisterKprobe(doExecveatCommonAddress, false,
+		makeExecveFetchArgs("dx"), cache.decodeExecve)
+	if err != nil {
+		_, err = sensor.monitor.RegisterKprobe(sysExecveAddress, false,
+			makeExecveFetchArgs("si"), cache.decodeExecve)
+		if err != nil {
+			glog.Fatalf("Couldn't register event %s: %s",
+				sysExecveAddress, err)
+		}
+		_, _ = sensor.monitor.RegisterKprobe(doExecveAddress, false,
+			makeExecveFetchArgs("si"), cache.decodeExecve)
+
+		_, err = sensor.monitor.RegisterKprobe(sysExecveatAddress, false,
+			makeExecveFetchArgs("dx"), cache.decodeExecve)
+		if err == nil {
+			_, _ = sensor.monitor.RegisterKprobe(doExecveatAddress, false,
+				makeExecveFetchArgs("dx"), cache.decodeExecve)
+		}
+	}
+
 	return cache
+}
+
+func makeExecveFetchArgs(reg string) string {
+	parts := make([]string, execveArgCount)
+	for i := 0; i < execveArgCount; i++ {
+		parts[i] = fmt.Sprintf("argv%d=+0(+%d(%%%s)):string", i, i*8, reg)
+	}
+	return strings.Join(parts, " ")
 }
 
 // lookupLeader finds the task info for the thread group leader of the given pid
@@ -233,6 +296,15 @@ func (pc *ProcessInfoCache) ProcessContainerId(pid int) (string, bool) {
 	return "", false
 }
 
+// ProcessCommandLine returns the command-line for a process. The command-line
+// is constructed from argv passed to execve(), but is limited to a fixed number
+// of elements of argv; therefore, it may not be complete.
+func (pc *ProcessInfoCache) ProcessCommandLine(pid int) ([]string, bool) {
+	var t task
+	ok := pc.cache.LookupTask(pid, &t)
+	return t.commandLine, ok
+}
+
 //
 // task represents a schedulable task. All Linux tasks are uniquely
 // identified at a given time by their PID, but those PIDs may be
@@ -261,6 +333,11 @@ type task struct {
 	// prctl(2) PR_SET_NAME. It is always NULL-terminated and no
 	// longer than 16 bytes (including NULL byte).
 	command string
+
+	// This is the command-line used when the process was exec'd via
+	// execve(). It is composed of the first 6 elements of argv. It may
+	// not be complete if argv contained more than 6 elements.
+	commandLine []string
 
 	// Process credentials (uid, gid). This is kept up-to-date by
 	// recording changes observed via a probe on commit_creds().
@@ -395,6 +472,27 @@ func (pc *ProcessInfoCache) decodeRuncTaskRename(
 
 		}
 	}
+
+	return nil, nil
+}
+
+// decodeDoExecve decodes sys_execve() and sys_execveat() events to obtain the
+// command-line for the process.
+func (pc *ProcessInfoCache) decodeExecve(
+	sample *perf.SampleRecord,
+	data perf.TraceEventSampleData,
+) (interface{}, error) {
+	commandLine := make([]string, 0, execveArgCount)
+	for i := 0; i < execveArgCount; i++ {
+		s := data[fmt.Sprintf("argv%d", i)].(string)
+		if len(s) == 0 {
+			break
+		}
+		commandLine = append(commandLine, s)
+	}
+
+	pid := int(data["common_pid"].(int32))
+	pc.cache.SetTaskCommandLine(pid, commandLine)
 
 	return nil, nil
 }
