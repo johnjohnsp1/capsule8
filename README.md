@@ -21,13 +21,25 @@ For a quick demonstration of the capsule8 sensor's capabilities, start
 up three terminal sessions to run the sensor, example telemetry
 client, and target container as described below.
 
+### Checkout latest code
+
+```
+$ git clone https://github.com/capsule8/capsule8.git
+$ git submodule init && git submodule update
+```
+
+### Build the sensor
+
+```
+$ make
+```
+
 ### Start the sensor
 
 Start the Sensor and listen for API clients on the default local unix
 socket:
 
 ```
-$ make
 $ sudo ./bin/sensor
 I1004 18:55:23.111094    9617 version.go:33] Starting sensor (0.0.0+9b149e4)
 I1004 18:55:23.111736    9617 sensor.go:121] Starting servers...
