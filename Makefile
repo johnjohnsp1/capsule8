@@ -9,7 +9,7 @@ TAG=$(shell git describe --tags --abbrev=0 2>/dev/null)
 SHA=$(shell git describe --match=NeVeRmAtCh --always --abbrev=7 --dirty)
 
 ifeq ($(TAG),)
-	VERSION=0.0.0+$(SHA)
+	VERSION=$(SHA)
 else
 	VERSION=$(TAG)+$(SHA)
 endif
